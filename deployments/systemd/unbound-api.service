@@ -1,0 +1,51 @@
+[Unit]
+Description=Unbound Dashboard API (v2)
+Documentation=https://github.com/your-org/unbound-dashboard
+After=network.target redis.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+
+# Usuário sem privilégios (crie com: useradd --system --no-create-home unbound-dash)
+User=unbound-dash
+Group=unbound-dash
+
+WorkingDirectory=/opt/unbound-dashboard
+ExecStart=/opt/unbound-dashboard/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 2 \
+    --loop uvloop \
+    --log-level info
+
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+# Variáveis de ambiente (sobrescreva com: systemctl edit unbound-api)
+Environment="DB_PATH=/var/lib/unbound-dashboard/unbound_dash.duckdb"
+Environment="REDIS_URL=redis://127.0.0.1:6379/0"
+Environment="LOG_LEVEL=info"
+# Coloque JWT_SECRET via EnvironmentFile para não aparecer em ps/journal
+EnvironmentFile=-/etc/unbound-dashboard/env
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallFilter=@system-service
+ReadWritePaths=/var/lib/unbound-dashboard /var/log/unbound-dashboard /tmp
+
+[Install]
+WantedBy=multi-user.target
