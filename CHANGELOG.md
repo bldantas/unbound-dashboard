@@ -7,6 +7,13 @@
 - **`tools/build-update.sh`**: Gera pacote `.tar.gz` de atualização com apenas arquivos atualizáveis (`app/`, `frontend/dist/`, `migrations/`, `deployments/`, `VERSION`, `CHANGELOG.md`). Suporte a `BUMP_TYPE=patch|minor|major`, `SKIP_FRONTEND`, `AUTO_BUMP_VERSION`.
 - **`tools/update.sh`**: Aplica update em instalação existente. Backup automático antes do update (mantém 5 mais recentes em `/var/backups/unbound-dashboard/`). Rsync seletivo (não sobrescreve `.venv`, configs locais). Atualiza dependências Python via `uv`. Roda migrations novas. Suporte a `DRY_RUN=true`, `VERBOSE=true`, `AUTO_RESTART`, `FORCE_CADDY`.
 
+### Correções
+- **`tools/install.sh`**: Corrigida instalação de dependências Python para ler `project.dependencies` do `pyproject.toml` (em vez de tratar o arquivo como requirements).
+- **`tools/install.sh`**: Validação explícita de Python >= 3.12, binários essenciais e import de `duckdb` após instalação.
+- **`tools/install.sh`**: Corrigida execução de migrations para `python -m app.db.migrate`.
+- **`tools/update.sh`**: Corrigida atualização de dependências para ler `project.dependencies` do `pyproject.toml` e validação de `duckdb` no venv.
+- **`tools/update.sh`**: Corrigida execução de migrations para `python -m app.db.migrate`.
+
 ---
 
 ## [2.1.0] — Frontend atualizado

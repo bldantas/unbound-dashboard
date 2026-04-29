@@ -21,6 +21,11 @@ err()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 info() { echo -e "${CYAN}[i]${NC} $1"; }
 step() { echo -e "\n${BOLD}── $1 ──${NC}"; }
 
+require_cmd() {
+    local cmd="$1"
+    command -v "$cmd" >/dev/null 2>&1 || err "Dependência ausente: $cmd"
+}
+
 [ "$EUID" -eq 0 ] || err "Execute como root: sudo bash install.sh"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,29 +80,19 @@ step "Etapa 2 — Dependências do sistema"
 info "Atualizando repositórios..."
 apt-get update -qq
 
-# Python 3.12+ via deadsnakes se necessário
-PYTHON_BIN=""
-for py in python3.13 python3.12; do
-    if command -v "$py" &>/dev/null; then
-        PYTHON_BIN="$py"
-        break
-    fi
-done
-
-if [ -z "$PYTHON_BIN" ]; then
-    info "Python 3.12+ não encontrado. Adicionando repositório deadsnakes..."
-    apt-get install -y -qq software-properties-common
-    add-apt-repository -y ppa:deadsnakes/ppa
-    apt-get update -qq
-    apt-get install -y -qq python3.12 python3.12-venv python3.12-dev
-    PYTHON_BIN="python3.12"
-fi
-log "Python: $($PYTHON_BIN --version)"
-
 PACKAGES=(
+    python3
+    python3-venv
+    python3-pip
+    python3-dev
     curl
     wget
     git
+    rsync
+    openssl
+    ca-certificates
+    gnupg
+    apt-transport-https
     unbound
     redis-server
     sudo
@@ -107,6 +102,24 @@ PACKAGES=(
 info "Instalando pacotes base..."
 apt-get install -y -qq "${PACKAGES[@]}"
 log "Pacotes base instalados"
+
+# Python 3.12+ é requisito do projeto
+PYTHON_BIN=""
+for py in python3.13 python3.12 python3; do
+    if command -v "$py" &>/dev/null; then
+        if "$py" - <<'PYEOF' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 12) else 1)
+PYEOF
+        then
+            PYTHON_BIN="$py"
+            break
+        fi
+    fi
+done
+
+[ -n "$PYTHON_BIN" ] || err "Python >= 3.12 não encontrado. Instale Python 3.12+ e execute novamente."
+log "Python: $($PYTHON_BIN --version)"
 
 # Node.js 20 LTS
 if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d 'v')" -lt 20 ]]; then
@@ -120,9 +133,14 @@ log "Node.js: $(node --version)"
 if ! command -v uv &>/dev/null; then
     info "Instalando uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
 fi
-log "uv: $(uv --version)"
+
+UV_BIN="$(command -v uv || true)"
+if [ -z "$UV_BIN" ] && [ -x "/root/.local/bin/uv" ]; then
+    UV_BIN="/root/.local/bin/uv"
+fi
+[ -n "$UV_BIN" ] || err "uv não foi encontrado após instalação."
+log "uv: $($UV_BIN --version)"
 
 # Caddy
 if ! command -v caddy &>/dev/null; then
@@ -136,6 +154,11 @@ if ! command -v caddy &>/dev/null; then
     apt-get install -y -qq caddy
 fi
 log "Caddy: $(caddy version 2>/dev/null | head -1 || echo 'instalado')"
+
+for cmd in "$PYTHON_BIN" "$UV_BIN" unbound redis-server caddy node npm rsync; do
+    require_cmd "$cmd"
+done
+log "Dependências de runtime validadas"
 
 # ============================================================
 # ETAPA 3 — Usuário e diretórios
@@ -185,8 +208,26 @@ step "Etapa 5 — Dependências Python"
 
 info "Criando virtualenv com uv..."
 cd "$INSTALL_DIR"
-uv venv .venv --python "$PYTHON_BIN" --quiet
-uv pip install --quiet --no-cache -r pyproject.toml
+"$UV_BIN" venv .venv --python "$PYTHON_BIN" --quiet
+
+mapfile -t PY_DEPS < <("$PYTHON_BIN" - <<'PYEOF'
+import tomllib
+from pathlib import Path
+
+data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+for dep in data.get("project", {}).get("dependencies", []):
+    print(dep)
+PYEOF
+)
+
+[ "${#PY_DEPS[@]}" -gt 0 ] || err "Nenhuma dependência encontrada em pyproject.toml"
+"$UV_BIN" pip install --quiet --no-cache --python .venv/bin/python "${PY_DEPS[@]}"
+
+# Valida import essencial do banco usado pelo sistema (DuckDB)
+.venv/bin/python - <<'PYEOF'
+import duckdb
+print(duckdb.__version__)
+PYEOF
 
 # Ajusta permissões do venv
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/.venv"
@@ -222,12 +263,16 @@ export REDIS_URL="redis://127.0.0.1:6379/0"
 export JWT_SECRET=$(grep JWT_SECRET "$ENV_DIR/env" | cut -d= -f2)
 
 cd "$INSTALL_DIR"
-sudo -u "$SERVICE_USER" .venv/bin/python -m app.db || {
+sudo -u "$SERVICE_USER" .venv/bin/python -m app.db.migrate || {
     # Fallback: rodar como root para a primeira execução
-    .venv/bin/python -m app.db
+    .venv/bin/python -m app.db.migrate
     chown "$SERVICE_USER:$SERVICE_USER" "$DB_PATH" 2>/dev/null || true
 }
 log "Migrations executadas"
+
+if grep -q '^MYSQL_URL=' "$ENV_DIR/env" 2>/dev/null; then
+    warn "MYSQL_URL detectado em $ENV_DIR/env, mas o v2 usa exclusivamente DuckDB (DB_PATH)."
+fi
 
 # ============================================================
 # ETAPA 8 — Serviço systemd

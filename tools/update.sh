@@ -172,12 +172,34 @@ update_deps() {
     fi
 
     info "Atualizando dependências Python..."
+    mapfile -t PY_DEPS < <("$INSTALL_DIR/.venv/bin/python" - <<PYEOF
+import tomllib
+from pathlib import Path
+
+data = tomllib.loads(Path("$INSTALL_DIR/pyproject.toml").read_text(encoding="utf-8"))
+for dep in data.get("project", {}).get("dependencies", []):
+    print(dep)
+PYEOF
+    )
+    [ "${#PY_DEPS[@]}" -gt 0 ] || {
+        warn "Nenhuma dependência listada em pyproject.toml — pulando instalação"
+        return
+    }
+
     if command -v uv &>/dev/null; then
-        drun uv pip install --quiet --no-cache -r "$INSTALL_DIR/pyproject.toml" \
-            --python "$INSTALL_DIR/.venv/bin/python"
+        drun uv pip install --quiet --no-cache \
+            --python "$INSTALL_DIR/.venv/bin/python" "${PY_DEPS[@]}"
     else
-        drun "$INSTALL_DIR/.venv/bin/pip" install --quiet -r "$INSTALL_DIR/pyproject.toml"
+        drun "$INSTALL_DIR/.venv/bin/pip" install --quiet "${PY_DEPS[@]}"
     fi
+
+    if [ "$DRY_RUN" = "false" ]; then
+        "$INSTALL_DIR/.venv/bin/python" - <<'PYEOF'
+import duckdb
+print(duckdb.__version__)
+PYEOF
+    fi
+
     drun chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/.venv"
     log "Dependências atualizadas"
 }
@@ -193,8 +215,8 @@ run_migrations() {
     if [ "$DRY_RUN" = "false" ]; then
         export DB_PATH
         cd "$INSTALL_DIR"
-        sudo -u "$SERVICE_USER" .venv/bin/python -m app.db && log "Migrations executadas" \
-            || warn "Erro nas migrations — verifique manualmente: cd $INSTALL_DIR && .venv/bin/python -m app.db"
+        sudo -u "$SERVICE_USER" .venv/bin/python -m app.db.migrate && log "Migrations executadas" \
+            || warn "Erro nas migrations — verifique manualmente: cd $INSTALL_DIR && .venv/bin/python -m app.db.migrate"
     else
         debug "DRY-RUN: migrations não executadas"
     fi
