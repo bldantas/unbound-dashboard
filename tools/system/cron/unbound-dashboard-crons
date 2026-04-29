@@ -1,0 +1,14 @@
+# Unbound Dashboard — Crontabs
+# Instalar com: crontab -l | cat - system/cron/unbound-dashboard-crons | crontab -
+
+# Agregação de estatísticas (a cada minuto)
+* * * * * /usr/bin/php /var/www/html/unbound-dashboard/scripts/aggregate_stats.php >/dev/null 2>&1 # UNBOUND-DASHBOARD-STATS
+
+# Monitoramento de alertas (a cada minuto)
+* * * * * /usr/bin/php /var/www/html/unbound-dashboard/scripts/cron_alerts.php >/dev/null 2>&1 # UNBOUND-DASHBOARD-ALERTS
+
+# Sincronização de blacklist principal (a cada hora)
+0 * * * * /usr/bin/php /var/www/html/unbound-dashboard/scripts/update_blacklist.php >/dev/null 2>&1 # UNBOUND-DASHBOARD-BLACKLIST
+
+# Sincronização de lista judicial ANATEL (diário às 04:30)
+30 4 * * * /usr/bin/php /var/www/html/unbound-dashboard/src/scripts/sync_judicial_list.php >> /tmp/unbound_sync.log 2>&1 # UNBOUND-DASHBOARD-SYNC
