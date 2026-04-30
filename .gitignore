@@ -1,43 +1,44 @@
-# === Banco de dados e arquivos de runtime ===
-data/*.db
-data/*.sqlite
-data/.installed
-data/tmp/*
-!data/tmp/.gitkeep
-data/latest_stats.json
-data/stats_history.json
-data/blocklist_counts.json
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+htmlcov/
+.coverage
 
-# === Arquivos de ambiente ===
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Dados sensíveis e banco
+/var/lib/unbound-dashboard/
+data/*.duckdb
+data/*.duckdb.wal
+data/tmp/
+
+# Ambiente
 .env
-!.env.example
+*.env
+!deployments/env/*.example
 
-# === Build artifacts / pacotes de distribuição ===
-dist/*.tar.gz
-dist/*.tar.gz.sha256
-dist/*.zip
-tools/*.tar.gz
-tools/*.tar.gz.sha256
+# Build artifacts
+dist/
+*.tar.gz
+*.sha256
 
-# === Pacotes de atualização extraídos ===
-unbound-dashboard-update-*/
-
-# === Logs ===
-*.log
-logs/
-
-# === Dependências PHP ===
-vendor/
-
-# === Cache e temporários ===
-*.cache
-*.tmp
-*.lock
-src/data/
-
-# === VS Code (opcional, remova se quiser versionar) ===
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
 
-# === Sistema operacional ===
+# Sistema
 .DS_Store
 Thumbs.db

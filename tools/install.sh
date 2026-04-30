@@ -1,14 +1,13 @@
 #!/bin/bash
 # ============================================================
-# Unbound Dashboard — Instalador Automatizado
-# Para Debian 12/13 e Ubuntu 22.04+
+# Unbound Dashboard v2 — Instalador Automatizado
+# Debian 12/13 · Ubuntu 22.04+
 #
 # Uso: sudo bash install.sh
 # ============================================================
 
 set -euo pipefail
 
-# Cores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -22,374 +21,339 @@ err()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 info() { echo -e "${CYAN}[i]${NC} $1"; }
 step() { echo -e "\n${BOLD}── $1 ──${NC}"; }
 
-# Script deve rodar como root
-if [ "$EUID" -ne 0 ]; then
-    err "Este script deve ser executado como root (sudo bash install.sh)"
-fi
+require_cmd() {
+    local cmd="$1"
+    command -v "$cmd" >/dev/null 2>&1 || err "Dependência ausente: $cmd"
+}
 
-# Detectar diretório do pacote
+[ "$EUID" -eq 0 ] || err "Execute como root: sudo bash install.sh"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DASHBOARD_SRC="$SCRIPT_DIR/dashboard"
+APP_SRC="$SCRIPT_DIR/app"
 SYSTEM_SRC="$SCRIPT_DIR/system"
 
-if [ ! -d "$DASHBOARD_SRC" ]; then
-    err "Diretório 'dashboard/' não encontrado. Certifique-se de estar no diretório do pacote extraído."
-fi
+[ -d "$APP_SRC" ] || err "Diretório app/ não encontrado. Extraia o pacote completo antes de instalar."
 
-INSTALL_DIR="/var/www/html/unbound-dashboard"
-VERSION=$(cat "$DASHBOARD_SRC/VERSION" 2>/dev/null || echo "1.0.0")
+VERSION=$(cat "$APP_SRC/VERSION" 2>/dev/null || echo "2.0.0")
+INSTALL_DIR="/opt/unbound-dashboard"
+DATA_DIR="/var/lib/unbound-dashboard"
+LOG_DIR="/var/log/unbound-dashboard"
+ENV_DIR="/etc/unbound-dashboard"
+SERVICE_USER="unbound-dash"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║     Unbound Dashboard — Instalador v${VERSION}            ║${NC}"
-echo -e "${BOLD}║     Para Debian 12/13 e Ubuntu 22.04+                ║${NC}"
+echo -e "${BOLD}║   Unbound Dashboard v2 — Instalador v${VERSION}          ║${NC}"
+echo -e "${BOLD}║   Debian 12/13 · Ubuntu 22.04+                       ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
 
 # ============================================================
-# ETAPA 1: Detecção do Sistema Operacional
+# ETAPA 1 — Sistema Operacional
 # ============================================================
-step "Etapa 1/5 — Detecção do Sistema Operacional"
+step "Etapa 1 — Sistema Operacional"
 
-if [ ! -f /etc/os-release ]; then
-    err "Arquivo /etc/os-release não encontrado. Sistema operacional não reconhecido."
-fi
-
+[ -f /etc/os-release ] || err "/etc/os-release não encontrado."
+# shellcheck source=/dev/null
 source /etc/os-release
 
 case "$ID" in
     debian)
-        if [ "${VERSION_ID:-0}" -lt 12 ]; then
-            err "Debian $VERSION_ID detectado. Necessário Debian 12 ou superior."
-        fi
-        log "Debian $VERSION_ID ($VERSION_CODENAME) detectado"
+        [[ "${VERSION_ID:-0}" -ge 12 ]] || err "Debian $VERSION_ID não suportado. Necessário Debian 12+."
+        log "Debian $VERSION_ID detectado"
         ;;
     ubuntu)
-        MAJOR_VERSION=$(echo "${VERSION_ID:-0}" | cut -d. -f1)
-        if [ "$MAJOR_VERSION" -lt 22 ]; then
-            err "Ubuntu $VERSION_ID detectado. Necessário Ubuntu 22.04 ou superior."
-        fi
-        log "Ubuntu $VERSION_ID ($VERSION_CODENAME) detectado"
+        MAJOR=$(echo "${VERSION_ID:-0}" | cut -d. -f1)
+        [[ "$MAJOR" -ge 22 ]] || err "Ubuntu $VERSION_ID não suportado. Necessário Ubuntu 22.04+."
+        log "Ubuntu $VERSION_ID detectado"
         ;;
     *)
-        err "Sistema operacional '$ID' não suportado. Apenas Debian 12+ e Ubuntu 22.04+ são compatíveis."
+        err "SO '$ID' não suportado. Use Debian 12+ ou Ubuntu 22.04+."
         ;;
 esac
 
 # ============================================================
-# ETAPA 2: Instalação de Dependências
+# ETAPA 2 — Dependências do sistema
 # ============================================================
-step "Etapa 2/5 — Instalação de Dependências"
+step "Etapa 2 — Dependências do sistema"
 
 info "Atualizando repositórios..."
 apt-get update -qq
 
 PACKAGES=(
-    apache2
-    libapache2-mod-php
-    sudo
-    php
-    php-cli
-    php-mysql
-    php-sqlite3
-    php-common
-    mariadb-server
-    mariadb-client
-    unbound
-    rsyslog
-    dnsutils
-    traceroute
-    dns-root-data
+    python3
+    python3-venv
+    python3-pip
+    python3-dev
     curl
     wget
+    git
     rsync
+    openssl
+    ca-certificates
+    gnupg
+    apt-transport-https
+    unbound
+    redis-server
+    sudo
+    libssl-dev
+    build-essential
 )
+info "Instalando pacotes base..."
+apt-get install -y -qq "${PACKAGES[@]}"
+log "Pacotes base instalados"
 
-info "Instalando pacotes necessários..."
-for pkg in "${PACKAGES[@]}"; do
-    if dpkg -l "$pkg" &>/dev/null; then
-        log "$pkg já instalado"
-    else
-        info "Instalando $pkg..."
-        apt-get install -y -qq "$pkg" || {
-            warn "Falha ao instalar $pkg — continuando..."
-        }
+# Python 3.12+ é requisito do projeto
+PYTHON_BIN=""
+for py in python3.13 python3.12 python3; do
+    if command -v "$py" &>/dev/null; then
+        if "$py" - <<'PYEOF' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 12) else 1)
+PYEOF
+        then
+            PYTHON_BIN="$py"
+            break
+        fi
     fi
 done
 
-# Verificar PHP versão
-PHP_VERSION=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "0")
-PHP_MAJOR=$(echo "$PHP_VERSION" | cut -d. -f1)
-if [ "$PHP_MAJOR" -lt 8 ]; then
-    err "PHP $PHP_VERSION detectado. Necessário PHP 8.1 ou superior."
+[ -n "$PYTHON_BIN" ] || err "Python >= 3.12 não encontrado. Instale Python 3.12+ e execute novamente."
+log "Python: $($PYTHON_BIN --version)"
+
+# Node.js 20 LTS
+if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d 'v')" -lt 20 ]]; then
+    info "Instalando Node.js 20 LTS..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null
+    apt-get install -y -qq nodejs
 fi
-log "PHP $PHP_VERSION instalado"
+log "Node.js: $(node --version)"
 
-# ============================================================
-# ETAPA 3: Deploy dos Arquivos
-# ============================================================
-step "Etapa 3/5 — Deploy dos Arquivos"
-
-# Backup se já existir
-if [ -d "$INSTALL_DIR" ]; then
-    BACKUP_DIR="${INSTALL_DIR}.backup.$(date +%Y%m%d-%H%M%S)"
-    warn "Instalação anterior detectada. Criando backup em $BACKUP_DIR"
-    cp -a "$INSTALL_DIR" "$BACKUP_DIR"
+# uv (gerenciador de pacotes Python)
+if ! command -v uv &>/dev/null; then
+    info "Instalando uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
 
-# Copiar código-fonte
-info "Copiando código-fonte para $INSTALL_DIR..."
-mkdir -p "$INSTALL_DIR"
+UV_BIN="$(command -v uv || true)"
+if [ -z "$UV_BIN" ] && [ -x "/root/.local/bin/uv" ]; then
+    UV_BIN="/root/.local/bin/uv"
+fi
+[ -n "$UV_BIN" ] || err "uv não foi encontrado após instalação."
+log "uv: $($UV_BIN --version)"
+
+# Caddy
+if ! command -v caddy &>/dev/null; then
+    info "Instalando Caddy..."
+    apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+        | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+        | tee /etc/apt/sources.list.d/caddy-stable.list
+    apt-get update -qq
+    apt-get install -y -qq caddy
+fi
+log "Caddy: $(caddy version 2>/dev/null | head -1 || echo 'instalado')"
+
+for cmd in "$PYTHON_BIN" "$UV_BIN" unbound redis-server caddy node npm rsync; do
+    require_cmd "$cmd"
+done
+log "Dependências de runtime validadas"
+
+# ============================================================
+# ETAPA 3 — Usuário e diretórios
+# ============================================================
+step "Etapa 3 — Usuário e diretórios"
+
+if ! id "$SERVICE_USER" &>/dev/null; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+    log "Usuário $SERVICE_USER criado"
+else
+    log "Usuário $SERVICE_USER já existe"
+fi
+
+# Adicionar ao grupo unbound para acessar unbound-control
+if getent group unbound &>/dev/null; then
+    usermod -aG unbound "$SERVICE_USER" || true
+fi
+
+for dir in "$INSTALL_DIR" "$DATA_DIR" "$LOG_DIR" "$ENV_DIR"; do
+    mkdir -p "$dir"
+done
+
+chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR" "$LOG_DIR"
+chmod 750 "$ENV_DIR"
+log "Diretórios criados"
+
+# ============================================================
+# ETAPA 4 — Instalar código-fonte
+# ============================================================
+step "Etapa 4 — Instalar código-fonte"
+
+info "Copiando aplicação para $INSTALL_DIR..."
 rsync -a --delete \
-    --exclude='data/.installed' \
-    "$DASHBOARD_SRC/" "$INSTALL_DIR/"
-log "Código-fonte implantado"
+    --exclude='.venv' \
+    --exclude='__pycache__' \
+    --exclude='*.pyc' \
+    "$APP_SRC/" "$INSTALL_DIR/"
 
-# Criar diretórios de dados se não existem
-mkdir -p "$INSTALL_DIR/data/tmp"
-mkdir -p "$INSTALL_DIR/src/data/tmp"
+chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+# Pasta .venv deve poder ser escrita pelo instalador (root) — ajusta depois
+log "Código instalado em $INSTALL_DIR"
 
 # ============================================================
-# Sudoers
+# ETAPA 5 — Virtualenv e dependências Python
 # ============================================================
-info "Configurando sudoers..."
-if [ -f "$SYSTEM_SRC/sudoers/unbound-dashboard" ]; then
-    cp "$SYSTEM_SRC/sudoers/unbound-dashboard" /etc/sudoers.d/unbound-dashboard
-    chmod 440 /etc/sudoers.d/unbound-dashboard
-    # Validar sudoers
-    if visudo -c -f /etc/sudoers.d/unbound-dashboard &>/dev/null; then
-        log "Sudoers instalado e validado"
-    else
-        err "Arquivo sudoers inválido! Verifique manualmente."
-    fi
+step "Etapa 5 — Dependências Python"
+
+info "Criando virtualenv com uv..."
+cd "$INSTALL_DIR"
+"$UV_BIN" venv .venv --python "$PYTHON_BIN" --quiet
+
+mapfile -t PY_DEPS < <("$PYTHON_BIN" - <<'PYEOF'
+import tomllib
+from pathlib import Path
+
+data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+for dep in data.get("project", {}).get("dependencies", []):
+    print(dep)
+PYEOF
+)
+
+[ "${#PY_DEPS[@]}" -gt 0 ] || err "Nenhuma dependência encontrada em pyproject.toml"
+"$UV_BIN" pip install --quiet --no-cache --python .venv/bin/python "${PY_DEPS[@]}"
+
+# Valida import essencial do banco usado pelo sistema (DuckDB)
+.venv/bin/python - <<'PYEOF'
+import duckdb
+print(duckdb.__version__)
+PYEOF
+
+# Ajusta permissões do venv
+chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/.venv"
+log "Dependências Python instaladas"
+
+# ============================================================
+# ETAPA 6 — Arquivo de ambiente
+# ============================================================
+step "Etapa 6 — Configuração de ambiente"
+
+if [ ! -f "$ENV_DIR/env" ]; then
+    cp "$SYSTEM_SRC/env/unbound-dashboard.env" "$ENV_DIR/env"
+    chmod 640 "$ENV_DIR/env"
+    chown root:"$SERVICE_USER" "$ENV_DIR/env"
+
+    # Gera JWT_SECRET automaticamente
+    JWT_SECRET=$(openssl rand -hex 32)
+    sed -i "s/JWT_SECRET=CHANGE_ME_BEFORE_STARTING/JWT_SECRET=${JWT_SECRET}/" "$ENV_DIR/env"
+    log "Arquivo de ambiente criado em $ENV_DIR/env (JWT_SECRET gerado)"
 else
-    warn "Arquivo sudoers não encontrado no pacote"
+    warn "Arquivo $ENV_DIR/env já existe — não sobrescrito"
 fi
 
 # ============================================================
-# Systemd units
+# ETAPA 7 — Migrations DuckDB
 # ============================================================
-info "Configurando serviços systemd..."
-if [ -d "$SYSTEM_SRC/systemd" ]; then
-    for unit_file in "$SYSTEM_SRC/systemd"/*.service; do
-        [ -f "$unit_file" ] || continue
-        unit_name=$(basename "$unit_file")
-        cp "$unit_file" "/etc/systemd/system/$unit_name"
-        log "Systemd unit $unit_name instalada"
-    done
-    systemctl daemon-reload
-fi
+step "Etapa 7 — Migrations do banco de dados"
 
-# ============================================================
-# Health-fix script
-# ============================================================
-if [ -f "$SYSTEM_SRC/bin/unbound-health-fix.sh" ]; then
-    cp "$SYSTEM_SRC/bin/unbound-health-fix.sh" /usr/local/bin/
-    chmod +x /usr/local/bin/unbound-health-fix.sh
-    log "Health-fix script instalado"
-fi
+info "Executando migrations DuckDB..."
+DB_PATH="$DATA_DIR/unbound_dash.duckdb"
+export DB_PATH
+export REDIS_URL="redis://127.0.0.1:6379/0"
+export JWT_SECRET=$(grep JWT_SECRET "$ENV_DIR/env" | cut -d= -f2)
 
-# ============================================================
-# Fix MariaDB script
-# ============================================================
-if [ -f "$SYSTEM_SRC/bin/fix-mariadb.sh" ]; then
-    cp "$SYSTEM_SRC/bin/fix-mariadb.sh" /usr/local/bin/
-    chmod +x /usr/local/bin/fix-mariadb.sh
-    log "Fix-MariaDB script instalado"
-fi
-
-# ============================================================
-# Setup Unbound Logs script
-# ============================================================
-if [ -f "$SYSTEM_SRC/bin/setup-unbound-logs.sh" ]; then
-    cp "$SYSTEM_SRC/bin/setup-unbound-logs.sh" /usr/local/bin/
-    chmod +x /usr/local/bin/setup-unbound-logs.sh
-    log "Setup-unbound-logs script instalado"
-fi
-
-# ============================================================
-# Crontabs
-# ============================================================
-info "Configurando crontabs..."
-CRON_FILE="$SYSTEM_SRC/cron/unbound-dashboard-crons"
-if [ -f "$CRON_FILE" ]; then
-    # Remover crons antigos do dashboard (se existirem)
-    crontab -l 2>/dev/null | grep -v 'UNBOUND-DASHBOARD' > /tmp/cron_clean 2>/dev/null || true
-    
-    # Adicionar os novos
-    cat "$CRON_FILE" >> /tmp/cron_clean
-    crontab /tmp/cron_clean
-    rm -f /tmp/cron_clean
-    log "Crontabs configurados"
-else
-    warn "Arquivo de crons não encontrado"
-fi
-
-# ============================================================
-# ETAPA 4: Permissões
-# ============================================================
-step "Etapa 4/5 — Permissões"
-
-info "Ajustando proprietário dos arquivos..."
-chown -R www-data:www-data "$INSTALL_DIR"
-log "Proprietário: www-data:www-data"
-
-info "Ajustando permissões de diretórios de dados..."
-chmod 750 "$INSTALL_DIR/data"
-chmod 750 "$INSTALL_DIR/src/data"
-chmod 770 "$INSTALL_DIR/data/tmp"
-chmod 770 "$INSTALL_DIR/src/data/tmp"
-
-# Garantir que o PHP pode escrever o Database.php (para o wizard)
-chmod 660 "$INSTALL_DIR/src/Database.php"
-log "Permissões configuradas"
-
-# ============================================================
-# ETAPA 5: Ativação de Serviços
-# ============================================================
-step "Etapa 5/5 — Ativação de Serviços"
-
-# Apache
-info "Habilitando Apache..."
-systemctl enable apache2 &>/dev/null || true
-systemctl start apache2 &>/dev/null || true
-if systemctl is-active apache2 &>/dev/null; then
-    log "Apache ativo"
-else
-    warn "Apache não iniciou. Verifique com: systemctl status apache2"
-fi
-
-# MariaDB
-info "Habilitando MariaDB..."
-DO_DB_SETUP=0
-systemctl enable mariadb &>/dev/null || true
-systemctl start mariadb &>/dev/null || true
-if systemctl is-active mariadb &>/dev/null; then
-    log "MariaDB ativa"
-    DO_DB_SETUP=1
-else
-    # Tentar mysql como fallback
-    systemctl enable mysql &>/dev/null || true
-    systemctl start mysql &>/dev/null || true
-    if systemctl is-active mysql &>/dev/null; then
-        log "MySQL ativo"
-        DO_DB_SETUP=1
-    else
-        warn "MariaDB/MySQL não iniciou. Verifique manualmente."
-    fi
-fi
-
-if [ "$DO_DB_SETUP" = "1" ]; then
-    info "Provisionando banco de dados, usuário e importando schema..."
-
-    if [ -x "/usr/local/bin/fix-mariadb.sh" ]; then
-        info "Executando fix-mariadb.sh para corrigir autenticação do MariaDB..."
-        /usr/local/bin/fix-mariadb.sh || warn "fix-mariadb.sh retornou erro, continuando com a configuração padrão"
-    fi
-
-    mysql -e "CREATE DATABASE IF NOT EXISTS unbound_dash CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || true
-    mysql -e "DROP USER IF EXISTS 'unbounddb'@'localhost';" 2>/dev/null || true
-    mysql -e "DROP USER IF EXISTS 'unbounddb'@'127.0.0.1';" 2>/dev/null || true
-    mysql -e "CREATE USER 'unbounddb'@'localhost' IDENTIFIED BY 'unbounddash';" 2>/dev/null || true
-    mysql -e "CREATE USER 'unbounddb'@'127.0.0.1' IDENTIFIED BY 'unbounddash';" 2>/dev/null || true
-    mysql -e "GRANT ALL PRIVILEGES ON unbound_dash.* TO 'unbounddb'@'localhost';" 2>/dev/null || true
-    mysql -e "GRANT ALL PRIVILEGES ON unbound_dash.* TO 'unbounddb'@'127.0.0.1';" 2>/dev/null || true
-    mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
-
-    if [ -f "$INSTALL_DIR/scripts/init_db.sql" ]; then
-        # Remover CREATE DATABASE do schema local se existir para não dar erro
-        grep -v -E '^(CREATE DATABASE|USE )' "$INSTALL_DIR/scripts/init_db.sql" | mysql unbound_dash 2>/dev/null || true
-    fi
-
-    cat > "$INSTALL_DIR/src/Database.php" << 'EOF'
-<?php
-namespace App;
-use PDO;
-use PDOException;
-$sysTz = '';
-if (file_exists('/etc/timezone')) { $sysTz = trim(file_get_contents('/etc/timezone')); }
-else if (is_link('/etc/localtime')) { $t = readlink('/etc/localtime'); if (preg_match('/zoneinfo\/(.*)$/', $t, $m)) { $sysTz = trim($m[1]); } }
-if (!empty($sysTz) && in_array($sysTz, timezone_identifiers_list())) { date_default_timezone_set($sysTz); }
-class Database {
-    private static ?PDO $instance = null;
-    public static function getInstance(): PDO {
-        if (self::$instance === null) {
-            try { self::$instance = new PDO("mysql:host=127.0.0.1;dbname=unbound_dash;charset=utf8mb4", 'unbounddb', 'unbounddash', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false]); }
-            catch (PDOException $e) { die("Database connection failed: " . $e->getMessage()); }
-        }
-        return self::$instance;
-    }
+cd "$INSTALL_DIR"
+sudo -u "$SERVICE_USER" .venv/bin/python -m app.db.migrate || {
+    # Fallback: rodar como root para a primeira execução
+    .venv/bin/python -m app.db.migrate
+    chown "$SERVICE_USER:$SERVICE_USER" "$DB_PATH" 2>/dev/null || true
 }
-EOF
-    chown www-data:www-data "$INSTALL_DIR/src/Database.php"
-    chmod 660 "$INSTALL_DIR/src/Database.php"
-    log "Banco de dados provisionado (Tabelas e Database.php configurados)"
-fi
+log "Migrations executadas"
 
-# rsyslog
-info "Habilitando rsyslog..."
-systemctl enable rsyslog &>/dev/null || true
-systemctl start rsyslog &>/dev/null || true
-if systemctl is-active rsyslog &>/dev/null; then
-    log "rsyslog ativo"
-else
-    warn "rsyslog não iniciou. Verifique com: systemctl status rsyslog"
+if grep -q '^MYSQL_URL=' "$ENV_DIR/env" 2>/dev/null; then
+    warn "MYSQL_URL detectado em $ENV_DIR/env, mas o v2 usa exclusivamente DuckDB (DB_PATH)."
 fi
-
-# Provisionar arquivo de log do Unbound com permissões corretas
-info "Provisionando arquivo de log do Unbound..."
-if [ -f /usr/local/bin/setup-unbound-logs.sh ]; then
-    /usr/local/bin/setup-unbound-logs.sh
-else
-    # Fallback: criar manualmente se script não está disponível
-    if [ ! -f /var/log/unbound.log ]; then
-        touch /var/log/unbound.log
-        log "Arquivo /var/log/unbound.log criado"
-    else
-        log "/var/log/unbound.log já existe"
-    fi
-    chown unbound:unbound /var/log/unbound.log
-    chmod 640 /var/log/unbound.log
-    log "Permissões do arquivo de log configuradas (unbound:unbound, 640)"
-fi
-
-# Unbound
-info "Habilitando Unbound..."
-systemctl enable unbound &>/dev/null || true
-systemctl start unbound &>/dev/null || true
-if systemctl is-active unbound &>/dev/null; then
-    log "Unbound ativo"
-else
-    warn "Unbound não iniciou. Pode ser necessário ajustar /etc/unbound/unbound.conf"
-fi
-
-# Log Ingester (não iniciar agora — precisa do banco configurado)
-systemctl enable unbound-log-ingester &>/dev/null || true
-info "Log Ingester habilitado (será iniciado após configuração do banco)"
 
 # ============================================================
-# Detectar IP do servidor
+# ETAPA 8 — Serviço systemd
 # ============================================================
-SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-if [ -z "$SERVER_IP" ]; then
-    SERVER_IP="IP-DO-SERVIDOR"
+step "Etapa 8 — Serviço systemd"
+
+cp "$SYSTEM_SRC/systemd/unbound-api.service" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable unbound-api
+systemctl enable redis-server
+systemctl start redis-server
+systemctl start unbound-api
+log "Serviço unbound-api instalado e iniciado"
+
+# ============================================================
+# ETAPA 9 — Caddy
+# ============================================================
+step "Etapa 9 — Caddy (reverse proxy)"
+
+if [ ! -f /etc/caddy/Caddyfile ] || grep -q 'dashboard.example.com' /etc/caddy/Caddyfile 2>/dev/null; then
+    cp "$SYSTEM_SRC/caddy/Caddyfile" /etc/caddy/Caddyfile
+    warn "Caddyfile instalado em /etc/caddy/Caddyfile"
+    warn "ATENÇÃO: Edite /etc/caddy/Caddyfile e substitua 'dashboard.example.com' pelo seu domínio."
+    warn "Depois execute: sudo systemctl reload caddy"
+else
+    warn "Caddyfile já existe em /etc/caddy/Caddyfile — não sobrescrito"
 fi
 
+systemctl enable caddy
+log "Caddy configurado"
+
+# ============================================================
+# ETAPA 10 — Criar usuário admin inicial
+# ============================================================
+step "Etapa 10 — Usuário administrador"
+
+echo ""
+info "Crie o primeiro usuário administrador:"
+echo -n "  Username: "
+read -r ADMIN_USER
+echo -n "  Senha: "
+read -rs ADMIN_PASS
+echo ""
+
+if [ -n "$ADMIN_USER" ] && [ -n "$ADMIN_PASS" ]; then
+    cd "$INSTALL_DIR"
+    export DB_PATH JWT_SECRET
+    .venv/bin/python - <<PYEOF
+import asyncio, sys
+sys.path.insert(0, '.')
+from app.services.auth_service import AuthService
+from app.domain.user import Role
+
+async def create():
+    svc = AuthService()
+    await svc.create_user('$ADMIN_USER', '$ADMIN_PASS', Role.ADMIN)
+    print('Usuário admin criado com sucesso.')
+
+asyncio.run(create())
+PYEOF
+    log "Usuário '$ADMIN_USER' criado"
+else
+    warn "Nenhum usuário criado. Use a API para criar: POST /api/v2/auth/register"
+fi
+
+# ============================================================
+# RESUMO
+# ============================================================
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║         Instalação Base Concluída! ✓                 ║${NC}"
+echo -e "${BOLD}║         Instalação concluída com sucesso! ✓          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
-log "Arquivos implantados em: $INSTALL_DIR"
-log "Serviços habilitados: Apache, MariaDB, Unbound"
+log "Versão instalada: $VERSION"
+log "API:     http://127.0.0.1:8000  (acesso interno)"
+log "Docs:    http://127.0.0.1:8000/docs"
+log "Status:  systemctl status unbound-api"
+log "Logs:    journalctl -u unbound-api -f"
 echo ""
-echo -e "${BOLD}Próximo passo:${NC} Complete a configuração pelo navegador:"
-echo ""
-echo -e "   ${CYAN}http://${SERVER_IP}/unbound-dashboard/setup.php${NC}"
-echo ""
-echo -e "O wizard vai guiá-lo na configuração do banco de dados,"
-echo -e "detecção do Unbound e criação do primeiro administrador."
-echo ""
-info "Após concluir o wizard, inicie o Log Ingester:"
-echo -e "   ${CYAN}sudo systemctl start unbound-log-ingester${NC}"
+warn "Próximos passos:"
+echo "  1. Edite /etc/caddy/Caddyfile com seu domínio"
+echo "  2. Execute: sudo systemctl reload caddy"
+echo "  3. Verifique: sudo systemctl status unbound-api caddy redis-server"
 echo ""
