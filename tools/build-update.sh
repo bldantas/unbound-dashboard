@@ -101,6 +101,7 @@ copy_files() {
     rsync -a "$PROJECT_DIR/migrations/" "$BUILD_DIR/migrations/"
 
     # Frontend build (estáticos compilados)
+    mkdir -p "$BUILD_DIR/frontend/dist"
     rsync -a "$PROJECT_DIR/frontend/dist/" "$BUILD_DIR/frontend/dist/"
 
     # Arquivos raiz

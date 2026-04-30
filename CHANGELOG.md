@@ -13,6 +13,7 @@
 - **`tools/install.sh`**: Corrigida execução de migrations para `python -m app.db.migrate`.
 - **`tools/update.sh`**: Corrigida atualização de dependências para ler `project.dependencies` do `pyproject.toml` e validação de `duckdb` no venv.
 - **`tools/update.sh`**: Corrigida execução de migrations para `python -m app.db.migrate`.
+- **`tools/build-update.sh`**: Corrigido staging do frontend no pacote de update (`mkdir -p frontend/dist` antes do `rsync`), evitando falha `No such file or directory`.
 
 ---
 
