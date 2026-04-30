@@ -2,6 +2,11 @@
 
 Este manual descreve o procedimento para exportar o sistema de um servidor para outro e realizar uma instalação limpa e profissional usando as ferramentas de automação integradas.
 
+> [!IMPORTANT]
+> Este manual é da linha **v1 (PHP + MariaDB)** em `/var/www/html/unbound-dashboard`.
+> A linha **v2 (Python/FastAPI + DuckDB)** está em `/opt/unbound-dashboard` e possui scripts próprios.
+> Para build da v2 a partir deste host, use `tools/build-package-v2.sh`.
+
 ---
 
 ## 📋 Requisitos do Sistema
@@ -28,6 +33,17 @@ No servidor onde o dashboard já está rodando ou onde você preparou os arquivo
     sudo bash build-package.sh
     ```
 3.  O script gerará um arquivo compactado (ex: `unbound-dashboard-v1.0.0.tar.gz`) dentro da pasta `tools/`.
+
+### Build da linha v2 no mesmo servidor
+
+Se o objetivo for empacotar a versão nova (v2), execute:
+
+```bash
+cd /var/www/html/unbound-dashboard/tools
+sudo bash build-package-v2.sh --skip-frontend
+```
+
+O artefato da v2 é gerado em `/opt/unbound-dashboard/dist/`.
 
 ---
 

@@ -2,6 +2,12 @@
 
 Painel de administração web para o servidor DNS **Unbound**, com monitoramento em tempo real, gerenciamento de blocklists, diagnósticos, alertas e histórico de consultas.
 
+## Status das versões
+
+- Este repositório em `/var/www/html/unbound-dashboard` é a linha **legada v1** (PHP + MariaDB).
+- A linha **v2** (Python/FastAPI + DuckDB + Vue 3) roda em `/opt/unbound-dashboard`.
+- Para gerar build da v2 a partir deste host, use `tools/build-package-v2.sh`.
+
 ## Funcionalidades
 
 - **Dashboard principal** — métricas em tempo real (queries, bloqueios, latência, uso de recursos)
@@ -24,6 +30,8 @@ Painel de administração web para o servidor DNS **Unbound**, com monitoramento
 - **DNS**: Unbound
 - **Permissões**: `sudo` para operações de sistema
 
+> Nota: os requisitos acima são da **v1**. A v2 não usa Apache/PHP/MariaDB.
+
 ## Instalação
 
 Consulte o [Manual de Instalação](MANUAL_INSTALACAO.md) para o procedimento completo de implantação.
@@ -42,6 +50,17 @@ O instalador automatizado cuida de:
 - Criação do banco de dados e schema inicial
 - Configuração de permissões e cron jobs
 - Configuração inicial via wizard web
+
+## Build da v2 (DuckDB)
+
+Se você precisa gerar o pacote de instalação da v2 neste servidor:
+
+```bash
+cd /var/www/html/unbound-dashboard/tools
+sudo bash build-package-v2.sh --skip-frontend
+```
+
+O script delega para `/opt/unbound-dashboard/tools/build-package.sh` e grava o artefato em `/opt/unbound-dashboard/dist/`.
 
 ## Configuração
 

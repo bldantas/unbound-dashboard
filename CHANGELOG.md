@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.1.1 — 2026-04-30
+
+### Correções
+- Documentação atualizada para separar explicitamente as linhas v1 (PHP/MariaDB) e v2 (Python/FastAPI/DuckDB), reduzindo confusão operacional entre scripts.
+
+### Novidades
+- Novo script `tools/build-package-v2.sh` (wrapper) para gerar o pacote da v2 a partir deste repositório legado, delegando para `/opt/unbound-dashboard/tools/build-package.sh`.
+
+---
+
 ## v2.1.0 — 2026-04-29
 
 ### Correções
