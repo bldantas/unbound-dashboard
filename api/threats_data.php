@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../src/Auth.php';
-require_once __DIR__ . '/../src/Database.php';
+require_once __DIR__ . '/../src/ApiClient.php';
+require_once __DIR__ . '/../src/LocalDataAdapter.php';
+require_once __DIR__ . '/../src/Environment.php';
 
 use App\Auth;
 
@@ -22,7 +24,7 @@ if ($limitParam === 'todos') {
     $threatLimit = in_array($parsedLimit, $allowedLimits, true) ? $parsedLimit : 10;
 }
 
-$cacheKey = 'threats_data_cache_' . $threatLimit;
+$cacheKey = 'threats_data_v2_' . $threatLimit;
 $cacheTsKey = $cacheKey . '_ts';
 $cacheTtl = 20;
 $now = time();
@@ -33,99 +35,77 @@ if (isset($_SESSION[$cacheKey], $_SESSION[$cacheTsKey]) && ($now - (int) $_SESSI
 }
 
 try {
-    $db = \App\Database::getInstance();
+    $local = new \App\LocalDataAdapter();
 
-    // Totais rápidos via daily_stats (pré-agregado, sem full scan em query_logs)
-    $dailyTotals = $db->query("
-        SELECT COALESCE(SUM(blocked_count), 0) AS blocked, COALESCE(SUM(total_queries), 0) AS total
-        FROM daily_stats
-    ")->fetch();
-    $totalThreats = (int) $dailyTotals['blocked'];
-    $totalQueries = (int) $dailyTotals['total'];
+    // Contagem da blocklist a partir de blocklist_counts.json
+    $blJson  = @file_get_contents(__DIR__ . '/../data/blocklist_counts.json');
+    $blData  = $blJson ? @json_decode($blJson, true) : [];
+    $totalBlacklist = ((int)($blData['adware']   ?? 0))
+                    + ((int)($blData['phishing'] ?? 0))
+                    + ((int)($blData['judicial'] ?? 0));
 
-    // Fallback: se daily_stats ainda não foi populado, usa information_schema (aproximado, sem full scan)
-    if ($totalQueries === 0) {
-        $totalQueries = (int) $db->query(
-            "SELECT table_rows FROM information_schema.tables
-             WHERE table_schema = DATABASE() AND table_name = 'query_logs'"
-        )->fetchColumn();
+    // Fonte de dados: export local (sem HTTP) com fallback para ApiClient
+    if ($local->isAvailable()) {
+        $blockedLogs  = $local->getBlockedLogs(max($threatLimit, 500));
+        $liveStats    = $local->getLiveStats();
+        $totalBlocked = count($blockedLogs);
+        $totalQueries = (int) ($liveStats['total'] ?? 0);
+    } else {
+        $api          = new \App\ApiClient();
+        $fetchLimit   = max($threatLimit, 500);
+        $blockedLogs  = $api->getQueryLogs($fetchLimit, 'blocked');
+        $liveStats    = $api->getLiveStats(168);
+        $totalBlocked = count($blockedLogs);
+        $totalQueries = (int) ($liveStats['total'] ?? 0);
     }
 
-    $totalBlacklist = (int) $db->query("SELECT COUNT(*) FROM domain_blacklist")->fetchColumn();
-    $threatRatio = $totalQueries > 0 ? round(($totalThreats / $totalQueries) * 100, 2) : 0.0;
+    $blockRate = ($totalQueries > 0)
+        ? round(($totalBlocked / $totalQueries) * 100, 2)
+        : 0.0;
 
-    // Ameaças recentes — rápido com índice composto (action, timestamp)
-    $recentThreats = $db->query("
-        SELECT l.timestamp, l.client_ip, l.domain, l.action, b.category, b.severity
-        FROM (
-            SELECT timestamp, client_ip, domain, action
-            FROM query_logs
-            WHERE action = 'blocked'
-            ORDER BY timestamp DESC
-            LIMIT $threatLimit
-        ) l
-        LEFT JOIN domain_blacklist b ON l.domain = b.domain
-    ")->fetchAll();
+    // Agregação client-side de top domínios e clientes
+    $domainCounts = [];
+    $clientCounts = [];
+    foreach ($blockedLogs as $log) {
+        $d = (string) ($log['domain']    ?? '');
+        $c = (string) ($log['client_ip'] ?? '');
+        if ($d !== '') $domainCounts[$d] = ($domainCounts[$d] ?? 0) + 1;
+        if ($c !== '') $clientCounts[$c] = ($clientCounts[$c] ?? 0) + 1;
+    }
+    arsort($domainCounts);
+    arsort($clientCounts);
 
-    // Top clientes bloqueados — beneficia do índice (action, timestamp)
-    $topBlockedClients = $db->query("
-        SELECT client_ip, COUNT(*) as count
-        FROM query_logs
-        WHERE action = 'blocked'
-        GROUP BY client_ip
-        ORDER BY count DESC
-        LIMIT 10
-    ")->fetchAll();
+    $topDomains = [];
+    foreach (array_slice($domainCounts, 0, 10, true) as $domain => $count) {
+        $topDomains[] = ['label' => $domain, 'count' => $count];
+    }
 
-    // Top domínios bloqueados — beneficia do índice (action, timestamp)
-    $topBlockedDomains = $db->query("
-        SELECT l.domain, COUNT(*) as count
-        FROM query_logs l
-        JOIN domain_blacklist b ON l.domain = b.domain
-        WHERE l.action = 'blocked'
-        GROUP BY l.domain
-        ORDER BY count DESC
-        LIMIT 10
-    ")->fetchAll();
+    $topClients = [];
+    foreach (array_slice($clientCounts, 0, 10, true) as $ip => $count) {
+        $topClients[] = ['label' => $ip, 'count' => $count];
+    }
 
+    // Logs recentes limitados ao pedido do usuário
     $recent = [];
-    foreach ($recentThreats as $t) {
-        $ts = strtotime((string) ($t['timestamp'] ?? ''));
-        if ($ts === false) {
-            $ts = time();
-        }
-
+    foreach (array_slice($blockedLogs, 0, $threatLimit) as $log) {
+        $ts = (int) ($log['timestamp'] ?? 0);
         $recent[] = [
-            'time' => date('H:i:s', $ts),
-            'date' => date('d/m/y', $ts),
-            'client_ip' => (string) ($t['client_ip'] ?? ''),
-            'domain' => (string) ($t['domain'] ?? ''),
-            'category' => (string) ($t['category'] ?? 'Geral'),
-            'severity' => (string) ($t['severity'] ?? ''),
-            'action' => (string) ($t['action'] ?? 'blocked'),
+            'time'      => $ts > 0 ? date('H:i:s', $ts) : '--:--:--',
+            'date'      => $ts > 0 ? date('d/m/y', $ts)  : '--/--/--',
+            'client_ip' => (string) ($log['client_ip'] ?? ''),
+            'domain'    => (string) ($log['domain']    ?? ''),
+            'category'  => 'Bloqueado',
+            'severity'  => '',
+            'action'    => 'blocked',
         ];
     }
-
-    $topClients = array_map(static function (array $row): array {
-        return [
-            'label' => (string) ($row['client_ip'] ?? '---'),
-            'count' => (int) ($row['count'] ?? 0),
-        ];
-    }, $topBlockedClients);
-
-    $topDomains = array_map(static function (array $row): array {
-        return [
-            'label' => (string) ($row['domain'] ?? '---'),
-            'count' => (int) ($row['count'] ?? 0),
-        ];
-    }, $topBlockedDomains);
 
     $payload = [
         'totals' => [
             'blacklist' => $totalBlacklist,
-            'threats' => $totalThreats,
-            'queries' => $totalQueries,
-            'ratio' => $threatRatio,
+            'threats'   => $totalBlocked,
+            'queries'   => $totalQueries,
+            'ratio'     => $blockRate,
         ],
         'top' => [
             'domains' => $topDomains,
@@ -134,7 +114,7 @@ try {
         'recent' => $recent,
     ];
 
-    $_SESSION[$cacheKey] = $payload;
+    $_SESSION[$cacheKey]   = $payload;
     $_SESSION[$cacheTsKey] = $now;
 
     echo json_encode(['status' => 'success', 'data' => $payload]);

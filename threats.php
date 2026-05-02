@@ -76,6 +76,8 @@ $currentPage = 'threats.php';
                 </div>
             </div>
 
+            <div id="threatsDataStatus" class="hidden mb-6 rounded-2xl border px-5 py-4 text-sm"></div>
+
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
                 <!-- Top Blocked Domains -->
                 <div class="glass-panel flex flex-col border-slate-200 dark:border-white/5">
@@ -159,12 +161,38 @@ $currentPage = 'threats.php';
             }).join('');
         }
 
+        function renderThreatsStatus(totals, rows) {
+            const el = document.getElementById('threatsDataStatus');
+            if (!el) return;
+
+            const totalQueries = Number((totals && totals.queries) || 0);
+            const totalThreats = Number((totals && totals.threats) || 0);
+            const hasRows = Array.isArray(rows) && rows.length > 0;
+
+            el.classList.remove('hidden');
+
+            if (totalQueries === 0) {
+                el.className = 'mb-6 rounded-2xl border px-5 py-4 text-sm bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300';
+                el.innerHTML = '<strong class="font-black uppercase tracking-wider text-xs">Sem tráfego DNS recente</strong><div class="mt-1">Não houve queries na janela monitorada; por isso a taxa de ameaças fica zerada e os logs recentes podem aparecer vazios.</div>';
+                return;
+            }
+
+            if (totalThreats === 0 || !hasRows) {
+                el.className = 'mb-6 rounded-2xl border px-5 py-4 text-sm bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300';
+                el.innerHTML = '<strong class="font-black uppercase tracking-wider text-xs">Sem bloqueios recentes</strong><div class="mt-1">A coleta está funcionando, mas nenhum bloqueio foi registrado no período recente exibido.</div>';
+                return;
+            }
+
+            el.className = 'mb-6 rounded-2xl border px-5 py-4 text-sm bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300';
+            el.innerHTML = '<strong class="font-black uppercase tracking-wider text-xs">Coleta de ameaças ativa</strong><div class="mt-1">Dados carregados com sucesso; bloqueios recentes encontrados.</div>';
+        }
+
         function renderThreatRows(rows) {
             const tbody = document.getElementById('threatsRows');
             if (!tbody) return;
 
             if (!Array.isArray(rows) || rows.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-20 text-center text-slate-500 text-xs font-black tracking-widest uppercase">Nenhuma ameaça ativa detectada.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-20 text-center text-slate-500 text-xs font-black tracking-widest uppercase">Sem bloqueios recentes para exibir.</td></tr>';
                 return;
             }
 
@@ -195,6 +223,7 @@ $currentPage = 'threats.php';
 
             try {
                 const res = await fetch('api/threats_data.php?limit=' + encodeURIComponent(limit), { cache: 'no-store' });
+                if (res.status === 401) { window.location.href = 'login.php'; return; }
                 if (!res.ok) throw new Error('Falha HTTP ' + res.status);
                 const payload = await res.json();
                 if (!payload || payload.status !== 'success' || !payload.data) {
@@ -216,14 +245,30 @@ $currentPage = 'threats.php';
                 renderTopList('threatsTopDomains', top.domains || [], 'Nenhum bloqueio judicial registrado recentemente.', 'text-blue-500 dark:text-blue-400');
                 renderTopList('threatsTopClients', top.clients || [], 'Nenhum cliente bloqueado.', 'text-red-500');
                 renderThreatRows(data.recent || []);
+                renderThreatsStatus(totals, data.recent || []);
 
                 const nextUrl = new URL(window.location.href);
                 nextUrl.searchParams.set('limit', limit);
                 window.history.replaceState({}, '', nextUrl.toString());
             } catch (err) {
+                if (err && err.status === 401) {
+                    window.location.href = 'login.php';
+                    return;
+                }
                 renderThreatRows([]);
-                if (window.AppUI && typeof window.AppUI.toast === 'function') {
-                    window.AppUI.toast('Falha ao carregar métricas de ameaças.', 'warning', { title: 'Ameaças' });
+                renderTopList('threatsTopDomains', [], 'Indisponível no momento.', 'text-blue-500 dark:text-blue-400');
+                renderTopList('threatsTopClients', [], 'Indisponível no momento.', 'text-red-500');
+                const totalBlacklistEl = document.getElementById('threatsTotalBlacklist');
+                const totalThreatsEl   = document.getElementById('threatsTotalThreats');
+                const ratioEl          = document.getElementById('threatsRatio');
+                if (totalBlacklistEl) totalBlacklistEl.textContent = '--';
+                if (totalThreatsEl)   totalThreatsEl.textContent   = '--';
+                if (ratioEl)          ratioEl.textContent          = '--%';
+                const statusEl = document.getElementById('threatsDataStatus');
+                if (statusEl) {
+                    statusEl.className = 'mb-6 rounded-2xl border px-5 py-4 text-sm bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300';
+                    statusEl.innerHTML = '<strong class="font-black uppercase tracking-wider text-xs">Falha de carregamento</strong><div class="mt-1">Não foi possível atualizar os dados agora. Tente novamente em instantes.</div>';
+                    statusEl.classList.remove('hidden');
                 }
             } finally {
                 var loader = document.getElementById('global-page-loader');

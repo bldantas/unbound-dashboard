@@ -193,6 +193,7 @@ $currentPage = 'alerts.php';
 
             <!-- Seção de Segurança e Aplicações -->
             <h2 class="text-xs font-black uppercase tracking-widest text-slate-500 mb-4 px-2">Segurança & Conectividade</h2>
+            <div id="alertsMetricsStatus" class="hidden mb-6 rounded-2xl border px-5 py-4 text-sm"></div>
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
 
                 <!-- Sec Card -->
@@ -273,6 +274,13 @@ $currentPage = 'alerts.php';
                 </div>
             </div>
 
+            <?php if ($activeCount === 0): ?>
+                <div class="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-700 dark:text-emerald-300">
+                    <strong class="font-black uppercase tracking-wider text-xs">Sem pendências críticas</strong>
+                    <div class="mt-1">Não há ocorrências ativas no momento. O histórico abaixo mostra eventos resolvidos e registros anteriores.</div>
+                </div>
+            <?php endif; ?>
+
             <div class="glass-table-container border-slate-200 dark:border-white/5">
                 <table class="glass-table">
                     <thead>
@@ -300,7 +308,7 @@ $currentPage = 'alerts.php';
                             </tr>
                         <?php else: ?>
                             <?php foreach ($alerts as $a): ?>
-                                <?php $status = empty($a['resolved_at']) ? 'active' : 'resolved'; ?>
+                                <?php $status = !($a['is_read'] ?? false) ? 'active' : 'resolved'; ?>
                                 <tr class="<?= $status === 'active' ? 'bg-red-500/5' : '' ?>">
                                     <td class="px-6 py-4">
                                         <?php if ($status === 'active'): ?>
@@ -315,8 +323,8 @@ $currentPage = 'alerts.php';
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <div class="text-[11px] font-mono text-slate-500"><?= date('d/m/Y', strtotime($a['started_at'])) ?></div>
-                                        <div class="text-xs font-bold text-slate-900 dark:text-white"><?= date('H:i:s', strtotime($a['started_at'])) ?></div>
+                                        <div class="text-[11px] font-mono text-slate-500"><?= date('d/m/Y', strtotime($a['created_at'] ?? '')) ?></div>
+                                        <div class="text-xs font-bold text-slate-900 dark:text-white"><?= date('H:i:s', strtotime($a['created_at'] ?? '')) ?></div>
                                     </td>
                                     <td class="<?= $status === 'active' ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-400 dark:text-slate-500 line-through' ?>">
                                         <?= htmlspecialchars($a['message']) ?>
@@ -351,9 +359,26 @@ $currentPage = 'alerts.php';
         </div>
     </main>
     <script>
+        function setAlertsMetricsStatus(kind, title, detail) {
+            const el = document.getElementById('alertsMetricsStatus');
+            if (!el) return;
+
+            if (kind === 'error') {
+                el.className = 'mb-6 rounded-2xl border px-5 py-4 text-sm bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300';
+            } else if (kind === 'warning') {
+                el.className = 'mb-6 rounded-2xl border px-5 py-4 text-sm bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300';
+            } else {
+                el.className = 'mb-6 rounded-2xl border px-5 py-4 text-sm bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300';
+            }
+
+            el.innerHTML = '<strong class="font-black uppercase tracking-wider text-xs">' + title + '</strong><div class="mt-1">' + detail + '</div>';
+            el.classList.remove('hidden');
+        }
+
         async function loadAlertsMetrics() {
             try {
                 const res = await fetch('api/alerts_metrics.php', { cache: 'no-store' });
+                if (res.status === 401) { window.location.href = 'login.php'; return; }
                 if (!res.ok) throw new Error('Falha HTTP ' + res.status);
 
                 const payload = await res.json();
@@ -438,7 +463,31 @@ $currentPage = 'alerts.php';
 
                 const openPortsEl = document.getElementById('alertsOpenPorts');
                 if (openPortsEl) openPortsEl.textContent = String(openPorts) + ' LISTEN';
+
+                const degraded = (String(db.status || '').toLowerCase() === 'offline') || (webStatusRaw === 'offline');
+                if (degraded) {
+                    setAlertsMetricsStatus(
+                        'warning',
+                        'Telemetria parcial',
+                        'Métricas carregadas, porém algum serviço monitorado está offline.'
+                    );
+                } else {
+                    setAlertsMetricsStatus(
+                        'ok',
+                        'Telemetria online',
+                        'Métricas do sistema carregadas com sucesso.'
+                    );
+                }
             } catch (err) {
+                if (err && err.status === 401) {
+                    window.location.href = 'login.php';
+                    return;
+                }
+                setAlertsMetricsStatus(
+                    'error',
+                    'Falha de carregamento',
+                    'Não foi possível atualizar os cards de métricas neste momento.'
+                );
                 if (window.AppUI && typeof window.AppUI.toast === 'function') {
                     window.AppUI.toast('Métricas do sistema indisponíveis no momento.', 'warning', { title: 'Alertas' });
                 }

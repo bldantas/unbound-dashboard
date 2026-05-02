@@ -14,12 +14,17 @@ require_once __DIR__ . '/../src/ShellHelper.php';
  */
 
 class StatsAggregator {
-    private \PDO $db;
+    private ?\PDO $db;
     private string $cacheFile;
     private string $timeSeriesFile;
 
     public function __construct() {
-        $this->db = Database::getInstance();
+        try {
+            $this->db = Database::getInstance();
+        } catch (\Exception $e) {
+            // MariaDB não configurada (sistema usa API v2/DuckDB); opera sem DB
+            $this->db = null;
+        }
         $this->cacheFile = __DIR__ . '/../data/latest_stats.json';
         $this->timeSeriesFile = __DIR__ . '/../src/data/time_series.json';
     }
@@ -32,14 +37,28 @@ class StatsAggregator {
     }
 
     private function getUnboundStats(): array {
-        $stmt = $this->db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'source_balance_enabled'");
-        $stmt->execute();
-        $isMulticore = ($stmt->fetchColumn() === 'yes');
+        $isMulticore = false;
+        if ($this->db !== null) {
+            try {
+                $stmt = $this->db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'source_balance_enabled'");
+                $stmt->execute();
+                $isMulticore = ($stmt->fetchColumn() === 'yes');
+            } catch (\Exception $e) {
+                $isMulticore = false;
+            }
+        }
 
         if ($isMulticore) {
-            $stmt = $this->db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'source_balance_instances'");
-            $stmt->execute();
-            $instances = (int)$stmt->fetchColumn() ?: 4;
+            $instances = 4;
+            if ($this->db !== null) {
+                try {
+                    $stmt = $this->db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'source_balance_instances'");
+                    $stmt->execute();
+                    $instances = (int)$stmt->fetchColumn() ?: 4;
+                } catch (\Exception $e) {
+                    $instances = 4;
+                }
+            }
             
             $aggregated = [];
             for ($i = 1; $i <= $instances; $i++) {
@@ -131,16 +150,22 @@ class StatsAggregator {
             }
 
             if (!is_array($counts)) {
-                // Cache não existe — gera pela primeira vez e salva
-                $adwareBlocks = $this->db->query("SELECT COUNT(*) FROM domain_blacklist WHERE category = 'Malware/Adware'")->fetchColumn() ?: 0;
-                $phishBlocks = $this->db->query("SELECT COUNT(*) FROM domain_blacklist WHERE category = 'Phishing'")->fetchColumn() ?: 0;
-                $anatelBlocks = $this->db->query("SELECT COUNT(*) FROM domain_blacklist WHERE category = 'Judicial'")->fetchColumn() ?: 0;
-                file_put_contents($countsFile, json_encode([
-                    'adware' => (int) $adwareBlocks,
-                    'phishing' => (int) $phishBlocks,
-                    'judicial' => (int) $anatelBlocks,
-                    'updated_at' => time()
-                ]));
+                // Cache não existe — tenta gerar pelo DB se disponível
+                if ($this->db !== null) {
+                    try {
+                        $adwareBlocks = $this->db->query("SELECT COUNT(*) FROM domain_blacklist WHERE category = 'Malware/Adware'")->fetchColumn() ?: 0;
+                        $phishBlocks = $this->db->query("SELECT COUNT(*) FROM domain_blacklist WHERE category = 'Phishing'")->fetchColumn() ?: 0;
+                        $anatelBlocks = $this->db->query("SELECT COUNT(*) FROM domain_blacklist WHERE category = 'Judicial'")->fetchColumn() ?: 0;
+                        file_put_contents($countsFile, json_encode([
+                            'adware' => (int) $adwareBlocks,
+                            'phishing' => (int) $phishBlocks,
+                            'judicial' => (int) $anatelBlocks,
+                            'updated_at' => time()
+                        ]));
+                    } catch (\Exception $e) {
+                        // DB indisponível — mantém zeros
+                    }
+                }
             } else {
                 $adwareBlocks = $counts['adware'] ?? 0;
                 $phishBlocks = $counts['phishing'] ?? 0;
@@ -175,6 +200,7 @@ class StatsAggregator {
             'msg_mem' => $this->formatBytes($stats['mem.cache.message'] ?? 0),
             'unwanted_queries' => $stats['unwanted.queries'] ?? 0,
             'unwanted_replies' => $stats['unwanted.replies'] ?? 0,
+            'unwanted' => ($stats['unwanted.queries'] ?? 0) + ($stats['unwanted.replies'] ?? 0),
             'blocks' => [
                 'adware' => (int)$adwareBlocks,
                 'phishing' => (int)$phishBlocks,

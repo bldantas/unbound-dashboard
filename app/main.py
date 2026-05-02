@@ -38,16 +38,18 @@ async def lifespan(app: FastAPI):
     run_migrations()
 
     # Inicia workers em background
-    from app.workers import AlertChecker, LogWatcher, StatsAggregator
+    from app.workers import AlertChecker, JsonExporter, LogWatcher, StatsAggregator
 
     watcher = LogWatcher()
     aggregator = StatsAggregator()
     checker = AlertChecker()
+    exporter = JsonExporter()
 
     _background_tasks.extend([
         asyncio.create_task(watcher.start(), name="log_watcher"),
         asyncio.create_task(aggregator.start(), name="stats_aggregator"),
         asyncio.create_task(checker.start(), name="alert_checker"),
+        asyncio.create_task(exporter.start(), name="json_exporter"),
     ])
 
     log.info("workers iniciados, API pronta")
@@ -58,6 +60,7 @@ async def lifespan(app: FastAPI):
     await watcher.stop()
     await aggregator.stop()
     await checker.stop()
+    await exporter.stop()
 
     for task in _background_tasks:
         task.cancel()

@@ -22,6 +22,7 @@ AUTO_RESTART="${AUTO_RESTART:-false}"
 FORCE_CADDY="${FORCE_CADDY:-false}"
 
 INSTALL_DIR="/opt/unbound-dashboard"
+WEB_DIR="/var/www/html/unbound-dashboard"
 DATA_DIR="/var/lib/unbound-dashboard"
 BACKUP_BASE="/var/backups/unbound-dashboard"
 ENV_FILE="/etc/unbound-dashboard/env"
@@ -114,25 +115,32 @@ stop_service() {
 # Sincronizar código
 # ============================================================
 sync_code() {
-    info "Sincronizando código Python..."
+    info "Sincronizando código da aplicação (v2)..."
     drun rsync -a --delete \
         --exclude='__pycache__' \
         --exclude='*.pyc' \
-        "$EXTRACT_DIR/app/" "$INSTALL_DIR/app/"
-    log "Código Python atualizado"
+        "$EXTRACT_DIR/app/" "$INSTALL_DIR/"
+    log "Código v2 atualizado"
 
-    info "Sincronizando migrations..."
-    drun rsync -a \
-        "$EXTRACT_DIR/migrations/" "$INSTALL_DIR/migrations/"
-    log "Migrations sincronizadas"
-
-    info "Sincronizando frontend/dist..."
+    info "Sincronizando frontend PHP v1..."
     drun rsync -a --delete \
-        "$EXTRACT_DIR/frontend/dist/" "$INSTALL_DIR/frontend/dist/"
-    log "Frontend atualizado"
+        --exclude='.git' \
+        --exclude='.venv' \
+        --exclude='app/' \
+        --exclude='frontend/' \
+        --exclude='migrations/' \
+        --exclude='tests/' \
+        --exclude='deployments/' \
+        --exclude='tools/' \
+        --exclude='dist/' \
+        --exclude='*.tar.gz' \
+        --exclude='uv.lock' \
+        --exclude='pyproject.toml' \
+        "$EXTRACT_DIR/app/" "$WEB_DIR/"
+    log "Frontend PHP atualizado"
 
     # Arquivos raiz
-    for f in VERSION CHANGELOG.md pyproject.toml; do
+    for f in VERSION VERSION-api CHANGELOG.md CHANGELOG-api.md pyproject.toml; do
         if [ -f "$EXTRACT_DIR/$f" ]; then
             drun cp "$EXTRACT_DIR/$f" "$INSTALL_DIR/$f"
             debug "Copiado: $f"
@@ -158,8 +166,8 @@ sync_code() {
     fi
 
     # Permissões
-    drun chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/app" "$INSTALL_DIR/migrations" \
-        "$INSTALL_DIR/frontend/dist" "$INSTALL_DIR/VERSION" 2>/dev/null || true
+    drun chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR" 2>/dev/null || true
+    drun chown -R www-data:www-data "$WEB_DIR" 2>/dev/null || true
 }
 
 # ============================================================
@@ -229,6 +237,7 @@ start_service() {
     if [ "$AUTO_RESTART" = "true" ] || [ "$DRY_RUN" = "false" ]; then
         info "Iniciando $SERVICE_NAME..."
         drun systemctl start "$SERVICE_NAME"
+        drun systemctl restart apache2
 
         # Aguarda até 10s para confirmar que subiu
         if [ "$DRY_RUN" = "false" ]; then
@@ -268,6 +277,7 @@ print_summary() {
     log "$status_line"
     echo ""
     echo "  Verificar status:  systemctl status $SERVICE_NAME"
+    echo "  Verificar Apache:  systemctl status apache2"
     echo "  Verificar logs:    journalctl -u $SERVICE_NAME -f"
     echo "  Rollback:          tar xzf $BACKUP_BASE/dashboard-${CURRENT_VERSION}-${TIMESTAMP}.tar.gz -C /"
     echo "                     systemctl restart $SERVICE_NAME"

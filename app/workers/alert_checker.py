@@ -14,11 +14,13 @@ import structlog
 
 from app.domain.alert import AlertCreate, Severity
 from app.repositories.duckdb.alert_repo import AlertRepository
-from app.repositories.duckdb.connection import db_fetchone
+from app.repositories.duckdb.connection import db_execute, db_fetchone
 
 log = structlog.get_logger(__name__)
 
 CHECK_INTERVAL = 300  # 5 minutos
+QUERY_STALL_WINDOW = 600  # 10 minutos
+NO_QUERIES_COOLDOWN_HOURS = 6
 
 
 class AlertChecker:
@@ -70,17 +72,41 @@ class AlertChecker:
 
     async def _check_query_volume_drop(self) -> None:
         """Alerta se o volume de queries caiu para zero nas últimas 10 minutos."""
-        since = int(datetime.now(timezone.utc).timestamp()) - 600
+        since = int(datetime.now(timezone.utc).timestamp()) - QUERY_STALL_WINDOW
         row = await db_fetchone(
             "SELECT COUNT(*) AS total FROM query_logs WHERE timestamp >= ?",
             [since],
         )
-        if row and int(row["total"]) == 0:
-            await self._repo.create(
-                AlertCreate(
-                    type="no_queries",
-                    message="Nenhuma query DNS registrada nos últimos 10 minutos.",
-                    severity=Severity.CRITICAL,
-                )
+        if not row:
+            return
+
+        if int(row["total"]) > 0:
+            # Auto-resolve alertas de ausência de query quando o tráfego volta.
+            await db_execute(
+                "UPDATE alerts SET is_read = true WHERE type = 'no_queries' AND is_read = false"
             )
-            log.error("alert.no_queries")
+            return
+
+        # Deduplica: só cria alerta se não há um alerta 'no_queries' não lido já ativo
+        existing = await db_fetchone(
+            "SELECT id FROM alerts WHERE type = 'no_queries' AND is_read = false LIMIT 1",
+        )
+        if existing:
+            return
+
+        # Evita recriar em loop após reconhecimento manual enquanto a condição persiste.
+        recent = await db_fetchone(
+            "SELECT id FROM alerts WHERE type = 'no_queries' "
+            f"AND created_at >= NOW() - INTERVAL {NO_QUERIES_COOLDOWN_HOURS} HOUR LIMIT 1",
+        )
+        if recent:
+            return
+
+        await self._repo.create(
+            AlertCreate(
+                type="no_queries",
+                message="Nenhuma query DNS registrada nos últimos 10 minutos.",
+                severity=Severity.CRITICAL,
+            )
+        )
+        log.error("alert.no_queries")

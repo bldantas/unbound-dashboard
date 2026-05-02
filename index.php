@@ -4,8 +4,8 @@ require_once 'src/StatsManager.php';
 
 use App\Auth;
 
-// Se não houver usuários, redirecione para a página de configuração
-if (!\App\Auth::hasUsers()) {
+// Só redireciona para setup se a instalação ainda não foi concluída.
+if (!file_exists(__DIR__ . '/data/.installed')) {
     header('Location: setup.php');
     exit;
 }
@@ -70,13 +70,13 @@ $ipv6Total = $initialMetrics['ipv6_total'];
 $prefetch = $initialMetrics['prefetch'];
 $rrsetMem = $initialMetrics['rrset_mem'];
 $msgMem = $initialMetrics['msg_mem'];
-$unwanted = $initialMetrics['unwanted'];
-$unwantedQueries = $initialMetrics['unwanted_queries'];
-$unwantedReplies = $initialMetrics['unwanted_replies'];
-$adwareBlocks = $initialMetrics['blocks']['adware'];
-$phishBlocks = $initialMetrics['blocks']['phishing'];
-$anatelBlocks = $initialMetrics['blocks']['judicial'];
-$isJudicialEnabled = $initialMetrics['blocks']['judicial_enabled'];
+$unwanted = $initialMetrics['unwanted'] ?? 0;
+$unwantedQueries = $initialMetrics['unwanted_queries'] ?? 0;
+$unwantedReplies = $initialMetrics['unwanted_replies'] ?? 0;
+$adwareBlocks = $initialMetrics['blocks']['adware'] ?? 0;
+$phishBlocks = $initialMetrics['blocks']['phishing'] ?? 0;
+$anatelBlocks = $initialMetrics['blocks']['judicial'] ?? 0;
+$isJudicialEnabled = $initialMetrics['blocks']['judicial_enabled'] ?? false;
 $uptimeHuman = $initialMetrics['uptime_human'] ?? '---';
 
 $timeLabels = $chartBootstrap['labels'];
@@ -592,6 +592,9 @@ $currentPage = 'index.php';
             query_types: <?= json_encode($queryTypesArr) ?>
         };
         let lastChartSignature = null;
+        // Acumuladores de delta para o minuto atual (resetados a cada nova snapshot)
+        let liveHitsAccum = 0;
+        let liveMissAccum = 0;
 
         function getChartSignature(chartPayload) {
             if (!chartPayload || !Array.isArray(chartPayload.labels) || !Array.isArray(chartPayload.hits) || !Array.isArray(chartPayload.misses)) {
@@ -608,14 +611,23 @@ $currentPage = 'index.php';
 
         function applyLiveChartDelta(deltaHits, deltaMisses) {
             if (!Number.isFinite(deltaHits) || !Number.isFinite(deltaMisses)) return;
+            if (deltaHits === 0 && deltaMisses === 0) return;
 
             const hitsData = chartPerf.data.datasets[0].data;
             const missesData = chartPerf.data.datasets[1].data;
             if (!hitsData.length || !missesData.length) return;
 
+            // Acumula o delta do minuto atual e SUBSTITUI (não soma) o último ponto,
+            // evitando que o ponto cresça indefinidamente entre snapshots (~12 polls/min)
+            liveHitsAccum += deltaHits;
+            liveMissAccum += deltaMisses;
+
             const lastIndex = hitsData.length - 1;
-            hitsData[lastIndex] = Math.max(0, Number(hitsData[lastIndex] || 0) + deltaHits);
-            missesData[lastIndex] = Math.max(0, Number(missesData[lastIndex] || 0) + deltaMisses);
+            const baseHit = Number(hitsData[lastIndex] || 0);
+            const baseMiss = Number(missesData[lastIndex] || 0);
+            // Usa o maior entre o valor da snapshot e o acumulado ao vivo
+            hitsData[lastIndex] = Math.max(baseHit, liveHitsAccum);
+            missesData[lastIndex] = Math.max(baseMiss, liveMissAccum);
             chartPerf.update('none');
         }
 
@@ -631,6 +643,9 @@ $currentPage = 'index.php';
                 chartPerf.data.datasets[1].data = chartPayload.misses;
                 chartPerf.update('none');
                 lastChartSignature = nextSignature;
+                // Reseta acumuladores ao receber nova snapshot
+                liveHitsAccum = 0;
+                liveMissAccum = 0;
             } else if (deltaHits > 0 || deltaMisses > 0) {
                 applyLiveChartDelta(deltaHits, deltaMisses);
             }

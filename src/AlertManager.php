@@ -2,40 +2,41 @@
 
 namespace App;
 
-require_once __DIR__ . '/Database.php';
+require_once __DIR__ . '/ApiClient.php';
+require_once __DIR__ . '/LocalDataAdapter.php';
 require_once __DIR__ . '/ServerMonitor.php';
 require_once __DIR__ . '/UnboundManager.php';
 require_once __DIR__ . '/SecurityMonitor.php';
 require_once __DIR__ . '/AppMetricsManager.php';
 
-use PDO;
 use Exception;
 
 class AlertManager {
-    private PDO $db;
+    private ApiClient $api;
+    private LocalDataAdapter $local;
     private ServerMonitor $monitor;
     private UnboundManager $unbound;
     private SecurityMonitor $security;
     private AppMetricsManager $appStats;
 
-    const THRESHOLD_CPU = 4.0;     // load avg 1 min
-    const THRESHOLD_MEM = 90.0;    // 90% em uso
-    const THRESHOLD_SWAP = 50.0;   // 50% de swap 
-    const THRESHOLD_DISK = 90.0;   // 90% em uso
-    const THRESHOLD_ERRORS = 100;  // 100 erros/drops de rede acumulados
-    const THRESHOLD_FAILED_LOGINS = 50; // Quantidade de falhas ssh no journal
-    const THRESHOLD_DB_CONNS = 200;
+    const THRESHOLD_CPU = 4.0;
+    const THRESHOLD_MEM = 90.0;
+    const THRESHOLD_SWAP = 50.0;
+    const THRESHOLD_DISK = 90.0;
+    const THRESHOLD_ERRORS = 100;
+    const THRESHOLD_FAILED_LOGINS = 50;
 
     public function __construct() {
-        $this->db = Database::getInstance();
-        $this->monitor = new ServerMonitor();
-        $this->unbound = new UnboundManager();
+        $this->api      = new ApiClient();
+        $this->local    = new LocalDataAdapter();
+        $this->monitor  = new ServerMonitor();
+        $this->unbound  = new UnboundManager();
         $this->security = new SecurityMonitor();
         $this->appStats = new AppMetricsManager();
     }
 
     public function checkAndReport(): void {
-        // 1. Verificar CPU (agora usando load average 1)
+        // 1. CPU
         $cpuLoad = $this->monitor->getCpuUsage();
         if ($cpuLoad > self::THRESHOLD_CPU) {
             $this->addAlert('cpu', "Sobrecarga de CPU: Load Average $cpuLoad", 'warning');
@@ -43,7 +44,7 @@ class AlertManager {
             $this->resolveAlert('cpu');
         }
 
-        // 2. Verificar Memória e Swap
+        // 2. Memória e Swap
         $mem = $this->monitor->getDetailedMemory();
         if ($mem['percent'] > self::THRESHOLD_MEM) {
             $this->addAlert('memory', "Falta de RAM: {$mem['percent']}% em uso", 'critical');
@@ -57,7 +58,7 @@ class AlertManager {
             $this->resolveAlert('swap');
         }
 
-        // 3. Verificar Disco
+        // 3. Disco
         $disk = $this->monitor->getDiskUsage();
         if ($disk['percent'] > self::THRESHOLD_DISK) {
             $this->addAlert('disk', "Armazenamento Crítico: {$disk['percent']}% cheio", 'critical');
@@ -79,16 +80,15 @@ class AlertManager {
             $this->resolveAlert('security');
         }
 
-        // 6. DB e WebServer
-        $dbStats = $this->appStats->getMariaDBStats();
-        if ($dbStats['status'] === 'offline') {
-            $this->addAlert('database', 'Serviço MariaDB Offline ou Inacessível!', 'critical');
-        } elseif ($dbStats['connections'] > self::THRESHOLD_DB_CONNS) {
-            $this->addAlert('database', "Sobrecarga no BD: {$dbStats['connections']} threads ativas", 'warning');
-        } else {
+        // 6. API v2 / DuckDB
+        try {
+            $this->api->healthz();
             $this->resolveAlert('database');
+        } catch (Exception $e) {
+            $this->addAlert('database', 'API v2 / DuckDB inacessível!', 'critical');
         }
 
+        // 7. WebServer
         $webStatus = $this->appStats->getWebServerStatus();
         if ($webStatus === 'offline') {
             $this->addAlert('webserver', 'O Servidor Web não foi detectado!', 'critical');
@@ -96,7 +96,7 @@ class AlertManager {
             $this->resolveAlert('webserver');
         }
 
-        // 7. Unbound
+        // 8. Unbound
         if (!$this->unbound->isServiceRunning()) {
             $this->addAlert('service', 'O serviço Unbound DNS está OFFLINE!', 'critical');
         } else {
@@ -105,44 +105,97 @@ class AlertManager {
     }
 
     private function addAlert(string $type, string $message, string $severity): void {
-        $stmt = $this->db->prepare("SELECT id FROM alerts WHERE type = ? AND resolved_at IS NULL");
-        $stmt->execute([$type]);
-        if ($stmt->fetch()) return;
-
-        $stmt = $this->db->prepare("INSERT INTO alerts (type, message, severity, started_at) VALUES (?, ?, ?, NOW())");
-        $stmt->execute([$type, $message, $severity]);
+        try {
+            // Leitura de deduplicação: usa export local se disponível, senão ApiClient
+            if ($this->local->isAvailable()) {
+                $localAlerts = $this->local->getAlerts()['alerts'];
+                foreach ($localAlerts as $a) {
+                    if (($a['type'] ?? '') === $type && !($a['is_read'] ?? true)) {
+                        return;
+                    }
+                }
+            } else {
+                $alerts = $this->api->getAlerts(true);
+                foreach ($alerts as $a) {
+                    if (($a['type'] ?? '') === $type && !($a['is_read'] ?? true)) {
+                        return;
+                    }
+                }
+            }
+            $this->api->createAlert($type, $message, $severity);
+        } catch (Exception $e) {
+            // não bloqueia execução
+        }
     }
 
     private function resolveAlert(string $type): void {
-        $stmt = $this->db->prepare("UPDATE alerts SET resolved_at = NOW() WHERE type = ? AND resolved_at IS NULL");
-        $stmt->execute([$type]);
+        try {
+            // Leitura: usa export local se disponível, senão ApiClient
+            if ($this->local->isAvailable()) {
+                $localAlerts = $this->local->getAlerts()['alerts'];
+                foreach ($localAlerts as $a) {
+                    if (($a['type'] ?? '') === $type && !($a['is_read'] ?? true)) {
+                        $this->api->markAlertRead((int)$a['id']);
+                    }
+                }
+            } else {
+                $alerts = $this->api->getAlerts(true);
+                foreach ($alerts as $a) {
+                    if (($a['type'] ?? '') === $type && !($a['is_read'] ?? true)) {
+                        $this->api->markAlertRead((int)$a['id']);
+                    }
+                }
+            }
+        } catch (Exception $e) {
+            // ignora
+        }
     }
 
     public function resolveAlertById(int $id): void {
-        $stmt = $this->db->prepare("UPDATE alerts SET resolved_at = NOW() WHERE id = ? AND resolved_at IS NULL");
-        $stmt->execute([$id]);
+        try {
+            $this->api->markAlertRead($id);
+        } catch (Exception $e) {}
     }
 
     public function clearResolvedAlerts(): void {
-        $this->db->query("DELETE FROM alerts WHERE resolved_at IS NOT NULL");
+        try {
+            $alerts = $this->api->getAlerts();
+            foreach ($alerts as $a) {
+                if ($a['is_read'] ?? false) {
+                    $this->api->deleteAlert((int)$a['id']);
+                }
+            }
+        } catch (Exception $e) {}
     }
 
     public function getActiveCount(): int {
-        $stmt = $this->db->query("SELECT COUNT(*) FROM alerts WHERE resolved_at IS NULL");
-        return (int)$stmt->fetchColumn();
+        // Preferência: export local (sem HTTP); fallback para ApiClient
+        if ($this->local->isAvailable()) {
+            return $this->local->getAlerts()['unread_count'];
+        }
+        try {
+            return $this->api->getAlertsCount();
+        } catch (Exception $e) {
+            return 0;
+        }
     }
 
     public function getHistory(): array {
-        $stmt = $this->db->query("SELECT *, 
-            TIMESTAMPDIFF(SECOND, started_at, IFNULL(resolved_at, NOW())) as duration_secs 
-            FROM alerts ORDER BY started_at DESC LIMIT 100");
-        return $stmt->fetchAll();
+        try {
+            return $this->api->getAlerts();
+        } catch (Exception $e) {
+            // Fallback: retorna os não-lidos do export local
+            if ($this->local->isAvailable()) {
+                return $this->local->getAlerts()['alerts'];
+            }
+            return [];
+        }
     }
 
     public static function formatDuration(int $seconds): string {
-        if ($seconds < 60) return $seconds . " seg";
-        if ($seconds < 3600) return floor($seconds / 60) . " min";
-        if ($seconds < 86400) return floor($seconds / 3600) . "h " . (floor($seconds / 60) % 60) . "m";
-        return floor($seconds / 86400) . "d " . (floor($seconds / 3600) % 24) . "h";
+        if ($seconds < 60) return $seconds . ' seg';
+        if ($seconds < 3600) return floor($seconds / 60) . ' min';
+        if ($seconds < 86400) return floor($seconds / 3600) . 'h ' . (floor($seconds / 60) % 60) . 'm';
+        return floor($seconds / 86400) . 'd ' . (floor($seconds / 3600) % 24) . 'h';
     }
 }

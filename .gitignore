@@ -21,7 +21,12 @@ frontend/.vite/
 /var/lib/unbound-dashboard/
 data/*.duckdb
 data/*.duckdb.wal
+data/*.db
+data/*.sqlite
+data/*.json
+data/.installed
 data/tmp/
+src/data/
 
 # Ambiente
 .env
@@ -32,6 +37,7 @@ data/tmp/
 dist/
 *.tar.gz
 *.sha256
+unbound-dashboard-update-*/
 
 # IDE
 .vscode/

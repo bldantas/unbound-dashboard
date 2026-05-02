@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     # DuckDB — banco único (OLTP serializado + OLAP analytics)
     db_path: str = "/var/lib/unbound-dashboard/unbound_dash.duckdb"
 
+    # Exportação JSON periódica — lida pelo PHP v1 sem chamadas HTTP
+    export_path: str = "/var/lib/unbound-dashboard/export"
+
     # Redis — cache TTL + pub/sub para WebSocket
     redis_url: AnyUrl = AnyUrl("redis://127.0.0.1:6379/0")
 
@@ -22,7 +25,7 @@ class Settings(BaseSettings):
 
     # Unbound
     unbound_control: str = "/usr/sbin/unbound-control"
-    unbound_log: str = "/var/log/syslog"
+    unbound_log: str = "/var/log/unbound/unbound.log"
 
     # Aplicação
     log_level: str = "INFO"

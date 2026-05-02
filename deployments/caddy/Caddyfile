@@ -1,4 +1,4 @@
-# Caddyfile — Unbound Dashboard v2
+# Caddyfile — Unbound Dashboard
 # Substitua "dashboard.example.com" pelo seu domínio (ou use :80 para HTTP local)
 
 dashboard.example.com {
@@ -35,8 +35,8 @@ dashboard.example.com {
     # Health probe (não requer auth)
     reverse_proxy /healthz localhost:8000
 
-    # Frontend (SPA) — arquivos estáticos com fallback para index.html
-    root * /opt/unbound-dashboard/frontend/dist
-    try_files {path} /index.html
+    # Frontend PHP v1 (publicado em /var/www/html/unbound-dashboard)
+    root * /var/www/html/unbound-dashboard
+    php_fastcgi unix/{{PHP_FPM_SOCK}}
     file_server
 }

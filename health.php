@@ -2,6 +2,8 @@
 require_once 'src/Auth.php';
 require_once 'src/ShellHelper.php';
 require_once 'src/UnboundManager.php';
+require_once 'src/ApiClient.php';
+require_once 'src/LocalDataAdapter.php';
 
 \App\Auth::check();
 if (!\App\Auth::isAdmin()) { header('Location: index.php'); exit; }
@@ -26,7 +28,7 @@ if (!empty($memOut)) {
     foreach ($memOut as $line) {
         if (str_starts_with(trim($line), 'Mem:')) {
             $parts = preg_split('/\s+/', trim($line));
-            $used = intval($parts[2] ?? 0);
+            $used  = intval($parts[2] ?? 0);
             $total = intval($parts[1] ?? 0);
             if ($total > 0) {
                 $mem = round(($used / $total) * 100, 2);
@@ -38,68 +40,88 @@ if (!empty($memOut)) {
 
 $load = sys_getloadavg();
 
-// 2. Unbound Physical Status
+// 2. Service status
 $unboundManager = new \App\UnboundManager();
-$unboundActive = $unboundManager->isServiceRunning();
+$unboundActive  = $unboundManager->isServiceRunning();
 
-// 3. Components & Permissions Audit
+$apiSvcOut = [];
+\App\ShellHelper::exec('/bin/systemctl', ['is-active', 'unbound-api'], $apiSvcOut, $tmpRet, false);
+$apiServiceActive = trim($apiSvcOut[0] ?? '') === 'active';
+
+$redisSvcOut = [];
+\App\ShellHelper::exec('/bin/systemctl', ['is-active', 'redis-server'], $redisSvcOut, $tmpRet, false);
+$redisActive = trim($redisSvcOut[0] ?? '') === 'active';
+
+// 3. API v2 connectivity + LogWatcher status
+$api           = new \App\ApiClient();
+$local         = new \App\LocalDataAdapter();
+$apiOnline     = false;
+$apiVersion    = '—';
+$logWatcherOk  = false;
+$queriesWindow = 0;
+
+try {
+    $healthz    = $api->healthz();
+    $apiOnline  = ($healthz['status'] ?? '') === 'ok';
+    $apiVersion = $healthz['version'] ?? '—';
+} catch (\Throwable) {}
+
+// Prefer local export para liveStats (sem HTTP); fallback para ApiClient
+try {
+    if ($local->isFresh()) {
+        $liveStats     = $local->getLiveStats();
+    } else {
+        $liveStats     = $api->getLiveStats();
+    }
+    $queriesWindow = (int) ($liveStats['total'] ?? 0);
+    $logWatcherOk  = $queriesWindow > 0;
+} catch (\Throwable) {}
+
+// 4. Components & Permissions Audit
 $components = [
-    ['name' => 'Diretório /etc/unbound', 'path' => '/etc/unbound', 'type' => 'dir'],
-    ['name' => 'Configuração (unbound.conf)', 'path' => '/etc/unbound/unbound.conf', 'type' => 'file'],
-    ['name' => 'Chaves TLS (RNDC Remote)', 'path' => '/etc/unbound/unbound_control.pem', 'type' => 'file'],
-    ['name' => 'DNSSEC Root Anchors', 'path' => '/var/lib/unbound/root.key', 'type' => 'file'],
-    ['name' => 'Arquivo de Log (Daemon)', 'path' => '/var/log/unbound.log', 'type' => 'file'],
-    ['name' => 'Permissões Sudo (Dashboard)', 'path' => '/etc/sudoers.d/unbound-dashboard', 'type' => 'file']
+    ['name' => 'Diretório /etc/unbound',        'path' => '/etc/unbound'],
+    ['name' => 'Configuração (unbound.conf)',     'path' => '/etc/unbound/unbound.conf'],
+    ['name' => 'Chaves TLS (Remote Control)',     'path' => '/etc/unbound/unbound_control.pem'],
+    ['name' => 'DNSSEC Root Anchors',             'path' => '/var/lib/unbound/root.key'],
+    ['name' => 'Arquivo de Log (Daemon)',         'path' => '/var/log/unbound/unbound.log'],
+    ['name' => 'Banco DuckDB',                   'path' => '/var/lib/unbound-dashboard/unbound_dash.duckdb'],
+    ['name' => 'Configuração de Ambiente (API)', 'path' => '/etc/unbound-dashboard/env'],
+    ['name' => 'Permissões Sudo (Dashboard)',    'path' => '/etc/sudoers.d/unbound-dashboard'],
 ];
 
 $auditResults = [];
 foreach ($components as $comp) {
-    $exists = false;
-    $perms = '---';
-    $owner = '---';
-    
-    // Check existence and stats via ls to bypass PHP restriction of open_basedir if any
     $lsOut = [];
     \App\ShellHelper::exec('/bin/ls', ['-ld', $comp['path']], $lsOut, $tmpRet, false);
-    
+
+    $exists = false;
+    $perms  = '---';
+    $owner  = '---';
     if (!empty($lsOut[0])) {
         $exists = true;
-        $parts = preg_split('/\s+/', $lsOut[0]);
-        $perms = $parts[0] ?? '???';
-        $owner = ($parts[2] ?? '???') . ':' . ($parts[3] ?? '???');
+        $parts  = preg_split('/\s+/', $lsOut[0]);
+        $perms  = $parts[0] ?? '???';
+        $owner  = ($parts[2] ?? '???') . ':' . ($parts[3] ?? '???');
     }
-    
+
     $auditResults[] = [
-        'name' => $comp['name'],
-        'path' => $comp['path'],
+        'name'   => $comp['name'],
+        'path'   => $comp['path'],
         'exists' => $exists,
-        'perms' => $perms,
-        'owner' => $owner
+        'perms'  => $perms,
+        'owner'  => $owner,
     ];
 }
 
-// 4. Database Integrity Audit
-try {
-    $db = \App\Database::getInstance();
-    $dbStatus = true;
-    $tables = ['users', 'query_logs', 'domain_blacklist', 'daily_stats'];
-    foreach ($tables as $t) {
-        $check = $db->query("SHOW TABLES LIKE '$t'")->fetch();
-        $auditResults[] = [
-            'name' => "Tabela SQL: $t",
-            'path' => "Database: unbound_dash",
-            'exists' => !empty($check),
-            'perms' => 'DRW-',
-            'owner' => 'mariadb:unbound'
-        ];
-    }
-} catch (\Exception $e) {
+// 5. DuckDB table integrity (inferido via conectividade da API v2)
+$dbTables = ['users', 'query_logs', 'alerts', 'daily_stats', 'blocklist_hits'];
+foreach ($dbTables as $t) {
     $auditResults[] = [
-        'name' => 'Conexão MariaDB',
-        'path' => 'localhost:3306',
-        'exists' => false,
-        'perms' => 'ERR!',
-        'owner' => 'offline'
+        'name'   => "Tabela DuckDB: $t",
+        'path'   => '/var/lib/unbound-dashboard/unbound_dash.duckdb',
+        'exists' => $apiOnline,
+        'perms'  => $apiOnline ? 'RW--' : 'ERR!',
+        'owner'  => 'unbound-dash',
     ];
 }
 
@@ -137,36 +159,74 @@ $currentPage = 'health.php';
             </header>
 
 
-            <!-- Status de Hardware & Daemon -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                <div class="glass-panel p-6 rounded-2xl border border-slate-200 dark:border-white/5 flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-full <?= $unboundActive ? 'bg-emerald-500/20 text-emerald-500 dark:text-emerald-400' : 'bg-red-500/20 text-red-500 dark:text-red-400' ?> flex items-center justify-center border border-current opacity-80">
-                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+            <!-- Status de Hardware & Serviços -->
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-10">
+
+                <!-- Unbound DNS -->
+                <div class="glass-panel p-5 rounded-2xl border border-slate-200 dark:border-white/5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full flex-shrink-0 <?= $unboundActive ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500' ?> flex items-center justify-center border border-current opacity-80">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                     </div>
-                    <div>
-                        <div class="text-xs text-slate-500 uppercase font-black tracking-widest">Serviço Unbound</div>
-                        <div class="text-xl font-black <?= $unboundActive ? 'text-emerald-500 dark:text-emerald-400' : 'text-red-500 dark:text-red-400' ?>"><?= $unboundActive ? 'Rodando' : 'Parado/Erro' ?></div>
+                    <div class="min-w-0">
+                        <div class="text-[10px] text-slate-500 uppercase font-black tracking-widest truncate">Unbound DNS</div>
+                        <div class="text-base font-black <?= $unboundActive ? 'text-emerald-500' : 'text-red-500' ?>"><?= $unboundActive ? 'Rodando' : 'Parado' ?></div>
                     </div>
                 </div>
 
-                
-                <div class="glass-panel p-6 rounded-2xl border border-slate-200 dark:border-white/5">
-                    <div class="text-xs text-slate-500 uppercase font-black mb-1 tracking-widest">Carga do Sistema</div>
-                    <div class="text-xl font-black text-slate-900 dark:text-white"><?= $load[0] ?> <span class="text-sm font-normal text-slate-500 ml-1">Média 1m</span></div>
-                    <div class="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
-                        <div class="bg-blue-500 h-full rounded-full transition-all duration-1000" style="width: <?= min(100, $load[0]*10) ?>%"></div>
+                <!-- API v2 -->
+                <div class="glass-panel p-5 rounded-2xl border border-slate-200 dark:border-white/5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full flex-shrink-0 <?= $apiServiceActive ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500' ?> flex items-center justify-center border border-current opacity-80">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                    </div>
+                    <div class="min-w-0">
+                        <div class="text-[10px] text-slate-500 uppercase font-black tracking-widest truncate">API v<?= htmlspecialchars($apiVersion) ?></div>
+                        <div class="text-base font-black <?= $apiServiceActive ? 'text-emerald-500' : 'text-red-500' ?>"><?= $apiServiceActive ? 'Online' : 'Offline' ?></div>
                     </div>
                 </div>
 
-                <div class="glass-panel p-6 rounded-2xl border border-slate-200 dark:border-white/5">
-                    <div class="text-xs text-slate-500 uppercase font-black mb-1 tracking-widest">Memória RAM</div>
-                    <div class="text-xl font-black text-slate-900 dark:text-white"><?= $mem ?>%</div>
-                    <div class="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
-                        <div class="bg-purple-500 h-full rounded-full transition-all duration-1000" style="width: <?= $mem ?>%"></div>
+                <!-- Redis -->
+                <div class="glass-panel p-5 rounded-2xl border border-slate-200 dark:border-white/5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full flex-shrink-0 <?= $redisActive ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500' ?> flex items-center justify-center border border-current opacity-80">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"></path></svg>
+                    </div>
+                    <div class="min-w-0">
+                        <div class="text-[10px] text-slate-500 uppercase font-black tracking-widest truncate">Redis Cache</div>
+                        <div class="text-base font-black <?= $redisActive ? 'text-emerald-500' : 'text-red-500' ?>"><?= $redisActive ? 'Ativo' : 'Parado' ?></div>
+                    </div>
+                </div>
+
+                <!-- Carga -->
+                <div class="glass-panel p-5 rounded-2xl border border-slate-200 dark:border-white/5">
+                    <div class="text-[10px] text-slate-500 uppercase font-black mb-1 tracking-widest">Carga 1m</div>
+                    <div class="text-base font-black text-slate-900 dark:text-white"><?= $load[0] ?></div>
+                    <div class="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
+                        <div class="bg-blue-500 h-full rounded-full" style="width: <?= min(100, $load[0]*10) ?>%"></div>
+                    </div>
+                </div>
+
+                <!-- RAM -->
+                <div class="glass-panel p-5 rounded-2xl border border-slate-200 dark:border-white/5">
+                    <div class="text-[10px] text-slate-500 uppercase font-black mb-1 tracking-widest">Memória RAM</div>
+                    <div class="text-base font-black text-slate-900 dark:text-white"><?= $mem ?>%</div>
+                    <div class="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
+                        <div class="bg-purple-500 h-full rounded-full" style="width: <?= $mem ?>%"></div>
                     </div>
                 </div>
 
             </div>
+
+            <!-- LogWatcher status banner -->
+            <?php if (!$logWatcherOk): ?>
+            <div class="mb-6 flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 rounded-xl px-5 py-3 text-sm font-semibold">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"></path></svg>
+                LogWatcher: nenhuma query DNS registrada na janela atual. Verifique se o Unbound está gravando em <code class="font-mono text-xs">/var/log/unbound/unbound.log</code>.
+            </div>
+            <?php else: ?>
+            <div class="mb-6 flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded-xl px-5 py-3 text-sm font-semibold">
+                <svg class="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                LogWatcher operacional — <?= number_format($queriesWindow) ?> queries registradas na janela atual.
+            </div>
+            <?php endif; ?>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-10">
                 <!-- Auditoria de Componentes -->

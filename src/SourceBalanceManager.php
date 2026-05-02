@@ -2,31 +2,35 @@
 
 namespace App;
 
-use PDO;
-
-require_once __DIR__ . '/Database.php';
+require_once __DIR__ . '/ApiClient.php';
 require_once __DIR__ . '/ShellHelper.php';
 
+use Exception;
+
 class SourceBalanceManager {
-    private PDO $db;
+    private ApiClient $api;
     private string $unboundConfDir = '/etc/unbound';
     private string $nftablesDir = '/etc/nftables.d';
     private string $systemdDir = '/lib/systemd/system';
 
     public function __construct() {
-        $this->db = Database::getInstance();
+        $this->api = new ApiClient();
     }
 
     public function getSettings(): array {
-        $stmt = $this->db->prepare("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'source_balance_%'");
-        $stmt->execute();
-        $results = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        try {
+            // API v2 retorna dict plano {"key": "value", ...}
+            $all = $this->api->getSettings();
+            $results = is_array($all) ? $all : [];
+        } catch (Exception $e) {
+            $results = [];
+        }
 
         return [
-            'enabled' => ($results['source_balance_enabled'] ?? 'no') === 'yes',
-            'instances' => (int)($results['source_balance_instances'] ?? 4),
-            'anycast_ipv4' => $results['source_balance_anycast_ipv4'] ?? '4.2.2.5, 4.2.2.6',
-            'anycast_ipv6' => $results['source_balance_anycast_ipv6'] ?? '2620:119:35::35, 2620:119:53::53'
+            'enabled'       => ($results['source_balance_enabled'] ?? 'no') === 'yes',
+            'instances'     => (int)($results['source_balance_instances'] ?? 4),
+            'anycast_ipv4'  => $results['source_balance_anycast_ipv4'] ?? '4.2.2.5, 4.2.2.6',
+            'anycast_ipv6'  => $results['source_balance_anycast_ipv6'] ?? '2620:119:35::35, 2620:119:53::53',
         ];
     }
 
@@ -46,16 +50,16 @@ class SourceBalanceManager {
     }
 
     public function saveSettings(array $settings): void {
-        $fields = [
-            'source_balance_enabled' => !empty($settings['enabled']) ? 'yes' : 'no',
-            'source_balance_instances' => (int)($settings['instances'] ?? 4),
+        $payload = [
+            'source_balance_enabled'      => !empty($settings['enabled']) ? 'yes' : 'no',
+            'source_balance_instances'    => (string)(int)($settings['instances'] ?? 4),
             'source_balance_anycast_ipv4' => $this->sanitizeIpList($settings['anycast_ipv4'] ?? ''),
-            'source_balance_anycast_ipv6' => $this->sanitizeIpList($settings['anycast_ipv6'] ?? '')
+            'source_balance_anycast_ipv6' => $this->sanitizeIpList($settings['anycast_ipv6'] ?? ''),
         ];
-
-        $stmt = $this->db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
-        foreach ($fields as $key => $value) {
-            $stmt->execute([$key, $value, $value]);
+        try {
+            $this->api->saveSettings($payload);
+        } catch (Exception $e) {
+            // falha silenciosa
         }
     }
 

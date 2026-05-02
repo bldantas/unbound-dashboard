@@ -29,6 +29,7 @@ SKIP_FRONTEND="${SKIP_FRONTEND:-false}"
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION_FILE="$PROJECT_DIR/VERSION"
+VERSION_API_FILE="$PROJECT_DIR/VERSION-api"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BUILD_DIR="/tmp/unbound-dashboard-update-$$"
 OUTPUT_DIR="$PROJECT_DIR/dist"
@@ -88,24 +89,24 @@ copy_files() {
     info "Copiando arquivos para o pacote de update..."
     mkdir -p "$BUILD_DIR"
 
-    # Código Python da aplicação
+    # Projeto completo (API v2 + frontend PHP v1)
     rsync -a \
+        --exclude='.git' \
+        --exclude='.venv' \
         --exclude='__pycache__' \
         --exclude='*.pyc' \
         --exclude='.pytest_cache' \
         --exclude='.mypy_cache' \
         --exclude='.ruff_cache' \
-        "$PROJECT_DIR/app/"        "$BUILD_DIR/app/"
-
-    # Migrations (idempotentes — seguro incluir todas)
-    rsync -a "$PROJECT_DIR/migrations/" "$BUILD_DIR/migrations/"
-
-    # Frontend build (estáticos compilados)
-    mkdir -p "$BUILD_DIR/frontend/dist"
-    rsync -a "$PROJECT_DIR/frontend/dist/" "$BUILD_DIR/frontend/dist/"
+        --exclude='dist/' \
+        --exclude='tools/' \
+        --exclude='tests/' \
+        --exclude='unbound-dashboard-update-*' \
+        --exclude='*.tar.gz' \
+        "$PROJECT_DIR/" "$BUILD_DIR/app/"
 
     # Arquivos raiz
-    for f in VERSION CHANGELOG.md pyproject.toml; do
+    for f in VERSION VERSION-api CHANGELOG.md CHANGELOG-api.md pyproject.toml; do
         [ -f "$PROJECT_DIR/$f" ] && cp "$PROJECT_DIR/$f" "$BUILD_DIR/$f"
     done
 
@@ -121,6 +122,8 @@ copy_files() {
 
     # Atualiza VERSION no staging com a versão pós-bump
     printf "%s\n" "$VERSION" > "$BUILD_DIR/VERSION"
+    # Copia VERSION-api (sem bump automático)
+    [ -f "$VERSION_API_FILE" ] && cp "$VERSION_API_FILE" "$BUILD_DIR/VERSION-api"
 
     log "Arquivos copiados"
 }
@@ -178,10 +181,10 @@ print_summary() {
     echo "     scp $archive user@server:/tmp/"
     echo ""
     echo "  2. Dry-run (sem modificações):"
-    echo "     sudo DRY_RUN=true bash /opt/unbound-dashboard/tools/update.sh /tmp/$name"
+    echo "     sudo DRY_RUN=true bash /tmp/unbound-dashboard-update-*/update.sh /tmp/$name"
     echo ""
     echo "  3. Aplicar o update:"
-    echo "     sudo bash /opt/unbound-dashboard/tools/update.sh /tmp/$name"
+    echo "     sudo bash /tmp/unbound-dashboard-update-*/update.sh /tmp/$name"
     echo ""
 }
 

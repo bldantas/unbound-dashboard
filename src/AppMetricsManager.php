@@ -2,9 +2,10 @@
 
 namespace App;
 
-use PDO;
 use Exception;
 
+require_once __DIR__ . '/ApiClient.php';
+require_once __DIR__ . '/LocalDataAdapter.php';
 require_once __DIR__ . '/ShellHelper.php';
 
 /**
@@ -12,29 +13,46 @@ require_once __DIR__ . '/ShellHelper.php';
  */
 class AppMetricsManager {
 
-    private PDO $db;
+    private ApiClient $api;
+    private LocalDataAdapter $local;
 
     public function __construct() {
-        require_once __DIR__ . '/Database.php';
-        $this->db = Database::getInstance();
+        $this->api   = new ApiClient();
+        $this->local = new LocalDataAdapter();
     }
 
+    /**
+     * Retorna métricas do backend v2 (DuckDB/FastAPI).
+     * Usa o export local para verificar vitalidade sem chamada HTTP quando possível.
+     * Mantém a mesma assinatura para compatibilidade com código existente.
+     */
     public function getMariaDBStats(): array {
-        try {
-            $stmt = $this->db->query("SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected', 'Queries', 'Slow_queries')");
-            $results = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        // Se o export estiver fresco, a v2 está viva (worker escreveu recentemente)
+        if ($this->local->isFresh()) {
+            $stats = $this->local->getLiveStats();
             return [
-                'status' => 'online',
-                'connections' => (int)($results['Threads_connected'] ?? 0),
-                'queries' => (int)($results['Queries'] ?? 0),
-                'slow' => (int)($results['Slow_queries'] ?? 0)
+                'status'      => 'online',
+                'connections' => 0,
+                'queries'     => (int)($stats['total'] ?? 0),
+                'slow'        => 0,
+            ];
+        }
+
+        // Fallback: verificar via HTTP
+        try {
+            $health = $this->api->getHealth();
+            return [
+                'status'      => ($health['status'] ?? 'error') === 'ok' ? 'online' : 'offline',
+                'connections' => (int)($health['active_connections'] ?? 0),
+                'queries'     => (int)($health['total_queries'] ?? 0),
+                'slow'        => 0,
             ];
         } catch (Exception $e) {
             return [
-                'status' => 'offline',
+                'status'      => 'offline',
                 'connections' => 0,
-                'queries' => 0,
-                'slow' => 0
+                'queries'     => 0,
+                'slow'        => 0,
             ];
         }
     }

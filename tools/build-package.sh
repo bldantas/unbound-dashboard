@@ -32,6 +32,10 @@ VERSION_FILE="$PROJECT_DIR/VERSION"
 VERSION=$(tr -d '[:space:]' < "$VERSION_FILE")
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || err "Formato inválido em VERSION: '$VERSION'"
 
+VERSION_API_FILE="$PROJECT_DIR/VERSION-api"
+VERSION_API=""
+[ -f "$VERSION_API_FILE" ] && VERSION_API=$(tr -d '[:space:]' < "$VERSION_API_FILE") || warn "VERSION-api não encontrado"
+
 PACKAGE_NAME="unbound-dashboard-v${VERSION}"
 BUILD_DIR="/tmp/unbound-dashboard-build-$$"
 OUTPUT_DIR="$PROJECT_DIR/dist"
@@ -93,10 +97,28 @@ rsync -a \
     --exclude='tools/' \
     --exclude='unbound-dashboard-update-*' \
     --exclude='*.tar.gz' \
+     --exclude='data/*.db' \
+     --exclude='data/*.sqlite' \
+     --exclude='data/*.duckdb' \
+     --exclude='data/*.wal' \
+     --exclude='data/*.shm' \
+     --exclude='data/*.bak' \
+     --exclude='data/tmp/*.lock' \
     "$PROJECT_DIR/" "$STAGING/app/"
 
 # Mantém apenas o dist do frontend
 log "Código Python e frontend/dist copiados"
+
+# Garante pacote limpo sem artefatos de banco/runtime locais
+find "$STAGING/app/data" -maxdepth 1 -type f \
+     \( -name '*.db' -o -name '*.sqlite' -o -name '*.duckdb' -o -name '*.wal' -o -name '*.shm' -o -name '*.bak' \) \
+     -delete 2>/dev/null || true
+find "$STAGING/app/data/tmp" -maxdepth 1 -type f -name '*.lock' -delete 2>/dev/null || true
+
+# Copiar arquivos de versão e changelog separados
+for f in VERSION VERSION-api CHANGELOG.md CHANGELOG-api.md; do
+    [ -f "$PROJECT_DIR/$f" ] && cp "$PROJECT_DIR/$f" "$STAGING/app/$f"
+done
 
 # Scripts de sistema
 mkdir -p "$STAGING/system/systemd"
@@ -127,6 +149,12 @@ API_HOST=127.0.0.1
 API_PORT=8000
 LOG_LEVEL=info
 
+# Log do Unbound — deve coincidir com logfile: em /etc/unbound/includes/general.conf
+UNBOUND_LOG=/var/log/unbound/unbound.log
+
+# Binário do unbound-control
+UNBOUND_CONTROL=/usr/sbin/unbound-control
+
 # CORS (adicione o domínio real em produção)
 # CORS_ORIGINS=["https://dashboard.example.com"]
 ENVEOF
@@ -134,6 +162,8 @@ ENVEOF
 # Instalador
 cp "$PROJECT_DIR/tools/install.sh" "$STAGING/install.sh"
 chmod +x "$STAGING/install.sh"
+cp "$PROJECT_DIR/tools/update.sh" "$STAGING/update.sh"
+chmod +x "$STAGING/update.sh"
 log "Instalador incluído"
 
 # ============================================================
@@ -141,8 +171,9 @@ log "Instalador incluído"
 # ============================================================
 cat > "$STAGING/LEIAME.txt" << EOF
 ============================================================
-  Unbound Dashboard v${VERSION}
-  Pacote de Instalação — Sistema v2 (Python/FastAPI/DuckDB)
+  Unbound Dashboard
+     Frontend PHP v1 ${VERSION} + API Python v2 ${VERSION_API}
+     Pacote de Instalação — Sistema Híbrido
 ============================================================
 
 Requisitos:
@@ -160,21 +191,22 @@ Instalação:
        cd /tmp/${PACKAGE_NAME}
        sudo bash install.sh
 
-  3. Após a instalação, edite o arquivo de ambiente:
+  3. Após a instalação, valide os arquivos de ambiente:
        sudo nano /etc/unbound-dashboard/env
-       # Defina JWT_SECRET com: openssl rand -hex 32
+       sudo nano /etc/unbound-dashboard.env
 
-  4. Reinicie o serviço:
-       sudo systemctl restart unbound-api
+  4. Verifique os serviços:
+       sudo systemctl status unbound-api redis-server apache2
 
-  5. Configure o Caddy com seu domínio:
+  5. Opcional (proxy TLS com Caddy):
        sudo nano /etc/caddy/Caddyfile
        sudo systemctl reload caddy
 
 Conteúdo do pacote:
-  app/          → Código Python + frontend/dist
+     app/          → Código completo (PHP v1 + API v2)
   system/       → Templates systemd, Caddy, env
   install.sh    → Instalador automatizado
+     update.sh     → Script de atualização
   LEIAME.txt    → Este arquivo
 ============================================================
 EOF

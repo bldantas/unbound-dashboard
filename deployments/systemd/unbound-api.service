@@ -4,18 +4,17 @@ Documentation=https://github.com/your-org/unbound-dashboard
 After=network.target redis.service
 
 [Service]
-Type=notify
-NotifyAccess=main
+Type=simple
 
-# Usuário sem privilégios (crie com: useradd --system --no-create-home unbound-dash)
-User=unbound-dash
-Group=unbound-dash
+# Usuário sem privilégios (substituído automaticamente pelo instalador)
+User={{SERVICE_USER}}
+Group={{SERVICE_USER}}
 
 WorkingDirectory=/opt/unbound-dashboard
 ExecStart=/opt/unbound-dashboard/.venv/bin/uvicorn app.main:app \
     --host 127.0.0.1 \
     --port 8000 \
-    --workers 2 \
+    --workers 1 \
     --loop uvloop \
     --log-level info
 

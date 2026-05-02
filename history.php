@@ -2,7 +2,8 @@
 date_default_timezone_set('America/Sao_Paulo');
 require_once 'src/Auth.php';
 require_once 'src/ShellHelper.php';
-require_once 'src/Database.php';
+require_once 'src/ApiClient.php';
+require_once 'src/LocalDataAdapter.php';
 
 \App\Auth::check();
 
@@ -38,37 +39,54 @@ if (function_exists('ob_flush')) {
 }
 flush();
 
-$db = \App\Database::getInstance();
+$api = new \App\ApiClient();
+$local = new \App\LocalDataAdapter();
 $topDomains = [];
 $recentQueries = [];
 
 try {
-    // Top 10 limited to last 24h
-    $topDomains = $db->query("
-        SELECT domain, COUNT(*) as count 
-        FROM query_logs 
-        WHERE timestamp >= UNIX_TIMESTAMP(NOW() - INTERVAL 1 DAY)
-        GROUP BY domain 
-        ORDER BY count DESC 
-        LIMIT 10
-    ")->fetchAll();
-    
+    // Top 10 domínios: prefer local export; fallback para API
+    if ($local->isFresh()) {
+        $liveStats = $local->getLiveStats();
+        $topDomainsRaw = $liveStats['top_domains'] ?? [];
+        foreach ($topDomainsRaw as $d) {
+            $topDomains[] = [
+                'domain' => $d['domain'] ?? $d['name'] ?? '',
+                'count' => (int) ($d['hits'] ?? $d['count'] ?? 0)
+            ];
+        }
+    } else {
+        $liveStats = $api->getLiveStats();
+        $topDomainsRaw = $liveStats['top_domains'] ?? [];
+        foreach ($topDomainsRaw as $d) {
+            $topDomains[] = [
+                'domain' => $d['domain'] ?? $d['name'] ?? '',
+                'count' => (int) ($d['count'] ?? $d['hits'] ?? 0)
+            ];
+        }
+    }
+} catch (\Throwable $e) {
+    $topDomains = [];
+}
+
+try {
     $limitParam = $_GET['limit'] ?? '10';
     if ($limitParam === 'todos') {
-        $limitClause = "LIMIT 1000"; // Previnir sobrecarga excessiva
+        $limitNum = 1000;
     } else {
         $limitNum = (int)$limitParam;
         if ($limitNum <= 0) $limitNum = 10;
-        $limitClause = "LIMIT $limitNum";
     }
 
-    // Fetch recent queries fast using subquery to prevent filesort before JOIN
-    $recentQueries = $db->query("
-        SELECT l.*, b.category 
-        FROM (SELECT * FROM query_logs ORDER BY timestamp DESC $limitClause) l 
-        LEFT JOIN domain_blacklist b ON l.domain = b.domain 
-    ")->fetchAll();
-} catch (\Exception $e) {}
+    // Query logs recentes: prefer local export; fallback para API
+    if ($local->isFresh()) {
+        $recentQueries = $local->getQueryLogs($limitNum);
+    } else {
+        $recentQueries = $api->getQueryLogs($limitNum);
+    }
+} catch (\Throwable $e) {
+    $recentQueries = [];
+}
 
 $topLabels = json_encode(array_column($topDomains, 'domain'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 $topValues = json_encode(array_column($topDomains, 'count'));
@@ -188,7 +206,7 @@ $currentPage = 'history.php';
                                     </td>
 
                                     <td>
-                                        <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full <?= $q['category'] ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' : 'bg-slate-800 text-slate-500' ?>">
+                                        <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full <?= ($q['category'] ?? null) ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' : 'bg-slate-800 text-slate-500' ?>">
                                             <?= htmlspecialchars($q['category'] ?? 'Geral') ?>
                                         </span>
                                     </td>

@@ -2,21 +2,23 @@
 
 namespace App;
 
-use PDO;
+require_once __DIR__ . '/ApiClient.php';
 
-require_once __DIR__ . '/Database.php';
+use Exception;
 
 class BlocklistManager {
-    private PDO $db;
+    private ApiClient $api;
 
     public function __construct() {
-        $this->db = Database::getInstance();
+        $this->api = new ApiClient();
     }
 
     public function getBlocklistSource(): string {
-        $stmt = $this->db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'blacklist_source'");
-        $stmt->execute();
-        return $stmt->fetchColumn() ?: 'stevenblack'; // Default to StevenBlack
+        try {
+            return $this->api->getSetting('blacklist_source') ?? 'stevenblack';
+        } catch (Exception $e) {
+            return 'stevenblack';
+        }
     }
 
     public function saveBlocklistSource(string $source): bool {
@@ -24,8 +26,11 @@ class BlocklistManager {
         if (!in_array($source, $allowedSources)) {
             return false;
         }
-
-        $stmt = $this->db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('blacklist_source', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
-        return $stmt->execute([$source, $source]);
+        try {
+            $this->api->setSetting('blacklist_source', $source);
+            return true;
+        } catch (Exception $e) {
+            return false;
+        }
     }
 }

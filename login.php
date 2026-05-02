@@ -9,11 +9,8 @@ if (!file_exists(__DIR__ . '/data/.installed')) {
     exit;
 }
 
-// Se não houver usuários (edge case), também redireciona para o setup
-if (!\App\Auth::hasUsers()) {
-    header('Location: setup.php');
-    exit;
-}
+// Importante: se .installed existe, nunca redirecionar para setup.php aqui.
+// Em caso de falha temporária da API v2, manter a tela de login evita loop.
 
 if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
     header('Location: index.php');
