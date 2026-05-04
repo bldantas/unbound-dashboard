@@ -1,6 +1,14 @@
 <!-- includes/head.php -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<?php
+// JWT pra chamadas fetch() em endpoints novos da FastAPI (api_service/).
+// Frontend lê via: document.querySelector('meta[name="api-jwt"]').content
+// Nunca renderiza o token se sessão não autenticada (defesa em profundidade).
+if (!empty($_SESSION['logged_in']) && !empty($_SESSION['api_jwt'])) {
+    echo '<meta name="api-jwt" content="' . htmlspecialchars((string) $_SESSION['api_jwt'], ENT_QUOTES, 'UTF-8') . '">' . "\n";
+}
+?>
 <link rel="stylesheet" href="src/dashboard.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>

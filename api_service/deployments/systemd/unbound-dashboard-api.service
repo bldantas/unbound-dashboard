@@ -1,0 +1,36 @@
+[Unit]
+Description=Unbound Dashboard API (v1 modernization — FastAPI)
+Documentation=file:///var/www/html/unbound-dashboard/docs/PLANO_MODERNIZACAO_V1.md
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=exec
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/unbound-dashboard/api_service
+EnvironmentFile=/etc/unbound-dashboard/api-v1.env
+ExecStart=/var/www/html/unbound-dashboard/api_service/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=yes
+LockPersonality=yes
+
+# Caminhos onde o serviço pode escrever
+ReadWritePaths=/var/lib/unbound-dashboard /var/www/html/unbound-dashboard/data /var/www/html/unbound-dashboard/src/data
+
+[Install]
+WantedBy=multi-user.target

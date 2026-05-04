@@ -1,0 +1,137 @@
+"""
+FastAPI app da modernização v1 do Unbound Dashboard.
+
+Servido por Uvicorn em 127.0.0.1:8001. Apache faz reverse proxy de /api/v1/*
+para este processo. Endpoints PHP legados em /var/www/html/unbound-dashboard/api/*.php
+continuam servidos pelo Apache durante a transição (ver docs/PLANO_MODERNIZACAO_V1.md).
+"""
+
+from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager
+
+import structlog
+from fastapi import FastAPI
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from app.core.config import settings
+from app.core.metrics import setup_metrics
+from app.core.rate_limit import limiter
+from app.db import run_migrations
+from app.routers import (
+    alerts,
+    auth,
+    blocklist,
+    exports,
+    health,
+    history,
+    stats,
+    threats,
+    users,
+)
+from app.routers import unbound as unbound_router
+from app.workers import AlertChecker, LogWatcher, StatsAggregator, UnboundCollector
+
+log = structlog.get_logger()
+
+_background_tasks: list[asyncio.Task] = []
+_SUPERVISOR_BACKOFF_INITIAL = 1.0
+_SUPERVISOR_BACKOFF_MAX = 60.0
+
+
+async def _supervised(name: str, worker) -> None:
+    """
+    Roda worker.start() reiniciando com backoff exponencial em caso de crash.
+
+    Encerra graciosamente se start() retornar normalmente (ex: após
+    worker.stop() externo). CancelledError é re-lançado para shutdown limpo
+    via task.cancel().
+    """
+    backoff = _SUPERVISOR_BACKOFF_INITIAL
+    while True:
+        try:
+            await worker.start()
+            log.info("worker.exited_gracefully", name=name)
+            return
+        except asyncio.CancelledError:
+            log.info("worker.cancelled", name=name)
+            raise
+        except Exception as exc:  # noqa: BLE001
+            log.error("worker.crashed", name=name, error=str(exc), backoff_s=backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, _SUPERVISOR_BACKOFF_MAX)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log.info(
+        "unbound-dashboard-api iniciando",
+        version=settings.api_version,
+        db_path=settings.db_path,
+    )
+
+    # Migrations DuckDB idempotentes
+    run_migrations()
+
+    # Workers em background — supervisionados (restart on crash, backoff exponencial)
+    log_watcher = LogWatcher()
+    stats_aggregator = StatsAggregator()
+    alert_checker = AlertChecker()
+    unbound_collector = UnboundCollector()
+    _background_tasks.extend(
+        [
+            asyncio.create_task(_supervised("log_watcher", log_watcher), name="log_watcher"),
+            asyncio.create_task(
+                _supervised("stats_aggregator", stats_aggregator), name="stats_aggregator"
+            ),
+            asyncio.create_task(_supervised("alert_checker", alert_checker), name="alert_checker"),
+            asyncio.create_task(
+                _supervised("unbound_collector", unbound_collector), name="unbound_collector"
+            ),
+        ]
+    )
+    log.info("workers iniciados, API pronta")
+
+    yield
+
+    # Shutdown: sinaliza stop, cancela tasks, drena
+    log.info("unbound-dashboard-api encerrando")
+    await log_watcher.stop()
+    await stats_aggregator.stop()
+    await alert_checker.stop()
+    await unbound_collector.stop()
+    for task in _background_tasks:
+        task.cancel()
+    await asyncio.gather(*_background_tasks, return_exceptions=True)
+    _background_tasks.clear()
+
+
+app = FastAPI(
+    title="Unbound Dashboard API (v1 modernization)",
+    description="Backend Python da v1. Apache proxia /api/v1/* para cá.",
+    version=settings.api_version,
+    docs_url="/api/v1/docs",
+    redoc_url="/api/v1/redoc",
+    openapi_url="/api/v1/openapi.json",
+    lifespan=lifespan,
+)
+
+# Rate limiting (slowapi) — shared limiter instance + handler 429
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Prometheus metrics em /metrics (sem auth — scraper precisa acesso livre)
+setup_metrics(app)
+
+app.include_router(alerts.router)
+app.include_router(auth.router)
+app.include_router(blocklist.router)
+app.include_router(exports.router)
+app.include_router(health.router)
+app.include_router(history.router)
+app.include_router(stats.router)
+app.include_router(threats.router)
+app.include_router(unbound_router.router)
+app.include_router(users.router)

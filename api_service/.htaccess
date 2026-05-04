@@ -1,0 +1,6 @@
+# Apache serve /var/www/html/unbound-dashboard como DocumentRoot.
+# Esta pasta (api_service/) é código backend Python e NÃO deve ser
+# exposta pelo webserver. Apache só deve PROXIAR /api/v1/* para o
+# Uvicorn rodando em 127.0.0.1:8001 (ver configuração em
+# /etc/apache2/sites-available/).
+Require all denied

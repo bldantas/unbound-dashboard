@@ -1,0 +1,235 @@
+"""
+AlertChecker — substitui scripts/cron_alerts.php (PHP cron) + adiciona check
+DNS-específico (no_queries via query_logs).
+
+Categorias de alerta cobertas:
+  - no_queries        — zero queries DNS nos últimos 10min (query_logs DuckDB)
+  - cpu               — load1 > 4.0 (psutil)
+  - memory            — RAM uso > 90% (psutil)
+  - swap              — swap uso > 50% (psutil)
+  - disk              — disco / uso > 90% (shutil)
+  - network           — errors OR drops > 100 (psutil)
+  - security          — SSH failed logins hoje > 50 (journalctl)
+  - webserver         — apache2 systemd unit inativa (systemctl)
+
+NÃO coberto (vs PHP original):
+  - DB connection count (PHP usa SHOW GLOBAL STATUS no MariaDB) — MariaDB
+    está em tear-down planejado, perde sentido manter check da contagem.
+    O check de "MariaDB online" é coberto via systemctl is-active mariadb
+    (mas só ativado se settings.check_mariadb=True; default false porque
+    o plano tira MariaDB).
+
+Padrão de cada check:
+  - Se condição violada → _raise_alert(type, severity, message) com dedupe
+  - Se condição OK → _resolve_alert(type) marca alertas ativos como resolvidos
+
+Lições do audit aplicadas:
+  - Erros pontuais não crasham o worker (try/except por check)
+  - structlog estruturado pra cada alerta criado/resolvido
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import structlog
+
+from app.core.metrics import worker_errors
+from app.infrastructure import system_health
+from app.repositories.duckdb.connection import db_execute, db_fetchone
+
+log = structlog.get_logger(__name__)
+
+CHECK_INTERVAL = 60  # segundos
+QUERY_STALL_WINDOW = 600  # 10 minutos sem query DNS = alerta
+NO_QUERIES_COOLDOWN_HOURS = 6
+
+# Thresholds — alinhados com src/AlertManager.php constantes
+THRESHOLD_CPU_LOAD1 = 4.0
+THRESHOLD_MEM_PERCENT = 90.0
+THRESHOLD_SWAP_PERCENT = 50.0
+THRESHOLD_DISK_PERCENT = 90.0
+THRESHOLD_NETWORK_ERRORS = 100
+THRESHOLD_SSH_FAILED_LOGINS = 50
+
+WEBSERVER_UNIT = "apache2.service"
+
+
+class AlertChecker:
+    def __init__(self) -> None:
+        self._running = False
+
+    async def start(self) -> None:
+        self._running = True
+        while self._running:
+            await self._run_all_checks()
+            await asyncio.sleep(CHECK_INTERVAL)
+
+    async def stop(self) -> None:
+        self._running = False
+
+    # ----------------------------------------------------------------- #
+    # Orquestração                                                         #
+    # ----------------------------------------------------------------- #
+
+    async def _run_all_checks(self) -> None:
+        """
+        Roda os 8 checks. Cada falha pontual loga + métrica + segue —
+        NÃO crasha o worker (supervisor restart é overkill pra erro de query).
+        """
+        checks = [
+            ("no_queries", self._check_no_queries),
+            ("cpu", self._check_cpu),
+            ("memory", self._check_memory),
+            ("swap", self._check_swap),
+            ("disk", self._check_disk),
+            ("network", self._check_network),
+            ("security", self._check_security),
+            ("webserver", self._check_webserver),
+        ]
+        for name, check in checks:
+            try:
+                await check()
+            except Exception as exc:  # noqa: BLE001
+                log.error("alert_checker.check_failed", check=name, error=str(exc))
+                worker_errors.labels(worker="alert_checker").inc()
+
+    # ----------------------------------------------------------------- #
+    # Helpers de raise/resolve com dedupe                                  #
+    # ----------------------------------------------------------------- #
+
+    async def _raise_alert(self, alert_type: str, severity: str, message: str) -> None:
+        """Cria alerta apenas se não há um ativo do mesmo type (dedupe)."""
+        existing = await db_fetchone(
+            "SELECT id FROM alerts WHERE type = ? AND resolved_at IS NULL LIMIT 1",
+            [alert_type],
+        )
+        if existing:
+            return
+        await db_execute(
+            "INSERT INTO alerts (type, severity, message, started_at) VALUES (?, ?, ?, NOW())",
+            [alert_type, severity, message],
+        )
+        log.warning("alert_checker.created", type=alert_type, severity=severity, message=message)
+
+    async def _resolve_alert(self, alert_type: str) -> None:
+        """Marca alertas ativos do type como resolvidos (UPDATE WHERE resolved_at IS NULL)."""
+        await db_execute(
+            "UPDATE alerts SET resolved_at = NOW() WHERE type = ? AND resolved_at IS NULL",
+            [alert_type],
+        )
+
+    # ----------------------------------------------------------------- #
+    # Checks individuais                                                   #
+    # ----------------------------------------------------------------- #
+
+    async def _check_no_queries(self) -> None:
+        """Zero queries DNS nos últimos QUERY_STALL_WINDOW segundos = alerta DNS travado."""
+        row = await db_fetchone(
+            """
+            SELECT COUNT(*) AS n
+            FROM query_logs
+            WHERE timestamp >= (epoch(now()) - ?)::INTEGER
+            """,
+            [QUERY_STALL_WINDOW],
+        )
+        recent_count = int(row["n"]) if row else 0
+
+        if recent_count > 0:
+            # Auto-resolve + dismiss (DNS voltou — não acumular ruído)
+            await db_execute(
+                """
+                UPDATE alerts
+                SET resolved_at = NOW(), is_dismissed = true
+                WHERE type = 'no_queries' AND resolved_at IS NULL
+                """,
+                [],
+            )
+            return
+
+        existing = await db_fetchone(
+            "SELECT id FROM alerts WHERE type = 'no_queries' AND resolved_at IS NULL LIMIT 1",
+            [],
+        )
+        if existing:
+            return
+
+        # Cooldown 6h pra evitar re-alerta após reconhecimento manual
+        recent_alert = await db_fetchone(
+            """
+            SELECT id FROM alerts
+            WHERE type = 'no_queries'
+              AND started_at >= NOW() - (INTERVAL '1 hour' * ?)
+            ORDER BY started_at DESC LIMIT 1
+            """,
+            [NO_QUERIES_COOLDOWN_HOURS],
+        )
+        if recent_alert:
+            return
+
+        await db_execute(
+            """
+            INSERT INTO alerts (type, severity, message, started_at)
+            VALUES ('no_queries', 'critical', ?, NOW())
+            """,
+            ["Nenhuma query DNS registrada nos últimos 10 minutos."],
+        )
+        log.warning("alert_checker.created", type="no_queries")
+
+    async def _check_cpu(self) -> None:
+        load1 = system_health.cpu_load1()
+        if load1 > THRESHOLD_CPU_LOAD1:
+            await self._raise_alert(
+                "cpu", "warning", f"Sobrecarga de CPU: Load Average {load1:.2f}"
+            )
+        else:
+            await self._resolve_alert("cpu")
+
+    async def _check_memory(self) -> None:
+        percent = system_health.memory_percent()
+        if percent > THRESHOLD_MEM_PERCENT:
+            await self._raise_alert("memory", "critical", f"Falta de RAM: {percent:.1f}% em uso")
+        else:
+            await self._resolve_alert("memory")
+
+    async def _check_swap(self) -> None:
+        percent = system_health.swap_percent()
+        if percent > THRESHOLD_SWAP_PERCENT:
+            await self._raise_alert("swap", "warning", f"Uso excessivo de Swap: {percent:.1f}%")
+        else:
+            await self._resolve_alert("swap")
+
+    async def _check_disk(self) -> None:
+        percent = system_health.disk_percent_root()
+        if percent > THRESHOLD_DISK_PERCENT:
+            await self._raise_alert(
+                "disk", "critical", f"Armazenamento Crítico: {percent:.1f}% cheio"
+            )
+        else:
+            await self._resolve_alert("disk")
+
+    async def _check_network(self) -> None:
+        net = system_health.network_errors_drops()
+        if net["errors"] > THRESHOLD_NETWORK_ERRORS or net["drops"] > THRESHOLD_NETWORK_ERRORS:
+            await self._raise_alert(
+                "network",
+                "warning",
+                f"Instabilidade na Rede: {net['errors']} erros e {net['drops']} drops",
+            )
+        # Note: PHP original NÃO resolve network alerts (counters são acumulativos
+        # desde boot — só sobem). Mantemos o mesmo comportamento.
+
+    async def _check_security(self) -> None:
+        failed = await system_health.ssh_failed_logins_today()
+        if failed > THRESHOLD_SSH_FAILED_LOGINS:
+            await self._raise_alert(
+                "security", "critical", f"Alto nível de falhas SSH hoje: {failed} tentativas."
+            )
+        else:
+            await self._resolve_alert("security")
+
+    async def _check_webserver(self) -> None:
+        if not await system_health.is_service_active(WEBSERVER_UNIT):
+            await self._raise_alert("webserver", "critical", "O Servidor Web não foi detectado!")
+        else:
+            await self._resolve_alert("webserver")

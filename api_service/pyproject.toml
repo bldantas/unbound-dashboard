@@ -1,0 +1,52 @@
+[project]
+name = "unbound-dashboard-api"
+version = "0.1.0"
+description = "FastAPI service da modernização v1 do Unbound Dashboard (DuckDB + Redis + workers asyncio). Apache proxia /api/v1/* para esta API em 127.0.0.1:8001."
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "duckdb>=1.1",
+    "redis[hiredis]>=5.2",
+    "python-jose[cryptography]>=3.3",
+    "bcrypt>=4.2",
+    "slowapi>=0.1.9",
+    "structlog>=24.4",
+    "prometheus-fastapi-instrumentator>=7.0",
+    "psutil>=6.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "httpx>=0.27",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pymysql>=1.1.3",
+    "pandas>=3.0.2",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S"]
+ignore = ["S101"]  # assert OK em tests
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "E501"]  # tests: hardcoded creds OK; log lines longas em parametrize
+"tools/**" = ["S608"]  # tools de migração constroem SQL com nomes de tabela próprios
+"app/repositories/duckdb/connection.py" = ["S608"]  # bulk insert constrói INSERT com nome de tabela
+"app/workers/log_watcher.py" = ["S104"]  # "0.0.0.0" é string de classificação, não bind address
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
