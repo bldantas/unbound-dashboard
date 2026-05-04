@@ -1,226 +1,146 @@
 #!/bin/bash
 # ============================================================
-# Unbound Dashboard — Update Script
-# Sincroniza código e configurações com servidor novo
+# Unbound Dashboard — Update Script v2.2.0+
+#
+# Aplica um pacote de update (.tar.gz ou diretório extraído) em
+# uma instalação existente. Stack: PHP + FastAPI/DuckDB/Redis.
+#
+# Uso:
+#   sudo bash update.sh /tmp/unbound-dashboard-update-*.tar.gz
+#   sudo bash update.sh /caminho/para/diretorio-extraido
+#
+# Variáveis de ambiente:
+#   DRY_RUN=true          Simula sem aplicar mudanças
+#   AUTO_RESTART=false    Não reinicia api_service/Apache (default: true)
+#   VERBOSE=true          Saída detalhada
+#   SKIP_VENV_SYNC=true   Pula `uv sync` mesmo se pyproject.toml mudou
 # ============================================================
 
 set -euo pipefail
 
 # ============================================================
-# CONFIGURAÇÃO
+# CONFIG
 # ============================================================
 DASHBOARD_DIR="/var/www/html/unbound-dashboard"
+APISERVICE_DIR="$DASHBOARD_DIR/api_service"
+ETC_DIR="/etc/unbound-dashboard"
+ENV_FILE="$ETC_DIR/api-v1.env"
+DUCKDB_PATH="/var/lib/unbound-dashboard/unbound_dash.duckdb"
 BACKUP_DIR="/var/backups/unbound-dashboard"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION_FILE="$DASHBOARD_DIR/VERSION"
-VERSION="1.0.0"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-UPDATE_PACKAGE="${1:-.}"
+UPDATE_PACKAGE="${1:-}"
 DRY_RUN="${DRY_RUN:-false}"
 VERBOSE="${VERBOSE:-false}"
-AUTO_RESTART="${AUTO_RESTART:-false}"
-AUTO_PREPARE_DB="${AUTO_PREPARE_DB:-true}"
+AUTO_RESTART="${AUTO_RESTART:-true}"
+SKIP_VENV_SYNC="${SKIP_VENV_SYNC:-false}"
+
+EXTRACTED_DIR=""
 
 # ============================================================
-# CORES E FUNÇÕES
+# LOGGING
 # ============================================================
-RED=''
-GREEN=''
-YELLOW=''
-BLUE=''
-NC=''
-
 log()   { echo "[OK] $1"; }
 info()  { echo "[..] $1"; }
 warn()  { echo "[!!] $1"; }
-error() { echo "[XX] $1"; }
+error() { echo "[XX] $1" >&2; }
 debug() { [ "$VERBOSE" = "true" ] && echo "[??] $1" || true; }
 
-if [ -f "$VERSION_FILE" ]; then
-    file_version=$(tr -d '[:space:]' < "$VERSION_FILE")
-    if [[ "$file_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        VERSION="$file_version"
+cleanup_extracted() {
+    if [ -n "$EXTRACTED_DIR" ] && [[ "$EXTRACTED_DIR" == /tmp/unbound-dashboard-update-* ]]; then
+        rm -rf "$EXTRACTED_DIR"
     fi
-fi
-
-DB_HOST="127.0.0.1"
-DB_NAME="unbound_dash"
-DB_USER="unbounddb"
-DB_PASS="unbounddash"
-
-load_db_config() {
-    local env_file
-
-    DB_HOST="127.0.0.1"
-    DB_NAME="unbound_dash"
-    DB_USER="unbounddb"
-    DB_PASS="unbounddash"
-
-    for env_file in "$DASHBOARD_DIR/.env" "/etc/unbound-dashboard.env"; do
-        [ -r "$env_file" ] || continue
-
-        while IFS='=' read -r key value; do
-            key="$(echo "$key" | xargs)"
-            value="$(echo "$value" | sed -e 's/^\s*//' -e 's/\s*$//' -e 's/^"//' -e 's/"$//')"
-
-            case "$key" in
-                DB_HOST) DB_HOST="$value" ;;
-                DB_NAME) DB_NAME="$value" ;;
-                DB_USER) DB_USER="$value" ;;
-                DB_PASS) DB_PASS="$value" ;;
-            esac
-        done < "$env_file"
-    done
-
-    debug "DB config carregada: host=$DB_HOST db=$DB_NAME user=$DB_USER"
 }
-
-database_is_reachable() {
-    php -r "
-        require_once '$DASHBOARD_DIR/src/Database.php';
-        \\App\\Database::getInstance()->query('SELECT 1');
-        echo 'DB OK';
-    " 2>/dev/null | grep -q "DB OK"
-}
-
-prepare_database_server() {
-    local db_service=""
-    local schema_file=""
-
-    [ "$AUTO_PREPARE_DB" = "true" ] || return 0
-
-    if [ "$DRY_RUN" = "true" ]; then
-        debug "Pulando preparação automática do banco em DRY-RUN"
-        return 0
-    fi
-
-    load_db_config
-    info "Preparando MariaDB/MySQL antes do update..."
-
-    if systemctl list-unit-files mariadb.service >/dev/null 2>&1; then
-        db_service="mariadb"
-    elif systemctl list-unit-files mysql.service >/dev/null 2>&1; then
-        db_service="mysql"
-    fi
-
-    if [ -z "$db_service" ]; then
-        warn "Serviço MariaDB/MySQL não encontrado. Seguindo sem preparação automática do banco."
-        return 0
-    fi
-
-    systemctl enable "$db_service" &>/dev/null || true
-    systemctl start "$db_service" &>/dev/null || true
-
-    if ! systemctl is-active "$db_service" &>/dev/null; then
-        warn "Não foi possível iniciar $db_service. Seguindo sem preparação automática do banco."
-        return 0
-    fi
-
-    if ! command -v mysql &>/dev/null; then
-        warn "Cliente mysql não encontrado. Seguindo sem preparação automática do banco."
-        return 0
-    fi
-
-    if [ -x "/usr/local/bin/fix-mariadb.sh" ]; then
-        /usr/local/bin/fix-mariadb.sh &>/dev/null || warn "fix-mariadb.sh retornou erro; continuando com provisionamento padrão"
-    fi
-
-    mysql -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >/dev/null 2>&1 || {
-        warn "Não foi possível garantir a existência do banco $DB_NAME"
-        return 0
-    }
-
-    mysql -e "DROP USER IF EXISTS '${DB_USER}'@'localhost';" >/dev/null 2>&1 || true
-    mysql -e "DROP USER IF EXISTS '${DB_USER}'@'127.0.0.1';" >/dev/null 2>&1 || true
-    mysql -e "CREATE USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';" >/dev/null 2>&1 || true
-    mysql -e "CREATE USER '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASS}';" >/dev/null 2>&1 || true
-    mysql -e "GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';" >/dev/null 2>&1 || true
-    mysql -e "GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'127.0.0.1';" >/dev/null 2>&1 || true
-    mysql -e "FLUSH PRIVILEGES;" >/dev/null 2>&1 || true
-
-    schema_file="$EXTRACTED_UPDATE_DIR/scripts/init_db.sql"
-    if [ ! -f "$schema_file" ]; then
-        schema_file="$DASHBOARD_DIR/scripts/init_db.sql"
-    fi
-
-    if [ -f "$schema_file" ]; then
-        sed '/^CREATE DATABASE /Id;/^USE /Id' "$schema_file" | mysql "$DB_NAME" >/dev/null 2>&1 || \
-            warn "Não foi possível importar o schema automaticamente"
-    fi
-
-    database_is_reachable && log "Banco de dados preparado com sucesso" || \
-        warn "Banco ainda inacessível após preparação automática"
-}
+trap cleanup_extracted EXIT
 
 # ============================================================
-# MIGRAÇÃO INCREMENTAL DO BANCO
+# VALIDAÇÃO INICIAL
 # ============================================================
-run_db_migrations() {
-    [ "$AUTO_PREPARE_DB" = "true" ] || return 0
-    [ "$DRY_RUN" = "false" ] || { info "[DRY-RUN] Pulando migrações de banco"; return 0; }
-
-    local migrate_file
-    migrate_file="$EXTRACTED_UPDATE_DIR/scripts/migrate_db.sql"
-    [ -f "$migrate_file" ] || migrate_file="$DASHBOARD_DIR/scripts/migrate_db.sql"
-
-    if [ ! -f "$migrate_file" ]; then
-        debug "Arquivo migrate_db.sql não encontrado — nenhuma migração a aplicar"
-        return 0
-    fi
-
-    load_db_config
-    info "Aplicando migrações de banco de dados..."
-
-    if ! command -v mysql &>/dev/null; then
-        warn "Cliente mysql não encontrado — migrações ignoradas"
-        return 0
-    fi
-
-    mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$migrate_file" 2>/dev/null && \
-        log "Migrações de banco aplicadas com sucesso" || \
-        warn "Uma ou mais migrações retornaram aviso (verifique manualmente se necessário)"
-}
-
-
 validate_environment() {
     info "Validando ambiente..."
-    
-    # Check root
+
     if [ "$EUID" -ne 0 ]; then
-        error "Este script deve ser executado como root (use sudo)"
+        error "Execute como root (sudo bash update.sh ...)"
         exit 1
     fi
-    
-    # Check dashboard dir
+
     if [ ! -d "$DASHBOARD_DIR" ]; then
-        error "Diretório do dashboard não encontrado: $DASHBOARD_DIR"
+        error "Dashboard não instalado em $DASHBOARD_DIR — use install.sh primeiro"
         exit 1
     fi
-    
-    # Check update package
-    if [ ! -d "$UPDATE_PACKAGE" ] && [ ! -f "$UPDATE_PACKAGE" ]; then
-        error "Pacote de update não encontrado: $UPDATE_PACKAGE"
-        error "Uso: sudo bash update.sh /caminho/para/pacote.tar.gz"
+
+    if [ -z "$UPDATE_PACKAGE" ]; then
+        error "Pacote de update obrigatório"
+        echo ""
+        echo "Uso:"
+        echo "  sudo bash update.sh /tmp/unbound-dashboard-update-*.tar.gz"
+        echo "  sudo bash update.sh /caminho/para/diretorio-extraido"
+        echo ""
+        echo "Variáveis opcionais:"
+        echo "  DRY_RUN=true              Simula sem aplicar mudanças"
+        echo "  AUTO_RESTART=false        Não reinicia serviços ao final"
+        echo "  SKIP_VENV_SYNC=true       Pula uv sync mesmo se pyproject mudou"
+        echo "  VERBOSE=true              Saída detalhada"
         exit 1
     fi
-    
-    # Check PHP syntax (apenas validar sintaxe básica)
-    info "Validando sintaxe PHP..."
-    php -r "echo 'PHP OK';" &>/dev/null || {
-        error "PHP não está disponível"
+
+    if [ ! -f "$UPDATE_PACKAGE" ] && [ ! -d "$UPDATE_PACKAGE" ]; then
+        error "Pacote não encontrado: $UPDATE_PACKAGE"
         exit 1
-    }
-    
-    # Tentar conectar ao DB (mas não falhar se não conseguir)
-    debug "Testando conexão com banco de dados..."
-    if [ -f "$DASHBOARD_DIR/src/Database.php" ]; then
-        load_db_config
-        database_is_reachable && log "Banco de dados acessível" || warn "Banco de dados pode estar offline (será validado após update)"
-    else
-        warn "Database.php não encontrado (será restaurado via update)"
     fi
-    
-    log "Ambiente validado com sucesso"
+
+    php -r 'exit(0);' >/dev/null 2>&1 || { error "PHP indisponível"; exit 1; }
+
+    log "Ambiente OK"
+}
+
+# ============================================================
+# EXTRAÇÃO
+# ============================================================
+extract_update() {
+    if [ -d "$UPDATE_PACKAGE" ]; then
+        EXTRACTED_DIR="$UPDATE_PACKAGE"
+        log "Usando diretório: $EXTRACTED_DIR"
+        return 0
+    fi
+
+    info "Extraindo pacote..."
+    EXTRACTED_DIR="/tmp/unbound-dashboard-update-$$"
+    mkdir -p "$EXTRACTED_DIR"
+    tar xzf "$UPDATE_PACKAGE" -C "$EXTRACTED_DIR" || { error "Falha ao extrair $UPDATE_PACKAGE"; exit 1; }
+
+    # Se o tar tem um único diretório raiz, desce um nível
+    local inner
+    inner=$(find "$EXTRACTED_DIR" -mindepth 1 -maxdepth 1 -type d | head -1)
+    if [ -n "$inner" ] && [ "$(find "$EXTRACTED_DIR" -mindepth 1 -maxdepth 1 | wc -l)" = "1" ]; then
+        EXTRACTED_DIR="$inner"
+    fi
+
+    log "Pacote extraído em: $EXTRACTED_DIR"
+}
+
+# ============================================================
+# VALIDAÇÃO DOS ARQUIVOS DO PACOTE
+# ============================================================
+validate_package_files() {
+    info "Validando sintaxe dos arquivos do pacote..."
+
+    local fail=0
+    while IFS= read -r php_file; do
+        if ! php -l "$php_file" >/dev/null 2>&1; then
+            error "Sintaxe PHP inválida: $php_file"
+            fail=1
+        fi
+    done < <(find "$EXTRACTED_DIR" -name "*.php" -type f)
+
+    while IFS= read -r sh_file; do
+        if ! bash -n "$sh_file" 2>/dev/null; then
+            error "Sintaxe bash inválida: $sh_file"
+            fail=1
+        fi
+    done < <(find "$EXTRACTED_DIR" -name "*.sh" -type f)
+
+    [ "$fail" -eq 0 ] || { error "Validação falhou — abortando antes de aplicar update"; exit 1; }
+    log "Sintaxe validada"
 }
 
 # ============================================================
@@ -228,401 +148,285 @@ validate_environment() {
 # ============================================================
 create_backup() {
     info "Criando backup pré-update..."
+    [ "$DRY_RUN" = "true" ] && { info "[DRY-RUN] Pulando backup"; return 0; }
+
     mkdir -p "$BACKUP_DIR"
-    
-    local backup_file="$BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz"
-    local db_backup="$BACKUP_DIR/database-$TIMESTAMP.sql"
-    
-    # Backup código
-    if [ "$DRY_RUN" = "false" ]; then
-        tar czf "$backup_file" \
-            --exclude=".git" \
-            --exclude="node_modules" \
-            --exclude="data/tmp/*" \
-            --exclude="src/data/tmp/*" \
-            -C "$(dirname "$DASHBOARD_DIR")" \
-            "$(basename "$DASHBOARD_DIR")" \
-            2>/dev/null
-        log "Backup do código: $backup_file"
-    fi
-    
-    # Backup database
-    if [ "$DRY_RUN" = "false" ]; then
-        if command -v mysqldump &>/dev/null; then
-            mysqldump -u root unbound_dash > "$db_backup" 2>/dev/null || \
-            mysqldump unbound_dash > "$db_backup" 2>/dev/null || \
-            warn "Não conseguiu fazer dump do banco de dados"
-            [ -f "$db_backup" ] && log "Backup do banco: $db_backup"
-        fi
-    fi
-    
-    debug "Backup criado em: $BACKUP_DIR"
-}
 
-# Variável global para armazenar o caminho extraído
-EXTRACTED_UPDATE_DIR=""
+    # Código (exclui lixo voláteis e .venv pra ficar pequeno e rápido)
+    local code_backup="$BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz"
+    tar czf "$code_backup" \
+        --exclude='api_service/.venv' \
+        --exclude='api_service/__pycache__' \
+        --exclude='**/__pycache__' \
+        --exclude='*.pyc' \
+        --exclude='data/tmp/*' \
+        --exclude='src/data/tmp/*' \
+        -C "$(dirname "$DASHBOARD_DIR")" \
+        "$(basename "$DASHBOARD_DIR")" 2>/dev/null
+    log "Código: $code_backup ($(du -h "$code_backup" | cut -f1))"
 
-# ============================================================
-# EXTRAIR PACOTE DE UPDATE
-# ============================================================
-extract_update_package() {
-    info "Extraindo pacote de update..."
-    
-    local temp_dir="/tmp/unbound-dashboard-update-$$"
-    
-    if [ -f "$UPDATE_PACKAGE" ]; then
-        # É um arquivo tar.gz
-        mkdir -p "$temp_dir"
-        tar xzf "$UPDATE_PACKAGE" -C "$temp_dir" 2>/dev/null || {
-            error "Erro ao extrair pacote de update"
-            return 1
-        }
-        
-        # Encontrar a pasta raiz extraída
-        EXTRACTED_UPDATE_DIR=$(find "$temp_dir" -mindepth 1 -maxdepth 1 -type d | head -1)
-        [ -n "$EXTRACTED_UPDATE_DIR" ] || EXTRACTED_UPDATE_DIR="$temp_dir"
-        log "Pacote extraído em: $EXTRACTED_UPDATE_DIR"
-        
-    elif [ -d "$UPDATE_PACKAGE" ]; then
-        # É um diretório
-        EXTRACTED_UPDATE_DIR="$UPDATE_PACKAGE"
-        log "Usando diretório: $EXTRACTED_UPDATE_DIR"
+    # DuckDB
+    if [ -f "$DUCKDB_PATH" ]; then
+        local db_backup="$BACKUP_DIR/duckdb-$TIMESTAMP.duckdb"
+        cp -a "$DUCKDB_PATH" "$db_backup"
+        log "DuckDB: $db_backup ($(du -h "$db_backup" | cut -f1))"
     else
-        error "Formato de pacote não reconhecido"
-        return 1
+        warn "DuckDB não encontrado em $DUCKDB_PATH — backup do banco pulado"
     fi
 
-    return 0
+    # Env file (preserva JWT_SECRET — crítico)
+    if [ -f "$ENV_FILE" ]; then
+        cp -a "$ENV_FILE" "$BACKUP_DIR/api-v1.env-$TIMESTAMP"
+        log "Env file: $BACKUP_DIR/api-v1.env-$TIMESTAMP"
+    fi
 }
 
 # ============================================================
-# VALIDAR ARQUIVOS DE UPDATE
+# APLICAR DASHBOARD PHP (frontend)
 # ============================================================
-validate_update_files() {
-    local update_dir="$1"
-    
-    info "Validando arquivos de update..."
-    
-    # Validar PHP
-    for php_file in $(find "$update_dir" -name "*.php" -type f 2>/dev/null); do
-        if ! php -l "$php_file" &>/dev/null; then
-            error "Erro de sintaxe em: $php_file"
-            return 1
-        fi
-    done
-    
-    # Validar JSON configs
-    for json_file in $(find "$update_dir" -name "*.json" -type f 2>/dev/null); do
-        if ! php -r "json_decode(file_get_contents('$json_file'), true);" 2>/dev/null; then
-            error "JSON inválido em: $json_file"
-            return 1
-        fi
-    done
-    
-    log "Arquivos de update validados"
-    return 0
-}
+apply_dashboard() {
+    local src="$EXTRACTED_DIR/dashboard"
+    [ -d "$src" ] || { warn "dashboard/ ausente no pacote — pulando frontend"; return 0; }
 
-# ============================================================
-# ATUALIZAR CÓDIGO
-# ============================================================
-update_code() {
-    local update_dir="$1"
-    local root_php_file
-    
-    info "Atualizando código PHP..."
-    
-    # Lista de diretórios a atualizar
-    local targets=(
-        "src"
-        "api"
-        "includes"
-        "scripts"
-    )
-    
-    for target in "${targets[@]}"; do
-        local src="$update_dir/$target"
-        local dst="$DASHBOARD_DIR/$target"
-        
-        if [ -e "$src" ]; then
-            if [ "$DRY_RUN" = "true" ]; then
-                info "[DRY-RUN] Copiaria: $src -> $dst"
-            else
-                if [ -d "$src" ]; then
-                    mkdir -p "$dst"
-                    if [ "$target" = "src" ]; then
-                        rsync -av "$src/" "$dst/" \
-                            --exclude="Database.php" \
-                            --exclude="data/**" \
-                            --exclude=".git" \
-                            --exclude="node_modules" \
-                            --delete \
-                            2>&1 | grep -E "^sending|^deleting|/|total size" || true
-                    else
-                        rsync -av "$src/" "$dst/" \
-                            --exclude=".git" \
-                            --exclude="node_modules" \
-                            --delete \
-                            2>&1 | grep -E "^sending|^deleting|/|total size" || true
-                    fi
-                else
-                    cp "$src" "$dst"
-                fi
-                debug "Atualizado: $target"
-            fi
-        fi
-    done
-
-    for root_php_file in "$update_dir"/*.php; do
-        [ -f "$root_php_file" ] || continue
-
-        if [ "$DRY_RUN" = "true" ]; then
-            info "[DRY-RUN] Copiaria: $root_php_file -> $DASHBOARD_DIR/$(basename "$root_php_file")"
-        else
-            cp "$root_php_file" "$DASHBOARD_DIR/$(basename "$root_php_file")"
-            debug "Atualizado arquivo raiz: $(basename "$root_php_file")"
-        fi
-    done
-
-    if [ -f "$update_dir/VERSION" ]; then
-        if [ "$DRY_RUN" = "true" ]; then
-            info "[DRY-RUN] Copiaria: $update_dir/VERSION -> $DASHBOARD_DIR/VERSION"
-        else
-            cp "$update_dir/VERSION" "$DASHBOARD_DIR/VERSION"
-            debug "Atualizado arquivo VERSION"
-        fi
-    fi
-
-    if [ -f "$update_dir/CHANGELOG.md" ]; then
-        if [ "$DRY_RUN" = "true" ]; then
-            info "[DRY-RUN] Copiaria: $update_dir/CHANGELOG.md -> $DASHBOARD_DIR/CHANGELOG.md"
-        else
-            cp "$update_dir/CHANGELOG.md" "$DASHBOARD_DIR/CHANGELOG.md"
-            debug "Atualizado arquivo CHANGELOG.md"
-        fi
-    fi
-    
-    if [ "$DRY_RUN" = "false" ]; then
-        log "Código atualizado"
-    fi
-
-    return 0
-}
-
-# ============================================================
-# ATUALIZAR TEMPLATES
-# ============================================================
-update_templates() {
-    local update_dir="$1"
-    local src
-    local dst
-    
-    info "Atualizando templates de configuração..."
-    
-    local templates=(
-        "src/data/tmp/*.conf"
-        "system/sudoers/*"
-        "system/systemd/*"
-    )
-    
-    for template_pattern in "${templates[@]}"; do
-        for src in $(find "$update_dir" -path "*$template_pattern" -type f 2>/dev/null); do
-            local relative_path="${src#$update_dir/}"
-
-            if [[ "$relative_path" == src/data/tmp/* ]]; then
-                dst="$DASHBOARD_DIR/$relative_path"
-            elif [[ "$relative_path" == system/sudoers/* ]]; then
-                dst="/etc/sudoers.d/$(basename "$src")"
-            elif [[ "$relative_path" == system/systemd/* ]]; then
-                dst="/etc/systemd/system/$(basename "$src")"
-            else
-                dst="$DASHBOARD_DIR/$relative_path"
-            fi
-            
-            if [ "$DRY_RUN" = "true" ]; then
-                info "[DRY-RUN] Template: $relative_path"
-            else
-                mkdir -p "$(dirname "$dst")"
-                cp "$src" "$dst"
-                if [[ "$dst" == /etc/sudoers.d/* ]]; then
-                    chmod 440 "$dst"
-                fi
-                debug "Template atualizado: $relative_path"
-            fi
-        done
-    done
-
-    if [ "$DRY_RUN" = "false" ] && [ -d "$update_dir/system/systemd" ]; then
-        systemctl daemon-reload >/dev/null 2>&1 || warn "Falha ao recarregar daemon do systemd"
-    fi
-    
-    if [ "$DRY_RUN" = "false" ]; then
-        log "Templates atualizados"
-    fi
-
-    return 0
-}
-
-# ============================================================
-# ATUALIZAR SCRIPTS DO SISTEMA
-# ============================================================
-update_system_scripts() {
-    local update_dir="$1"
-    
-    info "Atualizando scripts do sistema..."
-    
-    if [ -d "$update_dir/system/bin" ]; then
-        if [ "$DRY_RUN" = "true" ]; then
-            info "[DRY-RUN] Scripts do sistema seriam copiados"
-        else
-            for script in "$update_dir/system/bin"/*.sh; do
-                if [ -f "$script" ]; then
-                    local script_name=$(basename "$script")
-                    cp "$script" "/usr/local/bin/$script_name"
-                    chmod +x "/usr/local/bin/$script_name"
-                    debug "Script instalado: /usr/local/bin/$script_name"
-                fi
-            done
-        fi
-    fi
-    
-    if [ "$DRY_RUN" = "false" ]; then
-        log "Scripts do sistema atualizados"
-    fi
-
-    return 0
-}
-
-# ============================================================
-# ATUALIZAR CRONTABS DO DASHBOARD
-# ============================================================
-update_crontabs() {
-    local update_dir="$1"
-    local cron_file="$update_dir/system/cron/unbound-dashboard-crons"
-
-    [ -f "$cron_file" ] || return 0
-
-    info "Atualizando crontabs do dashboard..."
-
+    info "Atualizando frontend PHP..."
     if [ "$DRY_RUN" = "true" ]; then
-        info "[DRY-RUN] Crontabs do dashboard seriam atualizadas"
+        info "[DRY-RUN] rsync $src/ -> $DASHBOARD_DIR/"
         return 0
     fi
 
-    local temp_cron="/tmp/unbound-dashboard-cron-$$"
-    crontab -l 2>/dev/null | grep -v 'UNBOUND-DASHBOARD' > "$temp_cron" 2>/dev/null || true
-    cat "$cron_file" >> "$temp_cron"
-    # Garante newline no final (crontab exige)
-    sed -i -e '$a\' "$temp_cron"
-    crontab "$temp_cron"
-    rm -f "$temp_cron"
+    # Preserva: data/, src/data/ (volátil), Database.php (stub local pode ter divergência),
+    # api_service/ (atualizado em outra etapa).
+    rsync -a \
+        --exclude='data/' \
+        --exclude='src/data/' \
+        --exclude='api_service/' \
+        --exclude='Database.php' \
+        "$src/" "$DASHBOARD_DIR/"
 
-    log "Crontabs do dashboard atualizadas"
-    return 0
+    log "Frontend PHP atualizado"
 }
 
 # ============================================================
-# RESETAR PERMISSÕES
+# APLICAR API_SERVICE (FastAPI/DuckDB)
+# ============================================================
+apply_apiservice() {
+    local src="$EXTRACTED_DIR/api_service"
+    [ -d "$src" ] || { warn "api_service/ ausente no pacote — pulando backend"; return 0; }
+
+    info "Atualizando api_service..."
+    if [ "$DRY_RUN" = "true" ]; then
+        info "[DRY-RUN] rsync $src/ -> $APISERVICE_DIR/ (preservando .venv)"
+        return 0
+    fi
+
+    # Detecta se pyproject.toml mudou (pra decidir se precisa uv sync)
+    local need_uv_sync=false
+    if [ -f "$src/pyproject.toml" ] && [ -f "$APISERVICE_DIR/pyproject.toml" ]; then
+        if ! cmp -s "$src/pyproject.toml" "$APISERVICE_DIR/pyproject.toml"; then
+            need_uv_sync=true
+            debug "pyproject.toml mudou — uv sync será necessário"
+        fi
+    fi
+    if [ -f "$src/uv.lock" ] && [ -f "$APISERVICE_DIR/uv.lock" ]; then
+        if ! cmp -s "$src/uv.lock" "$APISERVICE_DIR/uv.lock"; then
+            need_uv_sync=true
+            debug "uv.lock mudou — uv sync será necessário"
+        fi
+    fi
+
+    rsync -a \
+        --exclude='.venv' \
+        --exclude='__pycache__' \
+        --exclude='*.pyc' \
+        --delete-excluded \
+        "$src/" "$APISERVICE_DIR/"
+
+    log "api_service atualizado"
+
+    if [ "$need_uv_sync" = "true" ] && [ "$SKIP_VENV_SYNC" != "true" ]; then
+        info "pyproject/uv.lock mudaram — rodando uv sync..."
+        local uv_bin
+        uv_bin="$(command -v uv || echo /usr/local/bin/uv)"
+        if [ ! -x "$uv_bin" ]; then
+            warn "uv não disponível — pulei uv sync; instale com: curl -fsSL https://astral.sh/uv/install.sh | sh"
+        else
+            (cd "$APISERVICE_DIR" && "$uv_bin" sync --no-dev --quiet) || warn "uv sync falhou — venv pode estar inconsistente"
+            log "venv sincronizado"
+        fi
+    elif [ "$SKIP_VENV_SYNC" = "true" ]; then
+        debug "SKIP_VENV_SYNC=true — pulando uv sync"
+    fi
+}
+
+# ============================================================
+# APLICAR ARQUIVOS DE SISTEMA (sudoers, systemd, apache, bin, cron, etc)
+# ============================================================
+apply_system() {
+    local sys="$EXTRACTED_DIR/system"
+    [ -d "$sys" ] || { warn "system/ ausente no pacote — pulando configs"; return 0; }
+
+    info "Atualizando configurações do sistema..."
+
+    # --- Sudoers
+    if [ -f "$sys/sudoers/unbound-dashboard" ]; then
+        if [ "$DRY_RUN" = "true" ]; then
+            info "[DRY-RUN] /etc/sudoers.d/unbound-dashboard"
+        else
+            cp "$sys/sudoers/unbound-dashboard" /etc/sudoers.d/unbound-dashboard
+            chmod 440 /etc/sudoers.d/unbound-dashboard
+            visudo -c -f /etc/sudoers.d/unbound-dashboard >/dev/null || error "Sudoers inválido após update!"
+            log "Sudoers atualizado"
+        fi
+    fi
+
+    # --- Systemd unit do api_service
+    if [ -f "$sys/systemd/unbound-dashboard-api.service" ]; then
+        if [ "$DRY_RUN" = "true" ]; then
+            info "[DRY-RUN] /etc/systemd/system/unbound-dashboard-api.service"
+        else
+            cp "$sys/systemd/unbound-dashboard-api.service" /etc/systemd/system/
+            systemctl daemon-reload
+            log "Systemd unit atualizada"
+        fi
+    fi
+
+    # --- Apache conf-available
+    if [ -f "$sys/apache/unbound-dashboard-api.conf" ]; then
+        if [ "$DRY_RUN" = "true" ]; then
+            info "[DRY-RUN] /etc/apache2/conf-available/unbound-dashboard-api.conf"
+        else
+            cp "$sys/apache/unbound-dashboard-api.conf" /etc/apache2/conf-available/
+            a2enconf unbound-dashboard-api >/dev/null 2>&1 || true
+            log "Apache conf atualizado"
+        fi
+    fi
+
+    # --- Env example (NÃO sobrescreve api-v1.env real, só o exemplo)
+    if [ -f "$sys/etc/api-v1.env.example" ]; then
+        if [ "$DRY_RUN" = "true" ]; then
+            info "[DRY-RUN] $ETC_DIR/api-v1.env.example"
+        else
+            mkdir -p "$ETC_DIR"
+            cp "$sys/etc/api-v1.env.example" "$ETC_DIR/api-v1.env.example"
+            chown root:www-data "$ETC_DIR/api-v1.env.example"
+            chmod 640 "$ETC_DIR/api-v1.env.example"
+            debug "Template env atualizado"
+        fi
+    fi
+
+    # --- Scripts em /usr/local/bin
+    if [ -d "$sys/bin" ]; then
+        for sh in "$sys/bin"/*.sh; do
+            [ -f "$sh" ] || continue
+            local name; name=$(basename "$sh")
+            if [ "$DRY_RUN" = "true" ]; then
+                info "[DRY-RUN] /usr/local/bin/$name"
+            else
+                cp "$sh" "/usr/local/bin/$name"
+                chmod +x "/usr/local/bin/$name"
+                debug "/usr/local/bin/$name atualizado"
+            fi
+        done
+        log "Scripts /usr/local/bin/ atualizados"
+    fi
+
+    # --- Crontabs
+    if [ -f "$sys/cron/unbound-dashboard-crons" ]; then
+        if [ "$DRY_RUN" = "true" ]; then
+            info "[DRY-RUN] crontab"
+        else
+            local tmp_cron="/tmp/unbound-dashboard-cron-$$"
+            crontab -l 2>/dev/null | grep -v 'UNBOUND-DASHBOARD' > "$tmp_cron" || true
+            cat "$sys/cron/unbound-dashboard-crons" >> "$tmp_cron"
+            sed -i -e '$a\' "$tmp_cron"
+            crontab "$tmp_cron"
+            rm -f "$tmp_cron"
+            log "Crontabs atualizadas"
+        fi
+    fi
+}
+
+# ============================================================
+# PERMISSÕES
 # ============================================================
 reset_permissions() {
     info "Resetando permissões..."
-    
-    if [ "$DRY_RUN" = "true" ]; then
-        info "[DRY-RUN] Permissões seriam resetadas"
-    else
-        # Dashboard directory
-        chown -R www-data:www-data "$DASHBOARD_DIR" 2>/dev/null || true
-        chmod 755 "$DASHBOARD_DIR"
-        
-        # Special files
-        find "$DASHBOARD_DIR" -name "*.php" -type f ! -path "$DASHBOARD_DIR/src/Database.php" -exec chmod 644 {} \;
-        find "$DASHBOARD_DIR" -name "*.sh" -type f -exec chmod 755 {} \;
-        [ -f "$DASHBOARD_DIR/src/Database.php" ] && chmod 660 "$DASHBOARD_DIR/src/Database.php"
-        
-        # Data directories
-        chmod 775 "$DASHBOARD_DIR/data"
-        chmod 775 "$DASHBOARD_DIR/src/data"
-        chmod 775 "$DASHBOARD_DIR/src/data/tmp"
-        
-        debug "Permissões resetadas"
-    fi
-    
-    log "Permissões configuradas"
-    return 0
+    [ "$DRY_RUN" = "true" ] && { info "[DRY-RUN] Pulando chown/chmod"; return 0; }
+
+    chown -R www-data:www-data "$DASHBOARD_DIR"
+    find "$DASHBOARD_DIR" -name "*.php" -type f -exec chmod 644 {} \;
+    find "$DASHBOARD_DIR" -name "*.sh" -type f -exec chmod 755 {} \;
+    [ -d "$DASHBOARD_DIR/data" ] && chmod 750 "$DASHBOARD_DIR/data"
+    [ -d "$DASHBOARD_DIR/data/tmp" ] && chmod 770 "$DASHBOARD_DIR/data/tmp"
+    [ -d "$DASHBOARD_DIR/src/data" ] && chmod 750 "$DASHBOARD_DIR/src/data"
+    [ -d "$DASHBOARD_DIR/src/data/tmp" ] && chmod 770 "$DASHBOARD_DIR/src/data/tmp"
+
+    log "Permissões aplicadas"
 }
 
 # ============================================================
-# VALIDAÇÃO PÓS-UPDATE
+# RESTART E SMOKE-TEST
 # ============================================================
-validate_after_update() {
-    info "Validando estado pós-update..."
-    
-    # Validar PHP files
-    debug "Validando sintaxe PHP..."
-    find "$DASHBOARD_DIR" -name "*.php" -type f | head -10 | while read -r php_file; do
-        if ! php -l "$php_file" &>/dev/null; then
-            error "Erro de sintaxe em: $php_file"
-            return 1
-        fi
-    done
-    
-    # Validar conexão DB
-    debug "Testando banco de dados..."
-    prepare_database_server
-    if database_is_reachable; then
-        log "Banco de dados acessível após update"
-    else
-        warn "Banco de dados inacessível após update. Verifique MariaDB e credenciais do aplicativo."
+restart_and_smoke() {
+    [ "$DRY_RUN" = "true" ] && { info "[DRY-RUN] Pulando restart"; return 0; }
+
+    if [ "$AUTO_RESTART" != "true" ]; then
+        warn "AUTO_RESTART=false — não reinicio serviços. Faça manualmente:"
+        echo "  sudo systemctl restart unbound-dashboard-api"
+        echo "  sudo systemctl reload apache2"
+        return 0
     fi
-    
-    # Validar serviços
-    debug "Validando serviços..."
-    systemctl is-active apache2 &>/dev/null || warn "Apache2 não está ativo"
-    systemctl is-active unbound &>/dev/null || warn "Unbound não está ativo"
-    
-    log "Validação pós-update concluída"
-    return 0
+
+    info "Recarregando Apache..."
+    systemctl reload apache2 2>/dev/null || systemctl restart apache2 || warn "Apache reload/restart falhou"
+
+    info "Reiniciando api_service..."
+    systemctl restart unbound-dashboard-api
+    sleep 3
+
+    if systemctl is-active --quiet unbound-dashboard-api; then
+        log "api_service ativo"
+    else
+        error "api_service não subiu — veja logs:"
+        journalctl -u unbound-dashboard-api -n 30 --no-pager
+        return 1
+    fi
+
+    info "Smoke /api/v1/healthz..."
+    if curl -sf http://127.0.0.1:8001/api/v1/healthz >/dev/null; then
+        log "/api/v1/healthz OK"
+    else
+        warn "/api/v1/healthz não respondeu — verifique manualmente"
+    fi
 }
 
 # ============================================================
-# RELATÓRIO FINAL
+# RELATÓRIO
 # ============================================================
 print_report() {
-    local end_time=$(date +%s)
-    local duration=$((end_time - START_TIME))
-    
+    local end_time elapsed
+    end_time=$(date +%s)
+    elapsed=$((end_time - START_TIME))
+
+    local final_version="?"
+    [ -f "$DASHBOARD_DIR/VERSION" ] && final_version=$(tr -d '[:space:]' < "$DASHBOARD_DIR/VERSION")
+
     echo ""
     echo "╔════════════════════════════════════════════════════╗"
-    echo "║     Unbound Dashboard — Relatório de Update        ║"
+    echo "║       Update concluído                             ║"
     echo "╚════════════════════════════════════════════════════╝"
     echo ""
-    echo "Status:          $([ "$DRY_RUN" = "true" ] && echo "DRY-RUN" || echo "COMPLETO")"
-    echo "Data/Hora:       $(date '+%d/%m/%Y %H:%M:%S')"
-    echo "Duração:         ${duration}s"
-    echo "Timestamp:       $TIMESTAMP"
+    echo "Modo:       $([ "$DRY_RUN" = "true" ] && echo "DRY-RUN (nada foi aplicado)" || echo "Aplicado")"
+    echo "Duração:    ${elapsed}s"
+    echo "Versão:     $final_version"
+    echo "Backups:    $BACKUP_DIR/{dashboard,duckdb,api-v1.env}-$TIMESTAMP*"
     echo ""
-    echo "Backup:"
-    echo "  Código:        $BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz"
-    echo "  Base de Dados: $BACKUP_DIR/database-$TIMESTAMP.sql"
-    echo ""
-    echo "Diretório:       $DASHBOARD_DIR"
-    echo "Versão:          $VERSION"
-    echo ""
-    
-    if [ "$AUTO_RESTART" = "true" ] && [ "$DRY_RUN" = "false" ]; then
-        echo "Reiniciando serviços..."
-        systemctl restart apache2 2>/dev/null && log "Apache2 reiniciado" || warn "Erro ao reiniciar Apache2"
-        systemctl restart unbound 2>/dev/null && log "Unbound reiniciado" || warn "Erro ao reiniciar Unbound"
-    else
-        echo ""
-        echo "Para aplicar as mudanças, reinicie os serviços:"
-        echo "  sudo systemctl restart apache2"
-        echo "  sudo systemctl restart unbound"
-    fi
-    
-    echo ""
-    echo "Para rollback, execute:"
-    echo "  tar xzf $BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz -C /"
+    echo "Rollback (se necessário):"
+    echo "  sudo systemctl stop unbound-dashboard-api"
+    echo "  sudo tar xzf $BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz -C /"
+    echo "  sudo cp -a $BACKUP_DIR/duckdb-$TIMESTAMP.duckdb $DUCKDB_PATH"
+    echo "  sudo cp -a $BACKUP_DIR/api-v1.env-$TIMESTAMP $ENV_FILE"
+    echo "  sudo systemctl start unbound-dashboard-api"
     echo ""
 }
 
@@ -631,51 +435,24 @@ print_report() {
 # ============================================================
 main() {
     START_TIME=$(date +%s)
-    
+
     echo "╔════════════════════════════════════════════════════╗"
-    echo "║  Unbound Dashboard — Update Script v$VERSION          ║"
+    echo "║   Unbound Dashboard — Update                       ║"
     echo "╚════════════════════════════════════════════════════╝"
     echo ""
-    
-    # Verificar se pacote foi passado
-    if [ "$UPDATE_PACKAGE" = "." ] || [ -z "$UPDATE_PACKAGE" ]; then
-        warn "Nenhum pacote de update foi passado como argumento"
-        echo ""
-        echo "Uso:"
-        echo "  sudo bash update.sh /caminho/para/pacote.tar.gz"
-        echo "  sudo bash update.sh ./unbound-dashboard-update-*.tar.gz"
-        echo ""
-        echo "Variáveis de ambiente:"
-        echo "  DRY_RUN=true          Modo seguro (simula sem fazer mudanças)"
-        echo "  AUTO_RESTART=true     Reinicia serviços automaticamente"
-        echo "  AUTO_PREPARE_DB=true  Tenta iniciar/provisionar MariaDB antes da validação"
-        echo "  VERBOSE=true          Modo detalhado com debug"
-        echo ""
-        exit 1
-    fi
-    
-    [ "$DRY_RUN" = "true" ] && warn "Modo DRY-RUN: nenhuma mudança será feita"
+    [ "$DRY_RUN" = "true" ] && warn "Modo DRY-RUN — nenhuma mudança será aplicada"
     echo ""
-    
+
     validate_environment
+    extract_update
+    validate_package_files
     create_backup
-    
-    extract_update_package || exit 1
-    trap "rm -rf $EXTRACTED_UPDATE_DIR" EXIT
-    
-    validate_update_files "$EXTRACTED_UPDATE_DIR"
-    update_code "$EXTRACTED_UPDATE_DIR"
-    run_db_migrations
-    update_templates "$EXTRACTED_UPDATE_DIR"
-    update_system_scripts "$EXTRACTED_UPDATE_DIR"
-    update_crontabs "$EXTRACTED_UPDATE_DIR"
+    apply_dashboard
+    apply_apiservice
+    apply_system
     reset_permissions
-    validate_after_update
-    
+    restart_and_smoke
     print_report
 }
 
-# ============================================================
-# EXECUÇÃO
-# ============================================================
 main

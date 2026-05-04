@@ -1,352 +1,280 @@
 #!/bin/bash
 # ============================================================
-# Unbound Dashboard — Build Update Package
-# Gera tarball com apenas os arquivos alterados
+# Unbound Dashboard — Build Update Package v2.2.0+
+#
+# Gera um tarball de update incremental compatível com `update.sh`.
+# O pacote contém:
+#   - dashboard/    → frontend PHP
+#   - api_service/  → FastAPI + DuckDB + workers (sem .venv)
+#   - system/       → systemd, apache, sudoers, bin, cron, etc
+#   - update.sh     → script de aplicação (cópia do tools/update.sh)
+#
+# Uso:
+#   sudo bash tools/build-update.sh
+#
+# Variáveis:
+#   AUTO_BUMP_VERSION=false  Não dá bump automático no VERSION
+#   BUMP_TYPE=patch|minor|major  Tipo de bump (default: patch)
 # ============================================================
 
 set -euo pipefail
 
-# ============================================================
-# CONFIGURAÇÃO
-# ============================================================
 DASHBOARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="/tmp/unbound-dashboard-update-$$"
 VERSION_FILE="${DASHBOARD_DIR}/VERSION"
-VERSION=""
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 OUTPUT_DIR="${DASHBOARD_DIR}/dist"
 AUTO_BUMP_VERSION="${AUTO_BUMP_VERSION:-true}"
 BUMP_TYPE="${BUMP_TYPE:-patch}"
-ARCHIVE_PATH=""  # Será definido por create_archive()
+VERSION=""
+ARCHIVE_PATH=""
 
-# ============================================================
-# CORES E FUNÇÕES
-# ============================================================
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+RED='\033[0;31m'
 NC='\033[0m'
 
 log()   { printf "${GREEN}[✓]${NC} %s\n" "$1"; }
 info()  { printf "${BLUE}[i]${NC} %s\n" "$1"; }
 warn()  { printf "${YELLOW}[!]${NC} %s\n" "$1"; }
-error() { printf "${RED}[✗]${NC} %s\n" "$1"; }
+error() { printf "${RED}[✗]${NC} %s\n" "$1" >&2; }
 
-cleanup() {
-    rm -rf "$BUILD_DIR"
-}
-
+cleanup() { rm -rf "$BUILD_DIR"; }
 trap cleanup EXIT
 
 # ============================================================
-# CONTROLE DE VERSÃO
+# VERSÃO
 # ============================================================
 read_version() {
-    if [ ! -f "$VERSION_FILE" ]; then
-        error "Arquivo VERSION não encontrado em: $VERSION_FILE"
-        return 1
-    fi
-
-    local current
-    current=$(tr -d '[:space:]' < "$VERSION_FILE")
-    if ! [[ "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        error "Formato inválido de versão em VERSION: '$current' (esperado: X.Y.Z)"
-        return 1
-    fi
-
-    VERSION="$current"
-    return 0
+    [ -f "$VERSION_FILE" ] || { error "VERSION ausente em $VERSION_FILE"; return 1; }
+    VERSION=$(tr -d '[:space:]' < "$VERSION_FILE")
+    [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { error "VERSION com formato inválido: $VERSION"; return 1; }
 }
 
 bump_version() {
     local major minor patch
     IFS='.' read -r major minor patch <<< "$VERSION"
-
     case "$BUMP_TYPE" in
-        major)
-            major=$((major + 1))
-            minor=0
-            patch=0
-            ;;
-        minor)
-            minor=$((minor + 1))
-            patch=0
-            ;;
-        patch)
-            patch=$((patch + 1))
-            ;;
-        *)
-            error "BUMP_TYPE inválido: '$BUMP_TYPE' (use: patch|minor|major)"
-            return 1
-            ;;
+        major) major=$((major + 1)); minor=0; patch=0 ;;
+        minor) minor=$((minor + 1)); patch=0 ;;
+        patch) patch=$((patch + 1)) ;;
+        *) error "BUMP_TYPE inválido: $BUMP_TYPE"; return 1 ;;
     esac
-
     VERSION="${major}.${minor}.${patch}"
     printf "%s\n" "$VERSION" > "$VERSION_FILE"
-    log "VERSION atualizado para ${VERSION} (BUMP_TYPE=${BUMP_TYPE})"
-    return 0
+    log "VERSION → $VERSION (BUMP=$BUMP_TYPE)"
 }
 
 # ============================================================
-# PREPARAÇÃO
+# COPIA DO PROJETO
 # ============================================================
-prepare_build() {
-    info "Preparando diretório de build..."
+prepare() {
+    info "Preparando $BUILD_DIR..."
     mkdir -p "$BUILD_DIR"
     mkdir -p "$OUTPUT_DIR"
-    log "Diretório de build criado"
 }
 
-# ============================================================
-# COPIAR ARQUIVOS ATUALIZÁVEIS
-# ============================================================
-copy_source_files() {
-    info "Copiando arquivos de origem..."
-    local dir
-    local file
-    
-    # Estrutura de diretórios da aplicação
-    local dirs=(
-        "src"
-        "api"
-        "includes"
-        "scripts"
-    )
-    
-    for dir in "${dirs[@]}"; do
-        if [ -d "$DASHBOARD_DIR/$dir" ]; then
-            mkdir -p "$BUILD_DIR/$dir"
-            if [ "$dir" = "src" ]; then
-                rsync -a "$DASHBOARD_DIR/$dir/" "$BUILD_DIR/$dir/" \
-                    --exclude='Database.php' \
-                    --exclude='data/*.json' \
-                    --exclude='data/tmp/*.json' \
-                    --exclude='data/tmp/*.tmp' \
-                    --exclude='.git' \
-                    --exclude='node_modules' \
-                    2>/dev/null || true
-            else
-                cp -a "$DASHBOARD_DIR/$dir/." "$BUILD_DIR/$dir/" 2>/dev/null || true
-            fi
-        fi
-    done
+copy_dashboard() {
+    info "Copiando dashboard/ (frontend PHP)..."
+    mkdir -p "$BUILD_DIR/dashboard"
+    rsync -a \
+        --exclude='.git' \
+        --exclude='.vscode' \
+        --exclude='docs' \
+        --exclude='*.md' \
+        --exclude='tools' \
+        --exclude='api_service' \
+        --exclude='dist' \
+        --exclude='data/.installed' \
+        --exclude='data/*.json' \
+        --exclude='data/tmp/*' \
+        --exclude='src/data/tmp/*' \
+        --exclude='src/data/*.json' \
+        --exclude='src/data/official_blocklist.conf' \
+        --exclude='test_help.php' \
+        "$DASHBOARD_DIR/" "$BUILD_DIR/dashboard/"
 
-    mkdir -p "$BUILD_DIR/system/bin"
-    mkdir -p "$BUILD_DIR/system/cron"
-    mkdir -p "$BUILD_DIR/system/sudoers"
-    mkdir -p "$BUILD_DIR/system/systemd"
+    # Força inclusão de CHANGELOG.md (excluído pelo *.md acima)
+    [ -f "$DASHBOARD_DIR/CHANGELOG.md" ] && cp "$DASHBOARD_DIR/CHANGELOG.md" "$BUILD_DIR/dashboard/CHANGELOG.md"
 
-    if [ -f "$DASHBOARD_DIR/tools/fix-mariadb.sh" ]; then
-        cp "$DASHBOARD_DIR/tools/fix-mariadb.sh" "$BUILD_DIR/system/bin/"
+    # Diretórios de dados vazios com .gitkeep
+    mkdir -p "$BUILD_DIR/dashboard/data/tmp" "$BUILD_DIR/dashboard/src/data/tmp"
+    touch "$BUILD_DIR/dashboard/data/.gitkeep" "$BUILD_DIR/dashboard/data/tmp/.gitkeep"
+    touch "$BUILD_DIR/dashboard/src/data/.gitkeep" "$BUILD_DIR/dashboard/src/data/tmp/.gitkeep"
+
+    log "dashboard/ pronto"
+}
+
+copy_apiservice() {
+    info "Copiando api_service/..."
+    [ -d "$DASHBOARD_DIR/api_service" ] || { error "api_service/ ausente — pacote inválido"; exit 1; }
+
+    rsync -a \
+        --exclude='.venv' \
+        --exclude='__pycache__' \
+        --exclude='*.pyc' \
+        --exclude='.pytest_cache' \
+        --exclude='.ruff_cache' \
+        --exclude='.mypy_cache' \
+        --exclude='*.bak' \
+        --exclude='*.bak-*' \
+        --exclude='tools/teardown_mariadb.sh' \
+        "$DASHBOARD_DIR/api_service/" "$BUILD_DIR/api_service/"
+
+    log "api_service/ pronto"
+}
+
+copy_system() {
+    info "Copiando configurações do sistema..."
+    mkdir -p "$BUILD_DIR/system/sudoers" \
+             "$BUILD_DIR/system/systemd" \
+             "$BUILD_DIR/system/apache" \
+             "$BUILD_DIR/system/etc" \
+             "$BUILD_DIR/system/bin" \
+             "$BUILD_DIR/system/cron"
+
+    # Sudoers (do sistema vivo, fonte de verdade)
+    if [ -f /etc/sudoers.d/unbound-dashboard ]; then
+        cp /etc/sudoers.d/unbound-dashboard "$BUILD_DIR/system/sudoers/"
     fi
 
-    if [ -d "$DASHBOARD_DIR/tools/system/bin" ]; then
-        cp -a "$DASHBOARD_DIR/tools/system/bin/." "$BUILD_DIR/system/bin/" 2>/dev/null || true
-    fi
+    # Systemd unit do api_service (template versionado em api_service/deployments/)
+    local src_unit="$DASHBOARD_DIR/api_service/deployments/systemd/unbound-dashboard-api.service"
+    [ -f "$src_unit" ] && cp "$src_unit" "$BUILD_DIR/system/systemd/"
 
-    if [ -d "$DASHBOARD_DIR/tools/system/cron" ]; then
-        cp -a "$DASHBOARD_DIR/tools/system/cron/." "$BUILD_DIR/system/cron/" 2>/dev/null || true
-    fi
+    # Apache conf-available
+    local src_conf="$DASHBOARD_DIR/api_service/deployments/apache/unbound-dashboard-api.conf"
+    [ -f "$src_conf" ] && cp "$src_conf" "$BUILD_DIR/system/apache/"
 
-    if [ -d "$DASHBOARD_DIR/tools/system/sudoers" ]; then
-        cp -a "$DASHBOARD_DIR/tools/system/sudoers/." "$BUILD_DIR/system/sudoers/" 2>/dev/null || true
-    fi
+    # Env file template
+    local src_env="$DASHBOARD_DIR/api_service/deployments/api-v1.env.example"
+    [ -f "$src_env" ] && cp "$src_env" "$BUILD_DIR/system/etc/api-v1.env.example"
 
-    if [ -d "$DASHBOARD_DIR/tools/system/systemd" ]; then
-        cp -a "$DASHBOARD_DIR/tools/system/systemd/." "$BUILD_DIR/system/systemd/" 2>/dev/null || true
-    fi
-    
-    # Arquivos raiz
-    local root_files=(
-        "VERSION"
-        "CHANGELOG.md"
-        "index.php"
-        "login.php"
-        "logout.php"
-        "config.php"
-        "health.php"
-        "changelog.php"
-        "logs.php"
-        "diagnostics.php"
-        "dns_benchmark.php"
-        "exports.php"
-        "threats.php"
-        "alerts.php"
-        "blocklist.php"
-        "history.php"
-        "setup.php"
-        "reset.php"
-        "recover.php"
-    )
-    
-    for file in "${root_files[@]}"; do
-        if [ -f "$DASHBOARD_DIR/$file" ]; then
-            cp "$DASHBOARD_DIR/$file" "$BUILD_DIR/"
-        fi
-    done
-    
-    # Scripts de update/build
-    cp "$DASHBOARD_DIR/tools/update.sh" "$BUILD_DIR/"
-    
-    # README com instruções
-    cat > "$BUILD_DIR/README-UPDATE.md" << 'EOF'
-# Unbound Dashboard — Pacote de Update
+    # Health-fix script
+    [ -f /usr/local/bin/unbound-health-fix.sh ] && cp /usr/local/bin/unbound-health-fix.sh "$BUILD_DIR/system/bin/"
 
-## Forma mais simples (recomendada)
+    # Setup-unbound-logs script
+    [ -f "$DASHBOARD_DIR/tools/system/bin/setup-unbound-logs.sh" ] && \
+        cp "$DASHBOARD_DIR/tools/system/bin/setup-unbound-logs.sh" "$BUILD_DIR/system/bin/"
 
-O script de update aceita o .tar.gz diretamente — não é necessário extrair antes.
+    # Crons
+    [ -f "$DASHBOARD_DIR/tools/system/cron/unbound-dashboard-crons" ] && \
+        cp "$DASHBOARD_DIR/tools/system/cron/unbound-dashboard-crons" "$BUILD_DIR/system/cron/"
 
-### 1. Transferir para o servidor
-```bash
-scp unbound-dashboard-update-*.tar.gz user@server:/tmp/
-```
+    log "system/ pronto"
+}
 
-### 2. No servidor, rodar o update passando o .tar.gz
-```bash
-# Testar antes (dry-run — nenhuma mudança é feita)
-sudo DRY_RUN=true bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/unbound-dashboard-update-*.tar.gz
+copy_update_script() {
+    cp "$DASHBOARD_DIR/tools/update.sh" "$BUILD_DIR/update.sh"
+    chmod +x "$BUILD_DIR/update.sh"
+    log "update.sh incluído"
+}
 
-# Aplicar o update de verdade
-sudo bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/unbound-dashboard-update-*.tar.gz
-```
+write_readme() {
+    cat > "$BUILD_DIR/README-UPDATE.md" << EOF
+# Unbound Dashboard — Pacote de Update v${VERSION}
 
-## Forma alternativa (sem o update.sh instalado no servidor)
+## Aplicar update
 
-Use quando o servidor de destino ainda não tem o dashboard instalado.
+\`\`\`bash
+# Dry-run (não aplica nada, só simula):
+sudo DRY_RUN=true bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/unbound-dashboard-update-v${VERSION}-${TIMESTAMP}.tar.gz
 
-```bash
-cd /tmp
-tar xzf unbound-dashboard-update-*.tar.gz
-cd unbound-dashboard-update-*
+# Real:
+sudo bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/unbound-dashboard-update-v${VERSION}-${TIMESTAMP}.tar.gz
+\`\`\`
 
-# Dry-run
-sudo DRY_RUN=true bash update.sh .
+## Variáveis aceitas
 
-# Update real
-sudo bash update.sh .
-```
+| Variável | Default | Efeito |
+|---|---|---|
+| \`DRY_RUN\` | false | Simula sem aplicar |
+| \`AUTO_RESTART\` | true | Reinicia api_service + Apache ao final |
+| \`SKIP_VENV_SYNC\` | false | Pula uv sync mesmo se pyproject mudou |
+| \`VERBOSE\` | false | Saída detalhada |
 
-## Opções disponíveis
+## Backup automático antes do update
 
-| Variável            | Efeito                                      |
-|---------------------|---------------------------------------------|
-| `DRY_RUN=true`      | Simula sem fazer mudanças                   |
-| `AUTO_RESTART=true` | Reinicia apache2 e unbound automaticamente  |
-| `VERBOSE=true`      | Modo detalhado (debug)                      |
-| `AUTO_PREPARE_DB=false` | Pula provisionamento automático do banco|
+- \`/var/backups/unbound-dashboard/dashboard-<TS>.tar.gz\`
+- \`/var/backups/unbound-dashboard/duckdb-<TS>.duckdb\`
+- \`/var/backups/unbound-dashboard/api-v1.env-<TS>\`
 
 ## Rollback
 
-Backup automático é criado em `/var/backups/unbound-dashboard/`
+\`\`\`bash
+sudo systemctl stop unbound-dashboard-api
+sudo tar xzf /var/backups/unbound-dashboard/dashboard-<TS>.tar.gz -C /
+sudo cp -a /var/backups/unbound-dashboard/duckdb-<TS>.duckdb /var/lib/unbound-dashboard/unbound_dash.duckdb
+sudo cp -a /var/backups/unbound-dashboard/api-v1.env-<TS> /etc/unbound-dashboard/api-v1.env
+sudo systemctl start unbound-dashboard-api
+\`\`\`
 
-```bash
-sudo tar xzf /var/backups/unbound-dashboard/dashboard-TIMESTAMP.tar.gz -C /
-sudo systemctl restart apache2 unbound
-```
+## NÃO sobrescritos
 
-## Arquivos atualizados
-
-- Código PHP: `src/`, `api/`, `includes/`, `scripts/`, arquivos raiz
-- Templates de configuração do Unbound
-- Scripts do sistema em `/usr/local/bin/`
-
-**Nunca sobrescritos:**
-- `src/Database.php` (credenciais do banco)
-- `/etc/unbound/unbound.conf` (configuração principal)
+- \`/etc/unbound-dashboard/api-v1.env\` (preserva JWT_SECRET local)
+- \`/var/lib/unbound-dashboard/unbound_dash.duckdb\` (banco vivo)
+- \`/etc/unbound/unbound.conf\` (config principal do resolver)
+- \`src/Database.php\` (stub local, mantido pra evitar conflitos)
 EOF
-    
-    log "Arquivos copiados"
+    log "README-UPDATE.md gerado"
 }
 
 # ============================================================
-# VALIDAR ARQUIVOS
+# VALIDAÇÃO
 # ============================================================
-validate_files() {
-    info "Validando arquivos de update..."
-    
-    # Validar PHP
-    while IFS= read -r php_file; do
-        if ! php -l "$php_file" &>/dev/null; then
-            error "Erro de sintaxe em: $php_file"
-            return 1
-        fi
+validate() {
+    info "Validando sintaxe dos arquivos..."
+    local fail=0
+    while IFS= read -r f; do
+        php -l "$f" >/dev/null 2>&1 || { error "PHP inválido: $f"; fail=1; }
     done < <(find "$BUILD_DIR" -name "*.php" -type f)
-    
-    # Validar bash scripts
-    while IFS= read -r bash_file; do
-        if ! bash -n "$bash_file" 2>/dev/null; then
-            error "Erro de sintaxe em: $bash_file"
-            return 1
-        fi
+
+    while IFS= read -r f; do
+        bash -n "$f" 2>/dev/null || { error "Bash inválido: $f"; fail=1; }
     done < <(find "$BUILD_DIR" -name "*.sh" -type f)
-    
-    log "Validação concluída com sucesso"
+
+    [ "$fail" -eq 0 ] || { error "Validação falhou — abortando"; exit 1; }
+    log "Sintaxe validada"
 }
 
 # ============================================================
-# GERAR TARBALL
+# TARBALL + CHECKSUM
 # ============================================================
 create_archive() {
-    info "Gerando arquivo de update..."
-    
-    local archive_name="unbound-dashboard-update-v${VERSION}-${TIMESTAMP}.tar.gz"
-    ARCHIVE_PATH="$OUTPUT_DIR/$archive_name"
-    
-    # Criar tarball
-    tar czf "$ARCHIVE_PATH" -C "$(dirname "$BUILD_DIR")" "$(basename "$BUILD_DIR")" 2>/dev/null
-    
-    # Verificar se foi criado
-    if [ ! -f "$ARCHIVE_PATH" ]; then
-        error "Erro ao criar arquivo de update"
-        return 1
-    fi
-    
-    local size=$(du -h "$ARCHIVE_PATH" | cut -f1)
-    log "Arquivo gerado: $archive_name (${size})"
+    info "Empacotando tarball..."
+    local name="unbound-dashboard-update-v${VERSION}-${TIMESTAMP}.tar.gz"
+    ARCHIVE_PATH="$OUTPUT_DIR/$name"
+
+    # tar do conteúdo do BUILD_DIR (sem o nome aleatório do tmp)
+    tar czf "$ARCHIVE_PATH" -C "$BUILD_DIR" \
+        dashboard api_service system update.sh README-UPDATE.md
+
+    [ -f "$ARCHIVE_PATH" ] || { error "Falha ao gerar tarball"; exit 1; }
+    log "$name ($(du -h "$ARCHIVE_PATH" | cut -f1))"
+
+    sha256sum "$ARCHIVE_PATH" > "${ARCHIVE_PATH}.sha256"
+    log "Checksum: $(basename "${ARCHIVE_PATH}").sha256"
 }
 
 # ============================================================
-# GERAR CHECKSUM
-# ============================================================
-create_checksum() {
-    local archive_path="$1"
-    local checksum_file="${archive_path}.sha256"
-    
-    info "Gerando checksum..."
-    sha256sum "$archive_path" > "$checksum_file"
-    log "Checksum salvo: $(basename "$checksum_file")"
-}
-
-# ============================================================
-# RELATÓRIO FINAL
+# RELATÓRIO
 # ============================================================
 print_summary() {
-    local archive_path="$1"
-    local archive_name=$(basename "$archive_path")
-    
+    local name; name=$(basename "$ARCHIVE_PATH")
     echo ""
     echo "╔══════════════════════════════════════════════════╗"
-    echo "║   Update Package Gerado com Sucesso! ✓           ║"
+    echo "║   Update Package gerado ✓                        ║"
     echo "╚══════════════════════════════════════════════════╝"
     echo ""
-    echo "📦 Arquivo:     $archive_name"
-    echo "📍 Localização: $OUTPUT_DIR/"
-    echo "📅 Data/Hora:   $(date '+%d/%m/%Y %H:%M:%S')"
-    echo "🔖 Versão:      $VERSION"
+    echo "Arquivo:  $ARCHIVE_PATH"
+    echo "Versão:   $VERSION"
+    echo "Data:     $(date '+%d/%m/%Y %H:%M:%S')"
     echo ""
-    echo "📋 Próximos passos:"
-    echo ""
-    echo "1. Transferir para servidor:"
-    echo "   scp $OUTPUT_DIR/$archive_name user@server:/tmp/"
-    echo ""
-    echo "2. No servidor, testar antes (dry-run):"
-    echo "   sudo DRY_RUN=true bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/$archive_name"
-    echo ""
-    echo "3. Aplicar o update:"
-    echo "   sudo bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/$archive_name"
-    echo ""
-    echo "✅ Fazer backup antes de atualizar!"
+    echo "Próximos passos:"
+    echo "  1. scp $ARCHIVE_PATH user@server:/tmp/"
+    echo "  2. sudo DRY_RUN=true bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/$name"
+    echo "  3. sudo bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/$name"
     echo ""
 }
 
@@ -355,25 +283,22 @@ print_summary() {
 # ============================================================
 main() {
     read_version || exit 1
-
-    if [ "$AUTO_BUMP_VERSION" = "true" ]; then
-        bump_version || exit 1
-    fi
+    [ "$AUTO_BUMP_VERSION" = "true" ] && bump_version
 
     echo "╔══════════════════════════════════════════════════╗"
-    echo "║  Unbound Dashboard — Build Update Package v${VERSION}   ║"
+    echo "║   Build Update Package v${VERSION}                  ║"
     echo "╚══════════════════════════════════════════════════╝"
     echo ""
-    
-    prepare_build
-    copy_source_files
-    validate_files
+
+    prepare
+    copy_dashboard
+    copy_apiservice
+    copy_system
+    copy_update_script
+    write_readme
+    validate
     create_archive
-    create_checksum "$ARCHIVE_PATH"
-    print_summary "$ARCHIVE_PATH"
+    print_summary
 }
 
-# ============================================================
-# EXECUÇÃO
-# ============================================================
 main
