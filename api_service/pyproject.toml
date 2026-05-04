@@ -16,6 +16,11 @@ dependencies = [
     "structlog>=24.4",
     "prometheus-fastapi-instrumentator>=7.0",
     "psutil>=6.1",
+    # pandas é dep de produção: workers do api_service usam db_append() com
+    # DataFrame para bulk insert no DuckDB (preserva DEFAULT em colunas ausentes,
+    # ex: id auto-incremented em query_logs). NÃO mover pra dev — `uv sync --no-dev`
+    # quebra o startup (connection.py importa pandas no module-level).
+    "pandas>=2.0",
 ]
 
 [dependency-groups]
@@ -27,7 +32,6 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
     "pymysql>=1.1.3",
-    "pandas>=3.0.2",
 ]
 
 [tool.uv]

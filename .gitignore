@@ -33,6 +33,8 @@ vendor/
 *.cache
 *.tmp
 *.lock
+# uv.lock do api_service DEVE ser commitado (builds reprodutíveis).
+!api_service/uv.lock
 src/data/
 
 # === VS Code (opcional, remova se quiser versionar) ===

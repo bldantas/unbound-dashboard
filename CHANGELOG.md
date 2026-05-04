@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.2.3 — 2026-05-04
+
+### Bugfix
+- **`pandas` movido para `dependencies` no `pyproject.toml`** (estava em
+  `dependency-groups dev`). Como `install.sh` roda `uv sync --no-dev`,
+  o pandas não ia pra produção e o startup do `api_service` quebrava com
+  `ModuleNotFoundError: No module named 'pandas'` ao importar
+  `app.repositories.duckdb.connection` (que usa pandas em `db_append`).
+- `uv.lock` regenerado.
+
+### Hotfix em servidores já instalados (sem refazer install)
+```bash
+cd /var/www/html/unbound-dashboard/api_service
+sudo /usr/local/bin/uv pip install --python .venv/bin/python "pandas>=2.0"
+sudo systemctl restart unbound-dashboard-api
+```
+
+---
+
 ## v2.2.2 — 2026-05-04
 
 ### UI / Backend
