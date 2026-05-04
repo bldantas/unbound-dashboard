@@ -32,6 +32,13 @@ _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent / "migrations" /
 
 
 def _ensure_schema_migrations(conn: duckdb.DuckDBPyConnection) -> None:
+    """
+    Cria a tabela `schema_migrations` se não existir. Se já existir com schema
+    legado (de versões experimentais anteriores que usavam (version, filename)
+    em vez de (version, name, checksum)), faz ALTER TABLE pra adicionar as
+    colunas faltantes e popular com valores tolerantes — sem perder histórico
+    de migrations já aplicadas.
+    """
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -42,6 +49,39 @@ def _ensure_schema_migrations(conn: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+
+    # Detecta colunas presentes (DuckDB só suporta `IF NOT EXISTS` em
+    # `CREATE TABLE`, não em `ADD COLUMN` em todas as versões — fazemos a
+    # checagem manual via information_schema).
+    cols = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'main' AND table_name = 'schema_migrations'"
+        ).fetchall()
+    }
+
+    # checksum: legado pode não ter. Adiciona como nullable e popula com '' (string vazia).
+    # Em entradas com checksum vazio, o runner pula a validação de drift (já está aplicada).
+    if "checksum" not in cols:
+        conn.execute("ALTER TABLE schema_migrations ADD COLUMN checksum VARCHAR(64)")
+        conn.execute("UPDATE schema_migrations SET checksum = '' WHERE checksum IS NULL")
+
+    # name: legado pode usar `filename` (com .sql). Migra valor sem extensão.
+    if "name" not in cols:
+        conn.execute("ALTER TABLE schema_migrations ADD COLUMN name VARCHAR(255)")
+        if "filename" in cols:
+            conn.execute(
+                "UPDATE schema_migrations SET name = regexp_replace(filename, '\\.sql$', '') "
+                "WHERE name IS NULL"
+            )
+        else:
+            conn.execute("UPDATE schema_migrations SET name = '' WHERE name IS NULL")
+
+    # applied_at: legado pode não ter. Default NOW() preserva ordering relativa.
+    if "applied_at" not in cols:
+        conn.execute("ALTER TABLE schema_migrations ADD COLUMN applied_at TIMESTAMP DEFAULT NOW()")
+        conn.execute("UPDATE schema_migrations SET applied_at = NOW() WHERE applied_at IS NULL")
 
 
 def _discover_migrations() -> list[tuple[int, str, Path]]:
@@ -84,10 +124,14 @@ def run_migrations(db_path: str | None = None) -> list[int]:
         for version, name, path in _discover_migrations():
             checksum = _checksum(path)
             if version in existing:
-                if existing[version] != checksum:
+                existing_checksum = existing[version] or ""
+                # Schema legado (de versão experimental anterior) pode ter
+                # checksum vazio — nesse caso a migration já está aplicada e
+                # pulamos a validação de drift sem falhar.
+                if existing_checksum and existing_checksum != checksum:
                     raise RuntimeError(
                         f"Migration V{version}__{name}.sql foi alterada após aplicada "
-                        f"(checksum esperado={existing[version]}, atual={checksum}). "
+                        f"(checksum esperado={existing_checksum}, atual={checksum}). "
                         "Crie uma migration nova em vez de editar a existente."
                     )
                 continue

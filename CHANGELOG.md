@@ -1,5 +1,44 @@
 # Changelog
 
+## v2.2.6 — 2026-05-04
+
+### Bugfix do migrations runner — schema_migrations legado
+
+**Problema:** Em servidores com instalação experimental v2.1.x antiga,
+a tabela `schema_migrations` no DuckDB foi criada com schema diferente
+(`(version, filename)`) do que o api_service atual espera
+(`(version, name, checksum, applied_at)`). O `CREATE TABLE IF NOT EXISTS`
+do startup virava no-op (tabela já existia) e o `SELECT version, checksum`
+seguinte falhava com `BinderException: Referenced column "checksum" not found`.
+
+**Fix:** `app/db/migrate.py::_ensure_schema_migrations` agora detecta colunas
+ausentes via `information_schema.columns` e faz `ALTER TABLE ADD COLUMN`
+para `checksum`, `name` e `applied_at` quando faltam:
+- Se há coluna legada `filename`, popula `name` extraindo o basename sem `.sql`
+- `checksum` legado fica vazio (`''`); o runner pula a validação de drift
+  para entradas com checksum vazio (assume migration já aplicada)
+- `applied_at` recebe `NOW()` retroativo
+
+Tornado `_ensure_schema_migrations` idempotente e tolerante a schema drift.
+
+### Hotfix em servidor já travado:
+Reaplique o pacote v2.2.6 (rebuild do install.sh) ou faça hotfix manual:
+```bash
+sudo -u www-data bash -c '
+    set -a; source /etc/unbound-dashboard/api-v1.env; set +a
+    /var/www/html/unbound-dashboard/api_service/.venv/bin/python -c "
+import duckdb
+with duckdb.connect(\"/var/lib/unbound-dashboard/unbound_dash.duckdb\") as c:
+    c.execute(\"ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum VARCHAR(64) DEFAULT \\\"\\\"\")
+    c.execute(\"ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS applied_at TIMESTAMP DEFAULT NOW()\")
+    c.execute(\"ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS name VARCHAR(255)\")
+    c.execute(\"UPDATE schema_migrations SET name = regexp_replace(filename, \\\"\\\\.sql$\\\", \\\"\\\") WHERE name IS NULL\")
+"'
+sudo systemctl restart unbound-dashboard-api
+```
+
+---
+
 ## v2.2.5 — 2026-05-04
 
 ### Bugfix do install.sh — ownership do DuckDB
