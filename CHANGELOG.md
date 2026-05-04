@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.2.5 — 2026-05-04
+
+### Bugfix do install.sh — ownership do DuckDB
+
+**Problema:** Em servidores que tinham instalação anterior com user
+diferente (ex: `unbound-dash:unbound-dash` de uma versão experimental
+v2.1.x antiga), o arquivo `/var/lib/unbound-dashboard/unbound_dash.duckdb`
+ficava com ownership errado. O api_service rodando como `www-data` recebia
+`Permission denied` ao tentar abrir o arquivo.
+
+**Fix:** install.sh agora faz `chown -R www-data:www-data` no
+`/var/lib/unbound-dashboard/` (não só no diretório raiz) e força
+`chmod 640` em todos os arquivos. Idempotente — sem efeito em instalações
+limpas.
+
+### Hotfix em servidor já instalado:
+```bash
+sudo chown -R www-data:www-data /var/lib/unbound-dashboard/
+sudo chmod 750 /var/lib/unbound-dashboard
+sudo find /var/lib/unbound-dashboard -type f -exec chmod 640 {} \;
+```
+
+---
+
 ## v2.2.4 — 2026-05-04
 
 ### Bugfix do install.sh — Etapa 8 (admin inicial)

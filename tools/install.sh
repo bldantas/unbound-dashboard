@@ -204,9 +204,13 @@ mkdir -p "$INSTALL_DIR/data/tmp" "$INSTALL_DIR/src/data/tmp"
 
 # DuckDB path
 mkdir -p "$DUCKDB_DIR"
-chown www-data:www-data "$DUCKDB_DIR"
+# chown -R porque pode haver arquivos legados (de instalação anterior com user
+# diferente, ex: 'unbound-dash') que o api_service não conseguiria abrir como
+# www-data. -R é idempotente e barato.
+chown -R www-data:www-data "$DUCKDB_DIR"
 chmod 750 "$DUCKDB_DIR"
-log "DuckDB dir: $DUCKDB_DIR (www-data:www-data, 750)"
+find "$DUCKDB_DIR" -type f -exec chmod 640 {} \;
+log "DuckDB dir: $DUCKDB_DIR (www-data:www-data, 750/files 640)"
 
 # Backups dir
 mkdir -p /var/backups/unbound-dashboard
