@@ -238,7 +238,7 @@ $currentPage = 'alerts.php';
                 </div>
 
 
-                <!-- DB and App Services Card -->
+                <!-- API + DuckDB + Web Services Card -->
                 <div class="metric-card border-slate-200 dark:border-white/5 flex items-start gap-4">
                     <div class="icon-box w-16 h-16 shrink-0 text-orange-500 dark:text-orange-400 border-orange-500/20 bg-orange-500/10"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
@@ -246,14 +246,18 @@ $currentPage = 'alerts.php';
                     <div class="flex-1">
                         <div class="flex justify-between">
                             <h3 class="text-slate-900 dark:text-white font-bold text-lg">Serviços e Conexões</h3>
-                            <span class="text-[10px] font-black bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-2 pt-1 border border-slate-300 dark:border-white/5 rounded">MARIADB & WEB</span>
+                            <span class="text-[10px] font-black bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-2 pt-1 border border-slate-300 dark:border-white/5 rounded">API + DUCKDB</span>
                         </div>
-                        <p class="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-3">Bando de Dados: <span id="alertsDbStatus" class="text-slate-900 dark:text-white font-bold">--</span> | Conexões DB: <span id="alertsDbConnections" class="text-slate-900 dark:text-white font-bold">--</span></p>
+                        <p class="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-3">FastAPI: <span id="alertsApiStatus" class="text-slate-900 dark:text-white font-bold">--</span> | DuckDB: <span id="alertsDbSize" class="text-slate-900 dark:text-white font-bold">--</span></p>
 
                         <div class="flex flex-wrap items-center gap-4">
                             <div class="bg-slate-900/5 dark:bg-black/30 border border-slate-200 dark:border-white/5 rounded shadow px-3 py-1">
                                 <span class="text-xs text-slate-500 dark:text-slate-400">Web Server:</span>
                                 <span id="alertsWebStatus" class="text-xs font-black uppercase text-slate-500 ml-2">--</span>
+                            </div>
+                            <div class="bg-slate-900/5 dark:bg-black/30 border border-slate-200 dark:border-white/5 rounded shadow px-3 py-1">
+                                <span class="text-xs text-slate-500 dark:text-slate-400">Redis:</span>
+                                <span id="alertsRedisStatus" class="text-xs font-black uppercase text-slate-500 ml-2">--</span>
                             </div>
                             <div class="bg-slate-900/5 dark:bg-black/30 border border-slate-200 dark:border-white/5 rounded shadow px-3 py-1">
                                 <span class="text-xs text-slate-500 dark:text-slate-400">Portas Externas:</span>
@@ -393,7 +397,9 @@ $currentPage = 'alerts.php';
                 const mem = data.memory || { total: 0, used: 0, percent: 0 };
                 const disk = data.disk || { total: 0, used: 0, percent: 0 };
                 const net = data.network || { drops: 0, errors: 0 };
-                const db = data.db || { status: 'offline', connections: 0 };
+                const api = data.api || { status: 'offline', healthz: false };
+                const duckdb = data.duckdb || { exists: false, size_human: '--' };
+                const redis = data.redis || { status: 'offline' };
                 const failed = Number(data.failed_logins || 0);
                 const openPorts = Number(data.open_ports || 0);
                 const webStatusRaw = String(data.web_status || 'offline');
@@ -448,10 +454,16 @@ $currentPage = 'alerts.php';
                     failedEl.classList.toggle('dark:text-slate-300', failed <= 10);
                 }
 
-                const dbStatus = document.getElementById('alertsDbStatus');
-                const dbConnections = document.getElementById('alertsDbConnections');
-                if (dbStatus) dbStatus.textContent = String(db.status || '--');
-                if (dbConnections) dbConnections.textContent = String(Number(db.connections || 0));
+                const apiStatusEl = document.getElementById('alertsApiStatus');
+                if (apiStatusEl) {
+                    const ok = !!api.healthz && api.status === 'active';
+                    apiStatusEl.textContent = ok ? 'Online' : 'Offline';
+                    apiStatusEl.classList.toggle('text-emerald-500', ok);
+                    apiStatusEl.classList.toggle('text-red-500', !ok);
+                }
+
+                const dbSizeEl = document.getElementById('alertsDbSize');
+                if (dbSizeEl) dbSizeEl.textContent = duckdb.exists ? String(duckdb.size_human) : 'ausente';
 
                 const webStatusEl = document.getElementById('alertsWebStatus');
                 if (webStatusEl) {
@@ -459,7 +471,14 @@ $currentPage = 'alerts.php';
                     const online = webStatusRaw !== 'offline';
                     webStatusEl.classList.toggle('text-emerald-500', online);
                     webStatusEl.classList.toggle('text-red-500', !online);
-                    webStatusEl.classList.toggle('text-slate-500', false);
+                }
+
+                const redisEl = document.getElementById('alertsRedisStatus');
+                if (redisEl) {
+                    const redisOk = redis.status === 'active';
+                    redisEl.textContent = redisOk ? 'active' : (redis.status || 'offline');
+                    redisEl.classList.toggle('text-emerald-500', redisOk);
+                    redisEl.classList.toggle('text-red-500', !redisOk);
                 }
 
                 const openPortsEl = document.getElementById('alertsOpenPorts');

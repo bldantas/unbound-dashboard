@@ -36,6 +36,11 @@ try {
         'memory' => $monitor->getDetailedMemory(),
         'disk' => $monitor->getDiskUsage(),
         'network' => $monitor->getNetworkStats(),
+        // Stack atual (v2.2.x): api_service + DuckDB + Redis (substitui MariaDB).
+        'api' => $appMetrics->getApiServiceStatus(),
+        'duckdb' => $appMetrics->getDuckDBStatus(),
+        'redis' => $appMetrics->getRedisStatus(),
+        // db: stub fixo offline pra compat com clients antigos que ainda lêem `data.db`.
         'db' => $appMetrics->getMariaDBStats(),
         'web_status' => $appMetrics->getWebServerStatus(),
         'failed_logins' => $security->getFailedLogins(),
