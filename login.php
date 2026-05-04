@@ -3,15 +3,11 @@ require_once 'src/Auth.php';
 
 use App\Auth;
 
-// Se o sistema não foi instalado, redireciona para o wizard de instalação
-if (!file_exists(__DIR__ . '/data/.installed')) {
-    header('Location: setup.php');
-    exit;
-}
-
-// Se não houver usuários (edge case), também redireciona para o setup
-if (!\App\Auth::hasUsers()) {
-    header('Location: setup.php');
+// Se o sistema não foi instalado (ou não tem admin), exibe página estática
+// com instruções. O wizard PHP foi removido em v2.2.x — install.sh agora
+// cria o admin via api_service/tools/create_admin.py.
+if (!file_exists(__DIR__ . '/data/.installed') || !\App\Auth::hasUsers()) {
+    header('Location: not_installed.php');
     exit;
 }
 

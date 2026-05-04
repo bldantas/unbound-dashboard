@@ -4,9 +4,10 @@ require_once 'src/StatsManager.php';
 
 use App\Auth;
 
-// Se não houver usuários, redirecione para a página de configuração
+// Se não houver usuários (sistema não instalado), exibe página estática.
+// Wizard PHP foi removido em v2.2.x — install.sh cria o admin.
 if (!\App\Auth::hasUsers()) {
-    header('Location: setup.php');
+    header('Location: not_installed.php');
     exit;
 }
 

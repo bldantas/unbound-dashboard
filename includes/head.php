@@ -157,7 +157,7 @@ if (!empty($_SESSION['logged_in']) && !empty($_SESSION['api_jwt'])) {
                 'config.php': 'Carregando configuracoes...',
                 'health.php': 'Carregando saude e auditoria...',
                 'changelog.php': 'Carregando changelog de versoes...',
-                'setup.php': 'Carregando configuracao inicial...',
+                'not_installed.php': 'Verificando instalacao...',
                 'recover.php': 'Carregando recuperacao de acesso...',
                 'reset.php': 'Carregando redefinicao de senha...',
                 'login.php': 'Carregando tela de login...'
