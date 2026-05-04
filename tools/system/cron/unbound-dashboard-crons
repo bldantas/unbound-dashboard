@@ -1,13 +1,16 @@
 # Unbound Dashboard — Crontabs
 # Instalar com: crontab -l | cat - system/cron/unbound-dashboard-crons | crontab -
-
-# Agregação de estatísticas (a cada minuto)
-* * * * * /usr/bin/php /var/www/html/unbound-dashboard/scripts/aggregate_stats.php >/dev/null 2>&1 # UNBOUND-DASHBOARD-STATS
-
-# Monitoramento de alertas (a cada minuto)
-* * * * * /usr/bin/php /var/www/html/unbound-dashboard/scripts/cron_alerts.php >/dev/null 2>&1 # UNBOUND-DASHBOARD-ALERTS
+#
+# Os crons de agregação de estatísticas e monitoramento de alertas foram
+# cutovered para os workers Python do api_service em 2026-04-29:
+#   - stats_aggregator.py  (substitui aggregate_stats.php)
+#   - alert_checker.py     (substitui cron_alerts.php)
+#   - log_watcher.py       (substitui log_ingester.php)
+# Eles rodam dentro do unbound-dashboard-api.service.
 
 # Sincronização de blacklist principal (a cada hora)
+# Spawned por api/service_control.php com JWT via env, mas mantido também aqui
+# como fallback caso o admin queira agendar sincronização periódica automática.
 0 * * * * /usr/bin/php /var/www/html/unbound-dashboard/scripts/update_blacklist.php >/dev/null 2>&1 # UNBOUND-DASHBOARD-BLACKLIST
 
 # Sincronização de lista judicial ANATEL (diário às 04:30)
