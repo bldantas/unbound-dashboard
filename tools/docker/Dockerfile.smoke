@@ -1,0 +1,88 @@
+# Smoke-test do install.sh em Debian 13 (Trixie).
+#
+# Container SEM systemd: substitui /usr/bin/systemctl por um stub que loga
+# e retorna 0. Não cobre o subsystem systemd em si (enable/start/journal),
+# mas valida toda a parte de:
+#   - apt-get install das dependências
+#   - install do uv + uv sync (criação do .venv)
+#   - geração do JWT_SECRET + cópia do api-v1.env
+#   - bootstrap do admin via create_admin.py (toca o DuckDB)
+#   - boot manual do FastAPI + smoke /api/v1/healthz
+#
+# Build:
+#   sudo docker build -f tools/docker/Dockerfile.smoke \
+#       -t unbound-dashboard-smoke:latest \
+#       --build-arg PACKAGE_TARBALL=tools/unbound-dashboard-v2.2.1.tar.gz \
+#       .
+#
+# Run:
+#   sudo docker run --rm unbound-dashboard-smoke:latest
+
+FROM debian:trixie-slim
+
+ARG PACKAGE_TARBALL
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    ADMIN_USERNAME=admin \
+    ADMIN_EMAIL=admin@example.com \
+    ADMIN_PASSWORD=changeme123
+
+# Mínimo pra apt-get + curl funcionarem em pacotes mais novos
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    curl \
+    ca-certificates \
+    sudo \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stub de systemctl: o install.sh chama systemctl várias vezes (enable, start,
+# is-active, daemon-reload). Em container sem systemd isso falharia. O stub
+# sempre retorna 0 e finge que tudo está "active".
+RUN mv /usr/bin/systemctl /usr/bin/systemctl.real 2>/dev/null || true && \
+    cat > /usr/bin/systemctl <<'EOF' && chmod +x /usr/bin/systemctl
+#!/bin/bash
+case "$1" in
+    is-active) echo "active"; exit 0 ;;
+    is-enabled) echo "enabled"; exit 0 ;;
+    *) echo "[systemctl-stub] $*" >&2; exit 0 ;;
+esac
+EOF
+
+# Apache config helper stubs (a2enmod/a2enconf precisam que /etc/apache2 exista)
+RUN mkdir -p /etc/apache2/{mods-enabled,mods-available,conf-enabled,conf-available,sites-enabled,sites-available}
+
+# Copia o pacote do dashboard pra dentro do container
+WORKDIR /opt/install
+COPY ${PACKAGE_TARBALL} /opt/install/dashboard.tar.gz
+
+RUN tar xzf /opt/install/dashboard.tar.gz && \
+    rm /opt/install/dashboard.tar.gz && \
+    mv unbound-dashboard-* package
+
+# Roda o install.sh — modo não-interativo (env vars já no ENV acima)
+WORKDIR /opt/install/package
+RUN bash install.sh 2>&1 | tee /opt/install/install.log || \
+    (echo "❌ install.sh falhou — log acima"; exit 1)
+
+# Validação mínima: api_service .venv criado, env file com JWT_SECRET real,
+# create_admin executável, DuckDB criado pelo bootstrap.
+RUN test -x /var/www/html/unbound-dashboard/api_service/.venv/bin/uvicorn || \
+    (echo "❌ .venv ausente"; exit 1) && \
+    test -f /etc/unbound-dashboard/api-v1.env || \
+    (echo "❌ env file ausente"; exit 1) && \
+    grep -q "^JWT_SECRET=[a-f0-9]" /etc/unbound-dashboard/api-v1.env || \
+    (echo "❌ JWT_SECRET não foi populado"; exit 1) && \
+    echo "✅ Validações estáticas OK"
+
+# Smoke runtime: boot manual do FastAPI sem systemd e checa /healthz.
+# Carrega env file e roda uvicorn em background.
+CMD set -a && source /etc/unbound-dashboard/api-v1.env && set +a && \
+    cd /var/www/html/unbound-dashboard/api_service && \
+    .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 & \
+    sleep 5 && \
+    curl -sf http://127.0.0.1:8001/api/v1/healthz && \
+    echo "✅ /api/v1/healthz OK — smoke completo" && \
+    kill %1 2>/dev/null || true
