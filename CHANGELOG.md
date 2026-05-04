@@ -1,5 +1,28 @@
 # Changelog
 
+## v2.2.7 — 2026-05-04
+
+### install.sh — adiciona www-data ao grupo `adm`
+
+O worker `log_watcher` lê `/var/log/syslog`, `/var/log/auth.log` e
+`/var/log/unbound.log` continuamente. Em Debian/Ubuntu esses arquivos têm
+mode `640 root:adm`. Sem isso, o worker crasha em loop com:
+
+```
+worker.crashed name=log_watcher error="[Errno 13] Permission denied: '/var/log/syslog'"
+```
+
+`install.sh` agora faz `usermod -aG adm www-data` (idempotente).
+
+### docs/TROUBLESHOOTING
+
+- §8 novo: schema drift do DuckDB legado (de instalação experimental v2.1.x
+  antiga) e procedimento de wipe + recreate.
+- §9 novo: `log_watcher` Permission denied em `/var/log/syslog` e fix.
+- §10 (antigo §8): reset de senha do admin.
+
+---
+
 ## v2.2.6 — 2026-05-04
 
 ### Bugfix do migrations runner — schema_migrations legado

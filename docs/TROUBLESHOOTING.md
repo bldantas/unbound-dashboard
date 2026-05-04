@@ -13,7 +13,9 @@ Este guia oferece soluções para os problemas mais comuns na stack atual (PHP +
 5. [`blocked_domains.conf` ausente em `/etc/unbound/includes/`](#5-blocked_domainsconf-ausente)
 6. [Auto-Reparo não reinicia o Unbound](#6-auto-reparo-não-reinicia-o-unbound)
 7. [Live Sniffer não inicia](#7-live-sniffer-não-inicia)
-8. [Resetar senha do admin](#8-resetar-senha-do-admin)
+8. [Schema drift (DuckDB de instalação antiga)](#8-schema-drift-duckdb-de-instalação-antiga)
+9. [log_watcher: Permission denied em /var/log/syslog](#9-log_watcher-permission-denied-em-varlogsyslog)
+10. [Resetar senha do admin](#10-resetar-senha-do-admin)
 
 ---
 
@@ -234,7 +236,85 @@ sudo systemctl reload unbound
 
 ---
 
-## 8. Resetar senha do admin
+## 8. Schema drift (DuckDB de instalação antiga)
+
+### Sintoma
+
+Logs do `unbound-dashboard-api` mostram erros como:
+
+```
+Binder Error: Referenced column "X" not found in FROM clause!
+Candidate bindings: "Y", "Z"
+```
+
+ou:
+
+```
+_duckdb.BinderException: ... schema_migrations ...
+```
+
+### Causa
+
+O DuckDB em `/var/lib/unbound-dashboard/unbound_dash.duckdb` foi criado por uma versão experimental anterior do api_service (pré-v2.2.x) e tem schema diferente do que o código atual espera. O `schema_migrations` é auto-curado em v2.2.6+, mas tabelas como `alerts`, `query_logs`, `daily_stats` e `blocklist_domains` podem ter colunas divergentes.
+
+### Solução
+
+Se o servidor é de **teste** ou os dados antigos não importam, faça wipe + recreate:
+
+```bash
+sudo systemctl stop unbound-dashboard-api
+
+# Backup defensivo (timestamp no nome):
+sudo mv /var/lib/unbound-dashboard/unbound_dash.duckdb \
+        /var/lib/unbound-dashboard/unbound_dash.duckdb.legacy-$(date +%Y%m%d_%H%M%S)
+
+sudo systemctl start unbound-dashboard-api
+sleep 3
+# api_service cria DB novo com schema atual via migrations.
+
+# Recriar admin (lock conflict — para o serviço primeiro):
+sudo systemctl stop unbound-dashboard-api
+ADMIN_USERNAME=admin ADMIN_PASSWORD='senha' \
+sudo -u www-data bash -c '
+    set -a; source /etc/unbound-dashboard/api-v1.env; set +a
+    PYTHONPATH=/var/www/html/unbound-dashboard/api_service \
+    /var/www/html/unbound-dashboard/api_service/.venv/bin/python \
+    /var/www/html/unbound-dashboard/api_service/tools/create_admin.py
+'
+sudo systemctl start unbound-dashboard-api
+```
+
+### Quando NÃO fazer wipe
+
+Se o DuckDB tem dados de produção (query_logs, alerts históricos, etc) que você quer preservar, abra issue ou contate o mantenedor — auto-cure por tabela exige migrations específicas.
+
+---
+
+## 9. log_watcher: `Permission denied: '/var/log/syslog'`
+
+### Sintoma
+
+```
+worker.crashed name=log_watcher error="[Errno 13] Permission denied: '/var/log/syslog'"
+```
+
+### Causa
+
+`www-data` não está no grupo `adm` (que tem acesso a `/var/log/syslog`, `/var/log/auth.log`, `/var/log/unbound.log` em Debian/Ubuntu).
+
+### Solução
+
+```bash
+sudo usermod -aG adm www-data
+sudo systemctl restart unbound-dashboard-api
+sudo systemctl restart apache2  # se PHP precisar ler logs também
+```
+
+> Em v2.2.7+ o `install.sh` faz isso automaticamente. Servidores instalados antes precisam aplicar manualmente.
+
+---
+
+## 10. Resetar senha do admin
 
 A página `/recover.php` envia link de recuperação por email. Se o servidor SMTP não está configurado, use o CLI:
 

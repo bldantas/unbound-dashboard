@@ -217,6 +217,14 @@ mkdir -p /var/backups/unbound-dashboard
 chown root:root /var/backups/unbound-dashboard
 chmod 750 /var/backups/unbound-dashboard
 
+# www-data precisa do grupo `adm` pra ler /var/log/{syslog,auth.log,unbound.log}
+# que o worker log_watcher tail-a continuamente. Idempotente — usermod -aG é no-op
+# se o user já está no grupo.
+if getent group adm >/dev/null 2>&1; then
+    usermod -aG adm www-data 2>/dev/null || true
+    log "www-data adicionado ao grupo adm (acesso a /var/log/*)"
+fi
+
 # Sync deps Python via uv (cria .venv dentro de api_service/)
 info "Criando venv + instalando deps via uv sync..."
 (
