@@ -21,9 +21,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 import sys
 
 from app.repositories.duckdb import user_repo
+
+_USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 from app.repositories.duckdb.connection import db_fetchone
 from app.services import users_service
 
@@ -58,6 +61,12 @@ def main() -> int:
 
     if not args.username:
         print("[✗] --username (ou ADMIN_USERNAME) é obrigatório.", file=sys.stderr)
+        return 2
+    if not _USERNAME_RE.match(args.username):
+        print(
+            f"[✗] Username inválido: '{args.username}'. Use apenas letras, números, _ . -",
+            file=sys.stderr,
+        )
         return 2
     if not args.password:
         print("[✗] --password (ou ADMIN_PASSWORD) é obrigatório.", file=sys.stderr)

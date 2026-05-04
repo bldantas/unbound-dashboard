@@ -349,8 +349,18 @@ else
     ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
 
     if [ -z "$ADMIN_USERNAME" ]; then
-        read -rp "Username do admin [admin]: " ADMIN_USERNAME
-        ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+        while :; do
+            read -rp "Username do admin (apenas a-z, 0-9, _ ou .) [admin]: " ADMIN_USERNAME
+            ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+            if [[ "$ADMIN_USERNAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+                break
+            fi
+            warn "Username inválido — não pode ter espaços ou caracteres especiais. Tente novamente."
+        done
+    else
+        if [[ ! "$ADMIN_USERNAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+            err "ADMIN_USERNAME inválido: '$ADMIN_USERNAME' — use apenas letras, números, _ . -"
+        fi
     fi
     if [ -z "$ADMIN_EMAIL" ]; then
         read -rp "Email do admin (opcional): " ADMIN_EMAIL
@@ -364,8 +374,13 @@ else
         done
     fi
 
+    # DuckDB não permite múltiplos writers — paramos o api_service pra liberar
+    # o lock antes do create_admin.py, depois religamos. As migrations já foram
+    # aplicadas no startup que ocorreu na Etapa 7, então a tabela `users` existe.
+    info "Parando api_service temporariamente (libera lock do DuckDB)..."
+    systemctl stop unbound-dashboard-api 2>/dev/null || true
+
     info "Criando admin '$ADMIN_USERNAME'..."
-    # Roda como www-data com o env file do api_service carregado (JWT_SECRET, DB_PATH, etc).
     (
         cd "$APISERVICE_DIR"
         # Exporta tudo do api-v1.env + as creds do admin
@@ -379,11 +394,24 @@ else
         sudo -u www-data --preserve-env=ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD,JWT_SECRET,JWT_ALGORITHM,JWT_EXPIRE_MINUTES,DB_PATH,REDIS_URL,UNBOUND_CONTROL,UNBOUND_LOG,LOG_LEVEL,DEBUG \
             env "PATH=/usr/local/bin:/usr/bin:/bin" "PYTHONPATH=$APISERVICE_DIR" \
             "$APISERVICE_DIR/.venv/bin/python" "$APISERVICE_DIR/tools/create_admin.py"
-    ) || err "Falha ao criar admin — veja log acima"
+    ) || {
+        # Re-sobe o serviço mesmo se o create_admin falhar pra não deixar o sistema offline
+        systemctl start unbound-dashboard-api 2>/dev/null || true
+        err "Falha ao criar admin — veja log acima"
+    }
 
     install -d -o www-data -g www-data "$INSTALL_DIR/data"
     sudo -u www-data touch "$INSTALL_DIR/data/.installed"
     log "Sistema marcado como instalado (data/.installed)"
+
+    info "Religando api_service..."
+    systemctl start unbound-dashboard-api
+    sleep 2
+    if curl -sf http://127.0.0.1:8001/api/v1/healthz >/dev/null 2>&1; then
+        log "api_service religado e respondendo"
+    else
+        warn "api_service não respondeu pós-religar — checar journalctl -u unbound-dashboard-api"
+    fi
 fi
 
 # ============================================================

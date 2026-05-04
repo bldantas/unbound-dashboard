@@ -1,5 +1,28 @@
 # Changelog
 
+## v2.2.4 — 2026-05-04
+
+### Bugfix do install.sh — Etapa 8 (admin inicial)
+
+**Problema 1: lock do DuckDB.** A Etapa 7 sobe o `unbound-dashboard-api`,
+que abre o arquivo `.duckdb` com lock exclusivo. A Etapa 8 tentava rodar
+`create_admin.py` (também escritor), e o DuckDB falhava com
+`IO Error: Cannot open file ... Permission denied` (lock conflict).
+
+**Fix:** install.sh agora **para** o `unbound-dashboard-api` antes do
+`create_admin.py` e religa depois (com smoke `/api/v1/healthz`). Em caso de
+falha do create_admin, o serviço é religado mesmo assim para não deixar o
+sistema offline.
+
+**Problema 2: usernames com espaço/caracteres especiais** eram aceitos pelo
+prompt mas quebravam ou se tornavam difíceis de logar depois.
+
+**Fix:** install.sh e `create_admin.py` agora validam username com regex
+`^[a-zA-Z0-9._-]+$`. Username inválido no prompt re-pergunta; via env var
+aborta o install com mensagem clara.
+
+---
+
 ## v2.2.3 — 2026-05-04
 
 ### Bugfix
