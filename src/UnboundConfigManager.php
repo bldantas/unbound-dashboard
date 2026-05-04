@@ -676,52 +676,49 @@ class UnboundConfigManager
         // Save to flat file for Unbound include
         if (file_put_contents($this->officialBlocklistPath, $content) === false) return false;
 
-        // --- NEW: Sync with MariaDB for the Dashboard Intelligence ---
+        // --- Sync com DuckDB via FastAPI (era MariaDB) — Dashboard Intelligence ---
         try {
-            require_once __DIR__ . '/Database.php';
-            $db = \App\Database::getInstance();
+            require_once __DIR__ . '/ApiClient.php';
+            $jwt = $_SESSION['api_jwt'] ?? '';
 
-            // 1. Remove old judicial entries
-            $db->exec("DELETE FROM domain_blacklist WHERE category = 'Judicial'");
+            if ($jwt !== '') {
+                // 1. Remove judicial entries antigas
+                \App\ApiClient::post('/api/v1/blocklist/clear-category', $jwt, ['category' => 'Judicial']);
 
-            // 2. Parse domains from the content
-            // Example line: local-zone: "example.com" always_nxdomain
-            $lines = explode("\n", $content);
-            $domains = [];
-            foreach ($lines as $line) {
-                if (preg_match('/local-zone:\s*"([^"]+)"/', $line, $m)) {
-                    $domains[] = strtolower($m[1]);
-                }
-            }
-
-            // 3. Batch insert (using chunks to avoid PDO limits)
-            if (!empty($domains)) {
-                $chunks = array_chunk(array_unique($domains), 1000);
-                $stmt = $db->prepare("INSERT INTO domain_blacklist (domain, category, severity) VALUES (?, 'Judicial', 'High') ON DUPLICATE KEY UPDATE category = 'Judicial'");
-
-                $db->beginTransaction();
-                foreach ($chunks as $chunk) {
-                    foreach ($chunk as $d) {
-                        $stmt->execute([$d]);
+                // 2. Parse domains do flat file
+                $lines = explode("\n", $content);
+                $domains = [];
+                foreach ($lines as $line) {
+                    if (preg_match('/local-zone:\s*"([^"]+)"/', $line, $m)) {
+                        $domains[] = strtolower($m[1]);
                     }
                 }
-                $db->commit();
-            }
 
-            // Atualiza cache de contagens da blocklist
-            $countsFile = __DIR__ . '/../data/blocklist_counts.json';
-            $adware = $db->query("SELECT COUNT(*) FROM domain_blacklist WHERE category = 'Malware/Adware'")->fetchColumn() ?: 0;
-            $phishing = $db->query("SELECT COUNT(*) FROM domain_blacklist WHERE category = 'Phishing'")->fetchColumn() ?: 0;
-            $judicial = $db->query("SELECT COUNT(*) FROM domain_blacklist WHERE category = 'Judicial'")->fetchColumn() ?: 0;
-            file_put_contents($countsFile, json_encode([
-                'adware' => (int) $adware,
-                'phishing' => (int) $phishing,
-                'judicial' => (int) $judicial,
-                'updated_at' => time()
-            ]));
+                // 3. Bulk insert em chunks (FastAPI processa cada UPSERT)
+                if (!empty($domains)) {
+                    $chunks = array_chunk(array_unique($domains), 1000);
+                    foreach ($chunks as $chunk) {
+                        $payload = array_map(static function (string $d): array {
+                            return ['domain' => $d, 'category' => 'Judicial', 'severity' => 'High'];
+                        }, $chunk);
+                        \App\ApiClient::post('/api/v1/blocklist/bulk-insert', $jwt, $payload);
+                    }
+                }
+
+                // Atualiza cache de contagens da blocklist
+                $countsFile = __DIR__ . '/../data/blocklist_counts.json';
+                $resp = \App\ApiClient::get('/api/v1/blocklist/counts', $jwt);
+                if ($resp['ok'] && is_array($resp['data'])) {
+                    file_put_contents($countsFile, json_encode([
+                        'adware'     => (int) ($resp['data']['adware'] ?? 0),
+                        'phishing'   => (int) ($resp['data']['phishing'] ?? 0),
+                        'judicial'   => (int) ($resp['data']['judicial'] ?? 0),
+                        'updated_at' => time(),
+                    ]));
+                }
+            }
         } catch (\Exception $e) {
-            error_log("Error syncing Judicial list to MariaDB: " . $e->getMessage());
-            // We don't fail the whole sync if DB insertion fails, as the flat file is more critical for Unbound.
+            error_log('Error syncing Judicial list via FastAPI: ' . $e->getMessage());
         }
 
         return true;

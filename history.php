@@ -2,7 +2,7 @@
 date_default_timezone_set('America/Sao_Paulo');
 require_once 'src/Auth.php';
 require_once 'src/ShellHelper.php';
-require_once 'src/Database.php';
+require_once __DIR__ . '/src/ApiClient.php';
 
 \App\Auth::check();
 
@@ -38,37 +38,28 @@ if (function_exists('ob_flush')) {
 }
 flush();
 
-$db = \App\Database::getInstance();
 $topDomains = [];
 $recentQueries = [];
 
-try {
-    // Top 10 limited to last 24h
-    $topDomains = $db->query("
-        SELECT domain, COUNT(*) as count 
-        FROM query_logs 
-        WHERE timestamp >= UNIX_TIMESTAMP(NOW() - INTERVAL 1 DAY)
-        GROUP BY domain 
-        ORDER BY count DESC 
-        LIMIT 10
-    ")->fetchAll();
-    
-    $limitParam = $_GET['limit'] ?? '10';
-    if ($limitParam === 'todos') {
-        $limitClause = "LIMIT 1000"; // Previnir sobrecarga excessiva
-    } else {
-        $limitNum = (int)$limitParam;
-        if ($limitNum <= 0) $limitNum = 10;
-        $limitClause = "LIMIT $limitNum";
-    }
+$limitParam = $_GET['limit'] ?? '10';
+if ($limitParam === 'todos') {
+    $apiLimit = 'todos';
+} else {
+    $limitNum = (int)$limitParam;
+    if ($limitNum <= 0) $limitNum = 10;
+    $apiLimit = (string)$limitNum;
+}
 
-    // Fetch recent queries fast using subquery to prevent filesort before JOIN
-    $recentQueries = $db->query("
-        SELECT l.*, b.category 
-        FROM (SELECT * FROM query_logs ORDER BY timestamp DESC $limitClause) l 
-        LEFT JOIN domain_blacklist b ON l.domain = b.domain 
-    ")->fetchAll();
-} catch (\Exception $e) {}
+if (!empty($_SESSION['api_jwt'])) {
+    $apiPath = '/api/v1/history/summary?limit=' . urlencode($apiLimit);
+    $apiResult = \App\ApiClient::get($apiPath, $_SESSION['api_jwt']);
+    if ($apiResult['ok'] && isset($apiResult['data']['top_domains_24h'], $apiResult['data']['recent_queries'])) {
+        $topDomains = $apiResult['data']['top_domains_24h'];
+        $recentQueries = $apiResult['data']['recent_queries'];
+    } else {
+        error_log('history.php ApiClient::get falhou: ' . ($apiResult['reason'] ?? 'unknown'));
+    }
+}
 
 $topLabels = json_encode(array_column($topDomains, 'domain'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 $topValues = json_encode(array_column($topDomains, 'count'));

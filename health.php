@@ -49,7 +49,10 @@ $components = [
     ['name' => 'Chaves TLS (RNDC Remote)', 'path' => '/etc/unbound/unbound_control.pem', 'type' => 'file'],
     ['name' => 'DNSSEC Root Anchors', 'path' => '/var/lib/unbound/root.key', 'type' => 'file'],
     ['name' => 'Arquivo de Log (Daemon)', 'path' => '/var/log/unbound.log', 'type' => 'file'],
-    ['name' => 'Permissões Sudo (Dashboard)', 'path' => '/etc/sudoers.d/unbound-dashboard', 'type' => 'file']
+    ['name' => 'Permissões Sudo (Dashboard)', 'path' => '/etc/sudoers.d/unbound-dashboard', 'type' => 'file'],
+    ['name' => 'Banco DuckDB', 'path' => '/var/lib/unbound-dashboard/unbound_dash.duckdb', 'type' => 'file'],
+    ['name' => 'Env do api_service', 'path' => '/etc/unbound-dashboard/api-v1.env', 'type' => 'file'],
+    ['name' => 'Diretório de backups', 'path' => '/var/backups/unbound-dashboard', 'type' => 'dir'],
 ];
 
 $auditResults = [];
@@ -78,28 +81,25 @@ foreach ($components as $comp) {
     ];
 }
 
-// 4. Database Integrity Audit
-try {
-    $db = \App\Database::getInstance();
-    $dbStatus = true;
-    $tables = ['users', 'query_logs', 'domain_blacklist', 'daily_stats'];
-    foreach ($tables as $t) {
-        $check = $db->query("SHOW TABLES LIKE '$t'")->fetch();
-        $auditResults[] = [
-            'name' => "Tabela SQL: $t",
-            'path' => "Database: unbound_dash",
-            'exists' => !empty($check),
-            'perms' => 'DRW-',
-            'owner' => 'mariadb:unbound'
-        ];
-    }
-} catch (\Exception $e) {
-    $auditResults[] = [
-        'name' => 'Conexão MariaDB',
-        'path' => 'localhost:3306',
-        'exists' => false,
-        'perms' => 'ERR!',
-        'owner' => 'offline'
+// 4. Serviços systemd dos novos componentes (FastAPI, DuckDB-driven workers e infra).
+//    Usa systemctl is-active — se www-data não tiver permissão sudo pra rodar isso,
+//    cai pra "unknown" mas não quebra a página.
+$systemdServices = [
+    ['name' => 'Daemon Unbound', 'unit' => 'unbound.service'],
+    ['name' => 'API (FastAPI/DuckDB)', 'unit' => 'unbound-dashboard-api.service'],
+    ['name' => 'Cache Redis', 'unit' => 'redis-server.service'],
+    ['name' => 'Web Server (Apache)', 'unit' => 'apache2.service'],
+];
+$serviceResults = [];
+foreach ($systemdServices as $svc) {
+    $stOut = [];
+    \App\ShellHelper::exec('/usr/bin/systemctl', ['is-active', $svc['unit']], $stOut, $tmpRet, false);
+    $state = trim($stOut[0] ?? 'unknown');
+    $serviceResults[] = [
+        'name' => $svc['name'],
+        'unit' => $svc['unit'],
+        'active' => $state === 'active',
+        'state' => $state,
     ];
 }
 
@@ -177,6 +177,22 @@ $currentPage = 'health.php';
                     </div>
 
                     <div class="p-4">
+                        <div class="mb-4 pb-3 border-b border-slate-200 dark:border-white/5">
+                            <div class="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-2 px-2">Serviços Systemd</div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 px-2">
+                                <?php foreach ($serviceResults as $svc): ?>
+                                <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-900/5 dark:bg-white/5 border border-slate-200 dark:border-white/5">
+                                    <div>
+                                        <div class="font-bold text-xs text-slate-900 dark:text-white"><?= htmlspecialchars($svc['name']) ?></div>
+                                        <div class="text-[9px] font-mono text-slate-500"><?= htmlspecialchars($svc['unit']) ?></div>
+                                    </div>
+                                    <span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full border <?= $svc['active'] ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20' ?>">
+                                        <?= htmlspecialchars($svc['state']) ?>
+                                    </span>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
                         <table class="w-full text-left text-sm">
                             <thead>
                                 <tr class="text-slate-500 text-[10px] uppercase font-bold border-b border-white/5">

@@ -1,13 +1,13 @@
 <?php
 require_once dirname(__DIR__) . '/src/Auth.php';
 require_once dirname(__DIR__) . '/src/UnboundManager.php';
-require_once dirname(__DIR__) . '/src/Database.php';
+require_once dirname(__DIR__) . '/src/ApiClient.php';
 require_once dirname(__DIR__) . '/src/ShellHelper.php';
 
 use App\Auth;
 use App\ShellHelper;
 use App\UnboundManager;
-use App\Database;
+use App\ApiClient;
 
 Auth::check();
 if (!\App\Auth::isAdmin()) { http_response_code(403); echo json_encode(['success' => false, 'message' => 'Acesso Negado']); exit; }
@@ -17,15 +17,20 @@ header('Content-Type: application/json');
 $action = $_POST['action'] ?? '';
 
 if ($action === 'update_blacklist') {
-    \App\ShellHelper::shell('php ' . escapeshellarg(dirname(__DIR__) . '/scripts/update_blacklist.php') . ' > /dev/null 2>&1 &', $tmpOutput, $tmpReturn);
+    // Passa o JWT da sessão atual via env var pro script CLI usar nas chamadas FastAPI.
+    $jwt = $_SESSION['api_jwt'] ?? '';
+    $cmd = 'API_JWT=' . escapeshellarg($jwt) . ' php ' . escapeshellarg(dirname(__DIR__) . '/scripts/update_blacklist.php') . ' > /dev/null 2>&1 &';
+    \App\ShellHelper::shell($cmd, $tmpOutput, $tmpReturn);
     echo json_encode(['success' => true, 'message' => 'Sincronização iniciada em segundo plano. Poderá levar até 1 minuto.']);
     exit;
 }
 
 if ($action === 'change_blacklist_source') {
     $src = $_POST['source'] ?? 'stevenblack';
-    $db = \App\Database::getInstance();
-    $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('blacklist_source', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$src, $src]);
+    $jwt = $_SESSION['api_jwt'] ?? '';
+    \App\ApiClient::post('/api/v1/exports/settings/bulk', $jwt, [
+        ['setting_key' => 'blacklist_source', 'setting_value' => $src],
+    ]);
     echo json_encode(['success' => true]);
     exit;
 }

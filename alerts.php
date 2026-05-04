@@ -11,10 +11,20 @@ if (!\App\Auth::isAdmin()) {
 $alertManager = new \App\AlertManager();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    require_once __DIR__ . '/src/ApiClient.php';
+    $jwt = $_SESSION['api_jwt'] ?? '';
     if ($_POST['action'] === 'resolve' && isset($_POST['alert_id'])) {
-        $alertManager->resolveAlertById((int)$_POST['alert_id']);
+        $alertId = (int) $_POST['alert_id'];
+        // Strangler Fig: escreve em ambos durante a transição.
+        $alertManager->resolveAlertById($alertId);
+        if ($jwt !== '') {
+            \App\ApiClient::post("/api/v1/alerts/{$alertId}/resolve", $jwt);
+        }
     } elseif ($_POST['action'] === 'clear_all') {
         $alertManager->clearResolvedAlerts();
+        if ($jwt !== '') {
+            \App\ApiClient::post('/api/v1/alerts/clear-resolved', $jwt);
+        }
     }
     header('Location: alerts.php');
     exit;
@@ -99,9 +109,25 @@ if (function_exists('ob_flush')) {
 }
 flush();
 
-// Alerts
-$alerts = $alertManager->getHistory();
-$activeCount = $alertManager->getActiveCount();
+// Alerts — Strangler Fig: tenta FastAPI/DuckDB primeiro, fallback PHP/MariaDB
+require_once __DIR__ . '/src/ApiClient.php';
+$alerts = null;
+$activeCount = 0;
+$loadedFromApi = false;
+if (!empty($_SESSION['api_jwt'])) {
+    $apiResult = \App\ApiClient::get('/api/v1/alerts/list', $_SESSION['api_jwt']);
+    if ($apiResult['ok'] && isset($apiResult['data']['alerts'])) {
+        $alerts = $apiResult['data']['alerts'];
+        $activeCount = (int) ($apiResult['data']['active_count'] ?? 0);
+        $loadedFromApi = true;
+    } else {
+        error_log('alerts.php ApiClient::get falhou: ' . ($apiResult['reason'] ?? 'unknown'));
+    }
+}
+if (!$loadedFromApi) {
+    $alerts = $alertManager->getHistory();
+    $activeCount = $alertManager->getActiveCount();
+}
 
 $currentPage = 'alerts.php';
 ?>

@@ -212,8 +212,9 @@ $currentPage = 'dns_benchmark.php';
                         <div class="benchmark-loader-ring"></div>
                         <div class="benchmark-loader-core"></div>
                     </div>
-                    <h3 class="text-xl font-black text-white uppercase tracking-widest text-center">Executando Benchmark DNS</h3>
-                    <p class="text-sm text-slate-300 font-medium text-center mt-2">Medindo latencia e estabilidade entre resolvers. Isso pode levar alguns segundos.</p>
+                    <h3 id="benchmarkLoaderTitle" class="text-xl font-black text-white uppercase tracking-widest text-center">Executando Benchmark DNS</h3>
+                    <p id="benchmarkLoaderSubtitle" class="text-sm text-slate-300 font-medium text-center mt-2">Medindo latencia e estabilidade entre resolvers. Isso pode levar alguns segundos.</p>
+                    <p id="benchmarkLoaderRound" class="text-xs font-bold text-emerald-300 uppercase tracking-widest text-center mt-3">Preparando...</p>
                     <div class="benchmark-loader-steps" aria-hidden="true">
                         <span class="benchmark-loader-dot"></span>
                         <span class="benchmark-loader-dot"></span>
@@ -288,6 +289,7 @@ $currentPage = 'dns_benchmark.php';
     </main>
 
     <script>
+        const BENCHMARK_ROUNDS = 3;
         let chartInstance = null;
         const benchmarkOverlay = document.getElementById('loadingOverlay');
 
@@ -296,35 +298,93 @@ $currentPage = 'dns_benchmark.php';
             document.body.appendChild(benchmarkOverlay);
         }
 
+        function setLoaderRound(current, total) {
+            const roundEl = document.getElementById('benchmarkLoaderRound');
+            const subEl = document.getElementById('benchmarkLoaderSubtitle');
+            if (roundEl) {
+                roundEl.textContent = `Teste ${current} de ${total}`;
+            }
+            if (subEl) {
+                subEl.textContent = `Medindo latência e estabilidade entre resolvers (rodada ${current}/${total}).`;
+            }
+        }
+
+        function aggregateRounds(rounds) {
+            const acc = {};
+            for (const data of rounds) {
+                for (const [name, srv] of Object.entries(data)) {
+                    if (!acc[name]) {
+                        acc[name] = { ip: srv.ip, avgs: [], mins: [], maxs: [], oks: 0, fails: 0 };
+                    }
+                    if (srv.status === 'ok') {
+                        acc[name].avgs.push(srv.avg);
+                        acc[name].mins.push(srv.min);
+                        acc[name].maxs.push(srv.max);
+                        acc[name].oks++;
+                    } else {
+                        acc[name].fails++;
+                    }
+                }
+            }
+            const final = {};
+            for (const [name, agg] of Object.entries(acc)) {
+                if (agg.oks > 0) {
+                    const avgMean = agg.avgs.reduce((s, v) => s + v, 0) / agg.avgs.length;
+                    final[name] = {
+                        ip: agg.ip,
+                        avg: Math.round(avgMean * 100) / 100,
+                        min: Math.round(Math.min(...agg.mins) * 100) / 100,
+                        max: Math.round(Math.max(...agg.maxs) * 100) / 100,
+                        status: 'ok',
+                    };
+                } else {
+                    final[name] = { ip: agg.ip, avg: 0, status: 'fail' };
+                }
+            }
+            const sorted = Object.entries(final).sort((a, b) => {
+                if (a[1].status === 'fail') return 1;
+                if (b[1].status === 'fail') return -1;
+                return a[1].avg - b[1].avg;
+            });
+            return Object.fromEntries(sorted);
+        }
+
         document.getElementById('benchmarkForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            
+
             const btn = document.getElementById('btnStart');
             const overlay = benchmarkOverlay || document.getElementById('loadingOverlay');
             const resultsDiv = document.getElementById('resultsContainer');
             const emptyState = document.getElementById('emptyState');
-            
+
             btn.disabled = true;
             btn.querySelector('span').innerText = 'Testando...';
             overlay.classList.remove('hidden');
             resultsDiv.classList.add('hidden');
             emptyState.classList.add('hidden');
+            setLoaderRound(1, BENCHMARK_ROUNDS);
 
             const formData = new FormData(this);
+            const rounds = [];
 
             try {
-                const response = await fetch('dns_benchmark.php', {
-                    method: 'POST',
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest'
-                    },
-                    body: formData
-                });
-                
-                const json = await response.json();
-                
-                if (json.status === 'success' && Object.keys(json.data).length > 0) {
-                    renderResults(json.data);
+                for (let round = 1; round <= BENCHMARK_ROUNDS; round++) {
+                    setLoaderRound(round, BENCHMARK_ROUNDS);
+                    const response = await fetch('dns_benchmark.php', {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        body: formData,
+                    });
+                    const json = await response.json();
+                    if (json.status !== 'success' || !json.data || !Object.keys(json.data).length) {
+                        throw new Error(`Rodada ${round} sem dados`);
+                    }
+                    rounds.push(json.data);
+                }
+
+                const aggregated = aggregateRounds(rounds);
+                if (Object.keys(aggregated).length > 0) {
+                    renderResults(aggregated);
                     resultsDiv.classList.remove('hidden');
                 } else {
                     emptyState.classList.remove('hidden');

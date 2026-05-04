@@ -2,41 +2,24 @@
 
 namespace App;
 
-use PDO;
-use Exception;
-
 require_once __DIR__ . '/ShellHelper.php';
 
 /**
- * Classe responsável por extrair métricas de serviços a nível de aplicação.
+ * Métricas de serviços a nível de aplicação.
+ *
+ * MariaDB foi removido em 2026-05-04; getMariaDBStats() retorna sempre 'offline'
+ * pra preservar compat com o frontend de alerts.php. Substituir esse widget por
+ * status do api_service/DuckDB é tarefa futura.
  */
 class AppMetricsManager {
 
-    private PDO $db;
-
-    public function __construct() {
-        require_once __DIR__ . '/Database.php';
-        $this->db = Database::getInstance();
-    }
-
     public function getMariaDBStats(): array {
-        try {
-            $stmt = $this->db->query("SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected', 'Queries', 'Slow_queries')");
-            $results = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-            return [
-                'status' => 'online',
-                'connections' => (int)($results['Threads_connected'] ?? 0),
-                'queries' => (int)($results['Queries'] ?? 0),
-                'slow' => (int)($results['Slow_queries'] ?? 0)
-            ];
-        } catch (Exception $e) {
-            return [
-                'status' => 'offline',
-                'connections' => 0,
-                'queries' => 0,
-                'slow' => 0
-            ];
-        }
+        return [
+            'status' => 'offline',
+            'connections' => 0,
+            'queries' => 0,
+            'slow' => 0,
+        ];
     }
 
     public function getWebServerStatus(): string {

@@ -2,30 +2,38 @@
 
 namespace App;
 
-use PDO;
+require_once __DIR__ . '/ApiClient.php';
 
-require_once __DIR__ . '/Database.php';
-
-class BlocklistManager {
-    private PDO $db;
-
-    public function __construct() {
-        $this->db = Database::getInstance();
+/**
+ * BlocklistManager — get/set do setting `blacklist_source`.
+ * Migrado pra FastAPI 2026-05-04 (era PDO/MariaDB).
+ */
+class BlocklistManager
+{
+    public function getBlocklistSource(): string
+    {
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($jwt === '') return 'stevenblack';
+        $resp = ApiClient::get('/api/v1/exports/settings', $jwt);
+        if (!$resp['ok'] || !is_array($resp['data'])) return 'stevenblack';
+        foreach ($resp['data'] as $row) {
+            if (($row['setting_key'] ?? '') === 'blacklist_source') {
+                return (string) ($row['setting_value'] ?? 'stevenblack');
+            }
+        }
+        return 'stevenblack';
     }
 
-    public function getBlocklistSource(): string {
-        $stmt = $this->db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'blacklist_source'");
-        $stmt->execute();
-        return $stmt->fetchColumn() ?: 'stevenblack'; // Default to StevenBlack
-    }
-
-    public function saveBlocklistSource(string $source): bool {
+    public function saveBlocklistSource(string $source): bool
+    {
         $allowedSources = ['stevenblack', 'hagezi_normal', 'hagezi_pro'];
-        if (!in_array($source, $allowedSources)) {
+        if (!in_array($source, $allowedSources, true)) {
             return false;
         }
-
-        $stmt = $this->db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('blacklist_source', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
-        return $stmt->execute([$source, $source]);
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        $resp = ApiClient::post('/api/v1/exports/settings/bulk', $jwt, [
+            ['setting_key' => 'blacklist_source', 'setting_value' => $source],
+        ]);
+        return (bool) ($resp['ok'] ?? false);
     }
 }

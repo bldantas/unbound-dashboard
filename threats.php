@@ -193,10 +193,31 @@ $currentPage = 'threats.php';
             const limitSelect = document.getElementById('threatsLimit');
             const limit = limitSelect ? limitSelect.value : '10';
 
+            // Strangler Fig: tenta a nova FastAPI primeiro (DuckDB live), cai no PHP legado
+            // se JWT ausente, expirado ou FastAPI inacessível. Permite cutover gradual sem
+            // quebrar a página caso o api_service tenha qualquer hiccup.
+            async function fetchThreatsData(limitVal) {
+                const meta = document.querySelector('meta[name="api-jwt"]');
+                const jwt = meta ? meta.content : '';
+                if (jwt) {
+                    try {
+                        const r = await fetch('/api/v1/threats/data?limit=' + encodeURIComponent(limitVal), {
+                            cache: 'no-store',
+                            headers: { 'Authorization': 'Bearer ' + jwt },
+                        });
+                        if (r.ok) return await r.json();
+                        // 401 (JWT expirou) ou outro: cai no fallback legado.
+                    } catch (_) {
+                        // Erro de rede: fallback.
+                    }
+                }
+                const r2 = await fetch('api/threats_data.php?limit=' + encodeURIComponent(limitVal), { cache: 'no-store' });
+                if (!r2.ok) throw new Error('Falha HTTP ' + r2.status);
+                return await r2.json();
+            }
+
             try {
-                const res = await fetch('api/threats_data.php?limit=' + encodeURIComponent(limit), { cache: 'no-store' });
-                if (!res.ok) throw new Error('Falha HTTP ' + res.status);
-                const payload = await res.json();
+                const payload = await fetchThreatsData(limit);
                 if (!payload || payload.status !== 'success' || !payload.data) {
                     throw new Error(payload && payload.error ? payload.error : 'Resposta inválida');
                 }

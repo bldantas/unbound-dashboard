@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../src/Auth.php';
-require_once __DIR__ . '/../src/Database.php';
+require_once __DIR__ . '/../src/ApiClient.php';
 require_once __DIR__ . '/../src/ShellHelper.php';
 
 \App\Auth::check();
@@ -55,95 +55,62 @@ switch ($type) {
 
 // ─── 1. LOGS DE CONSULTAS DNS (CSV) ────────────────────────────────
 function exportQueryLogs(string $range, string $dateStr) {
-    $db = \App\Database::getInstance();
-    
     $rangeMap = [
         '24h' => 86400,
         '7d'  => 604800,
         '30d' => 2592000,
         'all' => 0
     ];
-    
+
     $filename = "dns_queries_{$range}_{$dateStr}.csv";
     header('Content-Type: text/csv; charset=utf-8');
     header("Content-Disposition: attachment; filename=\"{$filename}\"");
-    
+
     $output = fopen('php://output', 'w');
-    // BOM for Excel UTF-8 compatibility
     fprintf($output, chr(0xEF) . chr(0xBB) . chr(0xBF));
     fputcsv($output, ['Data/Hora', 'IP Cliente', 'Domínio', 'Tipo', 'Ação'], ';');
-    
+
     $since = $rangeMap[$range] > 0 ? time() - $rangeMap[$range] : 0;
-    
-    $stmt = $db->prepare("
-        SELECT timestamp, client_ip, domain, query_type, action 
-        FROM query_logs 
-        WHERE timestamp > ? 
-        ORDER BY timestamp DESC
-    ");
-    $stmt->execute([$since]);
-    
-    while ($row = $stmt->fetch()) {
+    $jwt = $_SESSION['api_jwt'] ?? '';
+
+    $resp = \App\ApiClient::get("/api/v1/exports/query-logs?since={$since}", $jwt);
+    $rows = ($resp['ok'] && is_array($resp['data'])) ? $resp['data'] : [];
+
+    foreach ($rows as $row) {
         fputcsv($output, [
-            date('d/m/Y H:i:s', $row['timestamp']),
+            date('d/m/Y H:i:s', (int) $row['timestamp']),
             $row['client_ip'],
             $row['domain'],
             $row['query_type'],
             $row['action'] === 'blocked' ? 'Bloqueado' : 'Resolvido'
         ], ';');
     }
-    
+
     fclose($output);
     exit;
 }
 
 // ─── 2. RELATÓRIO DE ESTATÍSTICAS (JSON) ───────────────────────────
 function exportStats(string $dateStr) {
-    $db = \App\Database::getInstance();
-    
-    // Current metrics
+    // Current metrics — leitura local do cache JSON (produzido por unbound_collector worker)
     $cacheFile = __DIR__ . '/../data/latest_stats.json';
-    $currentStats = file_exists($cacheFile) 
-        ? json_decode(file_get_contents($cacheFile), true) 
+    $currentStats = file_exists($cacheFile)
+        ? json_decode(file_get_contents($cacheFile), true)
         : [];
-    
-    // Daily history
-    $dailyStats = $db->query("
-        SELECT stat_date, total_queries, cache_hits, cache_misses 
-        FROM daily_stats 
-        ORDER BY stat_date DESC 
-        LIMIT 90
-    ")->fetchAll();
-    
-    // Top domains (last 24h)
-    $topDomains = $db->query("
-        SELECT domain, COUNT(*) as total, action
-        FROM query_logs 
-        WHERE timestamp > " . (time() - 86400) . "
-        GROUP BY domain, action
-        ORDER BY total DESC 
-        LIMIT 50
-    ")->fetchAll();
-    
-    // Top clients (last 24h)
-    $topClients = $db->query("
-        SELECT client_ip, COUNT(*) as total
-        FROM query_logs 
-        WHERE timestamp > " . (time() - 86400) . "
-        GROUP BY client_ip 
-        ORDER BY total DESC 
-        LIMIT 20
-    ")->fetchAll();
 
-    $report = [
+    // Histórico + top vem da FastAPI (DuckDB)
+    $jwt = $_SESSION['api_jwt'] ?? '';
+    $resp = \App\ApiClient::get('/api/v1/exports/stats-report', $jwt);
+    $reportData = ($resp['ok'] && is_array($resp['data'])) ? $resp['data'] : [
+        'daily_history' => [], 'top_domains_24h' => [], 'top_clients_24h' => [],
+    ];
+
+    $report = array_merge([
         'generated_at' => date('Y-m-d H:i:s'),
         'server' => gethostname(),
         'current_metrics' => $currentStats,
-        'daily_history' => $dailyStats,
-        'top_domains_24h' => $topDomains,
-        'top_clients_24h' => $topClients
-    ];
-    
+    ], $reportData);
+
     $filename = "unbound_stats_{$dateStr}.json";
     header('Content-Type: application/json; charset=utf-8');
     header("Content-Disposition: attachment; filename=\"{$filename}\"");
@@ -229,9 +196,10 @@ function exportConfigBackup(string $dateStr) {
         }
     }
     
-    // Export dashboard settings from DB
-    $db = \App\Database::getInstance();
-    $settings = $db->query("SELECT setting_key, setting_value FROM settings")->fetchAll();
+    // Export dashboard settings (FastAPI/DuckDB)
+    $jwt = $_SESSION['api_jwt'] ?? '';
+    $resp = \App\ApiClient::get('/api/v1/exports/settings', $jwt);
+    $settings = ($resp['ok'] && is_array($resp['data'])) ? $resp['data'] : [];
     $settingsFile = "{$tmpDir}/dashboard_settings.json";
     file_put_contents($settingsFile, json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     $includeFiles[] = $settingsFile;
@@ -262,22 +230,21 @@ function exportConfigBackup(string $dateStr) {
 
 // ─── 5. LISTA DE DOMÍNIOS BLOQUEADOS (CSV) ─────────────────────────
 function exportBlacklist(string $dateStr) {
-    $db = \App\Database::getInstance();
-    
     $filename = "blacklist_{$dateStr}.csv";
     header('Content-Type: text/csv; charset=utf-8');
     header("Content-Disposition: attachment; filename=\"{$filename}\"");
-    
+
     $output = fopen('php://output', 'w');
     fprintf($output, chr(0xEF) . chr(0xBB) . chr(0xBF));
     fputcsv($output, ['Domínio', 'Categoria'], ';');
-    
-    $stmt = $db->query("SELECT domain, category FROM domain_blacklist ORDER BY category, domain");
-    
-    while ($row = $stmt->fetch()) {
+
+    $jwt = $_SESSION['api_jwt'] ?? '';
+    $resp = \App\ApiClient::get('/api/v1/exports/blocklist', $jwt);
+    $rows = ($resp['ok'] && is_array($resp['data'])) ? $resp['data'] : [];
+    foreach ($rows as $row) {
         fputcsv($output, [$row['domain'], $row['category']], ';');
     }
-    
+
     fclose($output);
     exit;
 }
@@ -394,18 +361,15 @@ function restoreConfigBackup() {
             }
         }
 
-        // Restore dashboard settings to DB
+        // Restore dashboard settings via FastAPI bulk upsert
         if ($settingsFile && file_exists($settingsFile)) {
             $settingsData = json_decode(file_get_contents($settingsFile), true);
             if (is_array($settingsData)) {
-                $db = \App\Database::getInstance();
-                $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
-                foreach ($settingsData as $s) {
-                    if (isset($s['setting_key'], $s['setting_value'])) {
-                        $stmt->execute([$s['setting_key'], $s['setting_value']]);
-                    }
+                $jwt = $_SESSION['api_jwt'] ?? '';
+                $resp = \App\ApiClient::post('/api/v1/exports/settings/bulk', $jwt, $settingsData);
+                if ($resp['ok']) {
+                    $restoredFiles[] = 'dashboard_settings (DuckDB via FastAPI)';
                 }
-                $restoredFiles[] = 'dashboard_settings (banco de dados)';
             }
         }
 

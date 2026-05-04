@@ -2,7 +2,7 @@
 
 namespace App;
 
-require_once __DIR__ . '/Database.php';
+// Database.php removida 2026-05-04 — nenhum método nesta classe usa MariaDB mais.
 require_once __DIR__ . '/ShellHelper.php';
 
 /**
@@ -205,99 +205,33 @@ class UnboundManager {
      * Não deve ser chamada em cada carregamento de página do dashboard.
      * Idealmente, execute-a através de um cron job a cada 1-5 minutos.
      */
-    public function updateCumulativeStats(): void {
-        $stats = $this->getStats();
-        if (!$stats) return;
-
-        $db = \App\Database::getInstance();
-        $today = date('Y-m-d');
-        
-        $currentTotalQueries = $stats['total.num.queries'] ?? 0;
-        $currentCacheHits = $stats['total.num.cachehits'] ?? 0;
-        $currentCacheMiss = $stats['total.num.cachemiss'] ?? 0;
-        $currentUptime = $stats['time.up'] ?? 0;
-
-        $settingStmt = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'last_measurement'");
-        $lastJson = $settingStmt->fetchColumn();
-        $last = $lastJson ? json_decode($lastJson, true) : null;
-        
-        if (!$last) {
-            $last = ['queries' => 0, 'hits' => 0, 'miss' => 0, 'uptime' => 0];
-        }
-
-        if ($currentUptime < $last['uptime']) {
-            $diffQueries = $currentTotalQueries;
-            $diffHits = $currentCacheHits;
-            $diffMiss = $currentCacheMiss;
-        } else {
-            $diffQueries = max(0, $currentTotalQueries - $last['queries']);
-            $diffHits = max(0, $currentCacheHits - $last['hits']);
-            $diffMiss = max(0, $currentCacheMiss - $last['miss']);
-        }
-
-        if ($diffQueries > 0 || $diffHits > 0 || $diffMiss > 0) {
-            $stmt = $db->prepare("INSERT INTO daily_stats (stat_date, total_queries, cache_hits, cache_misses) 
-                                 VALUES (?, ?, ?, ?) 
-                                 ON DUPLICATE KEY UPDATE 
-                                 total_queries = total_queries + VALUES(total_queries), 
-                                 cache_hits = cache_hits + VALUES(cache_hits), 
-                                 cache_misses = cache_misses + VALUES(cache_misses)");
-            $stmt->execute([$today, $diffQueries, $diffHits, $diffMiss]);
-        }
-
-        $newLast = [
-            'queries' => $currentTotalQueries,
-            'hits' => $currentCacheHits,
-            'miss' => $currentCacheMiss,
-            'uptime' => $currentUptime
-        ];
-        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('last_measurement', ?) 
-                              ON DUPLICATE KEY UPDATE setting_value = ?");
-        $encoded = json_encode($newLast);
-        $stmt->execute([$encoded, $encoded]);
-    }
-
-    public function loadHistory(): array {
-        $db = \App\Database::getInstance();
-        $dailyObj = $db->query('SELECT stat_date as date, total_queries as queries, cache_hits as hits, cache_misses as miss FROM daily_stats ORDER BY stat_date ASC')->fetchAll();
-        $daily = [];
-        foreach ($dailyObj as $row) {
-            $daily[$row['date']] = [
-                'queries' => (int)$row['queries'],
-                'hits' => (int)$row['hits'],
-                'miss' => (int)$row['miss']
-            ];
-        }
-        
-        $totalsRow = $db->query('SELECT SUM(total_queries) as queries, SUM(cache_hits) as hits, SUM(cache_misses) as miss FROM daily_stats')->fetch();
-        $totals = [
-            'queries' => (int)($totalsRow['queries'] ?? 0),
-            'hits' => (int)($totalsRow['hits'] ?? 0),
-            'miss' => (int)($totalsRow['miss'] ?? 0)
-        ];
-        
-        return ['daily' => $daily, 'totals' => $totals];
+    /**
+     * @deprecated 2026-05-04 — substituído pelo worker Python `unbound_collector`
+     * (api_service) que escreve daily_stats em DuckDB. Mantido como no-op para
+     * preservar contrato em qualquer chamador legado (no momento, NENHUM no
+     * codebase). Pode ser removido junto com MariaDB tear-down.
+     */
+    public function updateCumulativeStats(): void
+    {
+        // No-op. Python alimenta daily_stats agora.
     }
 
     /**
-     * Analisa o cache do Unbound para encontrar os domínios mais frequentes via banco de dados.
-     * Retorna os top domínios base.
-     *
-     * @PERFORMANCE: Esta consulta pode ser muito lenta em tabelas 'query_logs' grandes.
-     * Certifique-se de que a coluna 'domain' está indexada. Considere armazenar em cache os resultados.
-     * Retorna os top domínios base.
+     * @deprecated 2026-05-04 — leia /api/v1/history/summary ou /api/v1/exports/stats-report
+     * pra dados equivalentes via FastAPI/DuckDB.
      */
-    public function getTopDomains(int $limit = 10): array {
-        $db = \App\Database::getInstance();
-        // Limita ao último 1 dia para evitar full scan na tabela inteira
-        $cutoff = time() - 86400;
-        $stmt = $db->prepare(
-            'SELECT domain, COUNT(*) as count FROM query_logs WHERE timestamp >= ? GROUP BY domain ORDER BY count DESC LIMIT ?'
-        );
-        $stmt->bindValue(1, $cutoff, \PDO::PARAM_INT);
-        $stmt->bindValue(2, $limit, \PDO::PARAM_INT);
-        $stmt->execute();
-        return $stmt->fetchAll();
+    public function loadHistory(): array
+    {
+        return ['daily' => [], 'totals' => ['queries' => 0, 'hits' => 0, 'miss' => 0]];
+    }
+
+    /**
+     * @deprecated 2026-05-04 — leia /api/v1/history/summary (top_domains_24h)
+     * pra equivalente via FastAPI/DuckDB.
+     */
+    public function getTopDomains(int $limit = 10): array
+    {
+        return [];
     }
 
     /**

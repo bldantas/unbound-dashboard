@@ -2,25 +2,26 @@
 
 namespace App;
 
-use PDO;
-
-require_once __DIR__ . '/Database.php';
+require_once __DIR__ . '/ApiClient.php';
 require_once __DIR__ . '/ShellHelper.php';
 
 class SourceBalanceManager {
-    private PDO $db;
     private string $unboundConfDir = '/etc/unbound';
     private string $nftablesDir = '/etc/nftables.d';
     private string $systemdDir = '/lib/systemd/system';
 
-    public function __construct() {
-        $this->db = Database::getInstance();
-    }
-
     public function getSettings(): array {
-        $stmt = $this->db->prepare("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'source_balance_%'");
-        $stmt->execute();
-        $results = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        $resp = ApiClient::get('/api/v1/exports/settings', $jwt);
+        $results = [];
+        if ($resp['ok'] && is_array($resp['data'])) {
+            foreach ($resp['data'] as $row) {
+                $key = $row['setting_key'] ?? '';
+                if (str_starts_with($key, 'source_balance_')) {
+                    $results[$key] = $row['setting_value'] ?? '';
+                }
+            }
+        }
 
         return [
             'enabled' => ($results['source_balance_enabled'] ?? 'no') === 'yes',
@@ -46,17 +47,14 @@ class SourceBalanceManager {
     }
 
     public function saveSettings(array $settings): void {
-        $fields = [
-            'source_balance_enabled' => !empty($settings['enabled']) ? 'yes' : 'no',
-            'source_balance_instances' => (int)($settings['instances'] ?? 4),
-            'source_balance_anycast_ipv4' => $this->sanitizeIpList($settings['anycast_ipv4'] ?? ''),
-            'source_balance_anycast_ipv6' => $this->sanitizeIpList($settings['anycast_ipv6'] ?? '')
+        $entries = [
+            ['setting_key' => 'source_balance_enabled',      'setting_value' => !empty($settings['enabled']) ? 'yes' : 'no'],
+            ['setting_key' => 'source_balance_instances',    'setting_value' => (string)((int)($settings['instances'] ?? 4))],
+            ['setting_key' => 'source_balance_anycast_ipv4', 'setting_value' => $this->sanitizeIpList($settings['anycast_ipv4'] ?? '')],
+            ['setting_key' => 'source_balance_anycast_ipv6', 'setting_value' => $this->sanitizeIpList($settings['anycast_ipv6'] ?? '')],
         ];
-
-        $stmt = $this->db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
-        foreach ($fields as $key => $value) {
-            $stmt->execute([$key, $value, $value]);
-        }
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        ApiClient::post('/api/v1/exports/settings/bulk', $jwt, $entries);
     }
 
     public function apply(): array {
