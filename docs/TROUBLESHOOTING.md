@@ -240,13 +240,22 @@ A página `/recover.php` envia link de recuperação por email. Se o servidor SM
 
 ```bash
 cd /var/www/html/unbound-dashboard/api_service
-ADMIN_USERNAME=admin ADMIN_PASSWORD='novaSenha' \
+USERNAME=admin NEW_PASSWORD='novaSenha' \
 sudo -u www-data \
-    env "PYTHONPATH=$(pwd)" $(grep -v '^#' /etc/unbound-dashboard/api-v1.env | xargs) \
-    .venv/bin/python tools/create_admin.py
+    bash -c 'set -a; source /etc/unbound-dashboard/api-v1.env; set +a; \
+             PYTHONPATH=$(pwd) .venv/bin/python tools/reset_admin_password.py'
 ```
 
-> O `create_admin.py` é idempotente: se o usuário já existe, ele **não altera a senha** — só pula. Para resetar de fato, é preciso editar a tabela `users` do DuckDB diretamente ou implementar um endpoint admin (TODO).
+O script `reset_admin_password.py` (introduzido em v2.2.2) faz hash bcrypt da senha nova e atualiza o registro no DuckDB. Falha limpa se o usuário não existir.
+
+Para criar um admin do zero (idempotente — pula se já existir), use `create_admin.py`:
+
+```bash
+ADMIN_USERNAME=novo ADMIN_EMAIL=novo@empresa.com ADMIN_PASSWORD='senha' \
+sudo -u www-data \
+    bash -c 'set -a; source /etc/unbound-dashboard/api-v1.env; set +a; \
+             PYTHONPATH=$(pwd) .venv/bin/python tools/create_admin.py'
+```
 
 ---
 

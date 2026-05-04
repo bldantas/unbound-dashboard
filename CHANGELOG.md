@@ -1,5 +1,42 @@
 # Changelog
 
+## v2.2.2 — 2026-05-04
+
+### UI / Backend
+- Widget "Banco de Dados" em `alerts.php` substituído pelo card **API + DuckDB**:
+  mostra status do `unbound-dashboard-api.service`, smoke `/api/v1/healthz`,
+  tamanho do arquivo DuckDB, status do `redis-server` e do webserver.
+- `AppMetricsManager` ganhou métodos `getApiServiceStatus()`,
+  `getDuckDBStatus()` e `getRedisStatus()`.
+- `api/alerts_metrics.php` retorna novas chaves `api`, `duckdb`, `redis`
+  (mantém `db` como stub fixo offline pra compat).
+
+### Limpeza de legado MariaDB
+- Removidos `scripts/{init_db.sql, migrate_db.sql, setup_database.sql,
+  log_ingester.php, aggregate_stats.php, cron_alerts.php, migrate_users.php,
+  force_config.php, init_system.sh}` — todos cobertos pelos workers Python
+  do api_service ou tornaram-se obsoletos.
+- `tools/system/cron/unbound-dashboard-crons` reduzido para apenas o que
+  ainda faz sentido (update_blacklist + sync_judicial_list).
+- `StatsManager::ensureFreshCache()` agora é no-op (workers Python mantêm
+  os JSONs atualizados).
+
+### Wizard PHP legado removido
+- Removidos `setup.php` e `api/setup_wizard.php` (assumiam MariaDB).
+- Acesso pré-instalação redireciona para nova página `not_installed.php`
+  (HTTP 503) com instruções claras.
+- Bootstrap do admin é exclusivo do `install.sh` via `create_admin.py`.
+
+### Tooling
+- `api_service/tools/reset_admin_password.py` adicionado: CLI idempotente
+  para resetar senha de um usuário existente quando o SMTP de recuperação
+  não está disponível.
+- `tools/docker/{Dockerfile.smoke,smoke-test.sh}`: smoke-test do `install.sh`
+  em container Debian 13 (com `systemctl` stubado), valida `.venv`, env file,
+  bootstrap do admin e `/api/v1/healthz`.
+
+---
+
 ## v2.2.1 — 2026-05-04
 
 ### Tooling

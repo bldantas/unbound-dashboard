@@ -102,7 +102,7 @@ http://<IP-DO-SERVIDOR>/unbound-dashboard/login.php
 
 Use as credenciais do admin criado na etapa 8.
 
-> **Observação:** o wizard PHP antigo (`setup.php`) é **pulado automaticamente** — o instalador já cria o admin e marca `data/.installed`.
+> **Observação:** desde v2.2.2 o wizard PHP foi removido. O `install.sh` cria o admin diretamente no DuckDB via `api_service/tools/create_admin.py`. Caso alguém acesse o sistema antes da instalação, vê uma página `not_installed.php` retornando 503 com instruções.
 
 ---
 
@@ -168,6 +168,33 @@ sudo tar xzf /var/backups/unbound-dashboard/dashboard-<TS>.tar.gz -C /
 sudo cp -a /var/backups/unbound-dashboard/duckdb-<TS>.duckdb /var/lib/unbound-dashboard/unbound_dash.duckdb
 sudo cp -a /var/backups/unbound-dashboard/api-v1.env-<TS> /etc/unbound-dashboard/api-v1.env
 sudo systemctl start unbound-dashboard-api
+```
+
+---
+
+## 🐳 Smoke Test em Container (opcional)
+
+Antes de instalar em produção, você pode validar o pacote em um container Debian 13 isolado:
+
+```bash
+# 1. Gerar o pacote (se ainda não existe):
+sudo bash tools/build-package.sh
+
+# 2. Em uma máquina com Docker:
+sudo bash tools/docker/smoke-test.sh
+```
+
+O script:
+
+1. Builda a imagem `unbound-dashboard-smoke:latest` a partir de `tools/docker/Dockerfile.smoke`
+2. Executa `install.sh` dentro do container (com `systemctl` stubado, já que containers normais não têm systemd)
+3. Valida que `.venv` foi criado, `/etc/unbound-dashboard/api-v1.env` foi populado com `JWT_SECRET` real e o admin foi criado
+4. Sobe o `uvicorn` manualmente e faz smoke `/api/v1/healthz`
+
+Útil para CI/CD ou checagem rápida antes de deploy real. Para inspecionar manualmente:
+
+```bash
+sudo docker run --rm -it unbound-dashboard-smoke:latest bash
 ```
 
 ---

@@ -26,7 +26,7 @@ A partir da v2.2.0 (2026-05-04), o sistema é híbrido: frontend PHP servindo as
 │   └── tests/               # 60+ testes (pytest + pytest-asyncio)
 ├── docs/            # Documentação de componentes, APIs e páginas
 ├── includes/        # Partials HTML (sidebar, topbar, head, footer)
-├── scripts/         # update_blacklist.php, log_ingester.php (legacy stub), etc.
+├── scripts/         # update_blacklist.php (chama api_service via ApiClient)
 ├── src/             # Classes PHP: Auth, ApiClient, Managers, Monitors
 ├── tools/           # build-package.sh, install.sh, update.sh, build-update.sh
 ├── data/            # Cache de runtime, snapshots JSON (gitignored)
@@ -72,7 +72,7 @@ As principais views disponíveis para o usuário acessar a partir dos menus do s
 - **Painel de Saúde (`health.php`) e Alertas (`alerts.php`)**: Visualização limpa e premium do estado atual da máquina (CPU, RAM, Disco) e pendências de estabilidade.
 - **Diagnostics (`diagnostics.php`)**, **Logs (`logs.php`)** e **History (`history.php`)**: Ferramentas cruciais para depurar requisições em tempo real e consultar o histórico de resolução/bloqueios (incluindo recursos estendidos de delimitação dinâmica e grids ajustados para visualização do fluxo em full-width). A aba **Live Sniffer** em Logs intercepta pacotes DNS em tempo real via polling do `api/live_log.php`, diferenciando visualmente consultas `[QUERY]` de respostas `[REPLY]` com cores distintas.
 - **Central de Exportação (`exports.php`)**: Página dedicada para download de dados do sistema. Oferece 5 tipos de exportação: Consultas DNS (CSV), Relatório de Estatísticas (JSON), Log do Sistema (TXT), Backup de Configurações (TAR.GZ) e Lista de Bloqueios (CSV). Todos os downloads são gerados sob demanda via `api/export.php`.
-- **Setup e Recover (`setup.php`, `recover.php`)**: Passos para configuração inicial do painel e redefinição de permissões/senhas.
+- **Recover (`recover.php`)**: Redefinição de senha via token enviado por email. Configuração inicial não tem mais wizard — é feita pelo `install.sh` (que cria o admin via `api_service/tools/create_admin.py`). Acesso ao sistema antes da instalação retorna 503 em `not_installed.php`.
 - **DNS Benchmark (`dns_benchmark.php`) e Threats (`threats.php`)**: Avaliação da latência global e listas de acesso/firewall ou proteção contra ameaças de malware.
 - **Lista Judicial ANATEL (`blocklist.php`)**: Interface de consulta avançada para domínios bloqueados por ordem judicial (Anablock). Permite busca por palavras-chave, filtragem por TLD (top-level domain) e visualização de estatísticas da base de dados judicial.
 
