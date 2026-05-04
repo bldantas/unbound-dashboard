@@ -4,9 +4,18 @@ Esta pasta contém documentação de componentes e APIs principais do projeto.
 
 Estrutura:
 
-- `components/` — documentação das classes principais da aplicação.
-- `api/` — documentação das rotas e endpoints do backend.
+- `components/` — documentação das classes principais da aplicação PHP.
+- `api/` — documentação das rotas PHP em `api/*.php` (legacy, em migração para FastAPI).
 - `pages/` — documentação das páginas principais de interface.
+- `PLANO_MODERNIZACAO_V1.md` — doc canônica da migração MariaDB → DuckDB (concluída 2026-05-04).
+- `TROUBLESHOOTING.md` — problemas comuns e soluções.
+
+Para a documentação técnica do **api_service** (FastAPI/DuckDB/Redis), consulte:
+
+- `../api_service/deployments/README.md` — deployment systemd + Apache.
+- `../api_service/app/routers/*.py` — endpoints REST `/api/v1/*` (auth, alerts, blocklist, exports, health, history, stats, threats, unbound, users).
+- `../api_service/migrations/duckdb/V*.sql` — schema versionado.
+- `../api_service/tests/` — 60+ testes (pytest + pytest-asyncio).
 
 Use estes arquivos para entender o propósito, responsabilidades e dependências de cada módulo.
 
@@ -14,10 +23,10 @@ Use estes arquivos para entender o propósito, responsabilidades e dependências
 
 ### Componentes
 - `components/AlertManager.md` — gerencia geração e resolução de alertas.
-- `components/AppMetricsManager.md` — monitora status de MariaDB e webserver.
+- `components/AppMetricsManager.md` — monitora status do webserver (MariaDB removido em 2026-05-04, retorna stub `offline`).
 - `components/Auth.md` — autenticação, sessão e autorização de usuários.
 - `components/BlocklistManager.md` — gerencia listas de domínios bloqueados.
-- `components/Database.md` — fornece conexão PDO com MySQL/MariaDB.
+- `components/Database.md` — **DEPRECATED** (stub que lança `PDOException`). MariaDB removido em 2026-05-04; use `App\ApiClient` para acessar dados via FastAPI/DuckDB.
 - `components/DiagnosticsManager.md` — executa verificações de rede e DNS.
 - `components/Environment.md` — lê variáveis de ambiente e `.env`.
 - `components/NetworkManager.md` — gerencia hostname, DNS e interfaces de rede.

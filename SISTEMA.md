@@ -1,19 +1,43 @@
 # Unbound Dashboard - Documentação do Sistema
 
-O **Unbound Dashboard** é uma aplicação baseada na web (escrita em PHP puro, HTML, Vanilla CSS e Javascript) desenvolvida para gerenciar, monitorar e configurar o servidor de DNS Unbound. Além disso, fornece ferramentas completas para a administração do sistema operacional subjacente.
+O **Unbound Dashboard** é uma aplicação web para gerenciar, monitorar e configurar o servidor DNS Unbound, com ferramentas completas para administração do sistema operacional subjacente.
+
+A partir da v2.2.0 (2026-05-04), o sistema é híbrido: frontend PHP servindo as páginas + backend Python/FastAPI para dados, persistência (DuckDB) e workers assíncronos. MariaDB foi removido. Apache faz reverse proxy de `/api/v1/*` para o FastAPI em `127.0.0.1:8001`.
 
 ---
 
 ## 🏗 Estrutura de Diretórios
 
-A arquitetura do projeto segue um modelo de separação de responsabilidades (backend vs. views vs. api):
+```
+.
+├── api/             # Endpoints PHP legados (transição → FastAPI)
+├── api_service/     # FastAPI app: routers, services, repositories, workers, migrations
+│   ├── app/
+│   │   ├── core/        # config, security (JWT), deps, rate_limit, metrics
+│   │   ├── routers/     # auth, alerts, blocklist, exports, health, history, stats, threats, unbound, users
+│   │   ├── services/    # auth, history, stats, threats, unbound_stats, users
+│   │   ├── repositories/duckdb/  # acesso DuckDB (connection.py + N repos)
+│   │   ├── workers/     # log_watcher, stats_aggregator, alert_checker, json_exporter
+│   │   ├── infrastructure/  # shell, system_health, unbound
+│   │   └── db/          # runner de migrations
+│   ├── migrations/duckdb/   # V*__*.sql
+│   ├── deployments/         # systemd, apache, env example
+│   ├── tools/               # create_admin.py, migrate_mariadb_to_duckdb.py (one-time)
+│   └── tests/               # 60+ testes (pytest + pytest-asyncio)
+├── docs/            # Documentação de componentes, APIs e páginas
+├── includes/        # Partials HTML (sidebar, topbar, head, footer)
+├── scripts/         # update_blacklist.php, log_ingester.php (legacy stub), etc.
+├── src/             # Classes PHP: Auth, ApiClient, Managers, Monitors
+├── tools/           # build-package.sh, install.sh, update.sh, build-update.sh
+├── data/            # Cache de runtime, snapshots JSON (gitignored)
+└── *.php            # Páginas: index, config, history, alerts, threats, blocklist, etc.
+```
 
-- **`/src/`**: Contém as classes e a lógica de negócios principais (Manager e Monitor classes).
-- **`/api/`**: Endpoints para comunicação assíncrona com o frontend (AJAX/Fetch), controle de serviços e logs em tempo real (incluindo `live_log.php` para o Live Sniffer e `stats.php` para métricas do painel).
-- **`/includes/`**: Cabecalhos (header), rodapés (footer) e trechos de código reaproveitados (partials).
-- **`/scripts/`**: Scripts bash em background utilitários para ações do sistema, cronjobs (agregação de estatísticas, monitoramento de métricas e alertas).
-- **`/data/`**: Diretório interno para armazenar caches de estatísticas, configurações temporárias e o banco de dados (SQLite).
-- **Arquivos Raiz (`.php`)**: Representam as páginas e interfaces visuais acessíveis pelo usuário final (ex: `index.php`, `config.php`, `health.php`).
+**Banco DuckDB**: arquivo único em `/var/lib/unbound-dashboard/unbound_dash.duckdb` (owned by `www-data`).
+
+**EnvironmentFile**: `/etc/unbound-dashboard/api-v1.env` (chmod 640, owner `root:www-data`) — contém `JWT_SECRET`, `DB_PATH`, `REDIS_URL`, etc.
+
+**Backups**: `/var/backups/unbound-dashboard/` — gerados pelo `update.sh` antes de cada update.
 
 ---
 
@@ -29,6 +53,7 @@ A lógica nuclear da aplicação reside nos módulos em `/src/`:
    - Módulo responsável pelo gerenciamento de políticas de roteamento ou controle de fontes (source balance).
 4. **`ServerMonitor`**, **`SecurityMonitor`**, **`AppMetricsManager`** e **`SystemCheckManager`**:
    - Monitoramento integrado contínuo da saúde do hardware, tráfego na rede, métricas do Unbound, uptime e detecção de riscos/ameaças.
+   - Após o tear-down do MariaDB, `AppMetricsManager.getMariaDBStats()` retorna stub `offline` permanente; o widget correspondente em `alerts.php` será substituído por status do `api_service`/DuckDB em revisão futura.
 5. **`AlertManager`**:
    - Agrega falhas, percalços nos processos ou alertas de alta prioridade gerados pelos módulos de monitoramento (ex: CPU alta, memória excedida, serviço parado).
 6. **`DiagnosticsManager`**:
@@ -163,6 +188,29 @@ O Live Sniffer captura pacotes DNS em tempo real do Unbound via `journalctl` ou 
 
 ## 📝 Histórico de Correções
 
+### [2026-05-04] v2.2.0 — Tear-down do MariaDB
+
+**Marco**: sistema migrado para 100% DuckDB. Modernização v1 in-place concluída.
+
+**Alterações**:
+- Todos os 6 Managers PHP (`Blocklist`, `SourceBalance`, `Alert`, `Unbound`, `UnboundConfig`, `SystemCheck`) migrados para `App\ApiClient` (cURL → FastAPI).
+- `src/Database.php` neutralizado (stub que lança `PDOException` em vez de `die()`).
+- `AppMetricsManager` desacoplado do PDO; `getMariaDBStats()` retorna `offline` fixo.
+- `scripts/update_blacklist.php` reescrito sobre `ApiClient` + JWT via env var.
+- `health.php`: card MariaDB removido, novos checks de status systemd (`unbound-dashboard-api`, Redis, Apache, Unbound) e novos componentes (DuckDB, env file, backups dir).
+- `history.php`: removida dependência incondicional de `Database::getInstance()` que travava o loader.
+- `dns_benchmark.php`: 3 rounds com modal "Teste X de 3" e agregação cliente-side.
+- `tools/build-package.sh`, `install.sh`, `update.sh`, `build-update.sh` reescritos para a stack DuckDB+FastAPI+Redis.
+- `api_service/tools/create_admin.py` adicionado para bootstrap idempotente do admin no install.
+
+### [2026-04-29] v2.1.0 — Modernização in-place (Strangler Fig)
+
+**Backend**: `api_service/` (FastAPI/DuckDB/Redis) deployado em paralelo ao PHP+MariaDB. Workers asyncio (LogWatcher, StatsAggregator, AlertChecker, JsonExporter), métricas Prometheus em `/metrics`, rate limiting (slowapi), CORS, JWT (HS256) compartilhado entre PHP e FastAPI via sessão.
+
+**Auth**: `src/ApiClient.php` (cURL) com `get/post/put/delete/login/changePassword`. Login PHP delega para `/api/v1/auth/login` e guarda `api_jwt` em `$_SESSION`.
+
+**Páginas migradas**: Dashboard, Threats, History, Alerts, Blocklist, Config, Diagnostics, Service Control, Export.
+
 ### [2026-04-04] Live Sniffer — Correção de Regex e Permissões
 
 **Problema**: O Live Sniffer ficava travado em "Inicializando interceptador de pacotes..." sem exibir dados.
@@ -196,11 +244,11 @@ O Live Sniffer captura pacotes DNS em tempo real do Unbound via `journalctl` ou 
 
 | Tipo | Formato | Fonte | Descrição |
 |---|---|---|---|
-| Consultas DNS | CSV (`;`) | `query_logs` (MySQL) | Histórico com IP, domínio, tipo e ação. Filtro por período (24h/7d/30d/tudo) |
-| Estatísticas | JSON | `latest_stats.json` + `daily_stats` | Métricas atuais, histórico diário, top domínios e top clientes |
+| Consultas DNS | CSV (`;`) | `query_logs` (DuckDB via `/api/v1/exports/query-logs`) | Histórico com IP, domínio, tipo e ação. Filtro por período (24h/7d/30d/tudo) |
+| Estatísticas | JSON | `latest_stats.json` + `daily_stats` (DuckDB via `/api/v1/exports/stats-report`) | Métricas atuais, histórico diário, top domínios e top clientes |
 | Log do Sistema | TXT | `journalctl` + `syslog` | Últimas 300 linhas do daemon Unbound e do syslog |
 | Backup Config | TAR.GZ | `/etc/unbound/` | Configs modulares + instâncias multicore + settings do dashboard |
-| Blacklist | CSV (`;`) | `domain_blacklist` (MySQL) | Lista completa de domínios bloqueados com categoria |
+| Blacklist | CSV (`;`) | `blocklist_domains` (DuckDB via `/api/v1/exports/blocklist`) | Lista completa de domínios bloqueados com categoria |
 
 **Restauração de Backup (Backup Config)**:
 - O card de Backup inclui dois botões: **Exportar** e **Restaurar**
@@ -210,7 +258,7 @@ O Live Sniffer captura pacotes DNS em tempo real do Unbound via `journalctl` ou 
   1. Valida formato (`.tar.gz`, máx. 5MB) e conteúdo (apenas `.conf` e `.json`)
   2. Extrai em diretório temporário (`src/data/tmp/`)
   3. Copia cada `.conf` para `/etc/unbound/` via `sudo cp` (staging area)
-  4. Restaura settings do dashboard no banco de dados (MySQL)
+  4. Restaura settings do dashboard no DuckDB via `/api/v1/exports/settings/bulk`
   5. Valida config com `unbound-checkconf`
   6. Se válido, reinicia o Unbound automaticamente
   7. Limpa todos os arquivos temporários
