@@ -11,9 +11,10 @@
 #
 # Variáveis aceitas:
 #   ADMIN_USERNAME, ADMIN_EMAIL, ADMIN_PASSWORD   passadas pro install.sh
-#   REPO_URL    (default: https://github.com/bldantas/unbound-dashboard.git)
-#   REPO_BRANCH (default: main)
-#   WORK_DIR    (default: /tmp/unbound-dashboard-install)
+#   REPO_URL       (default: https://github.com/bldantas/unbound-dashboard.git)
+#   REPO_BRANCH    (default: main)
+#   GITHUB_TOKEN   PAT pra repos privados — injetado na URL do clone
+#   WORK_DIR       (default: /tmp/unbound-dashboard-install)
 #   KEEP_WORK_DIR=true   não remove $WORK_DIR ao final (debug)
 # ============================================================
 
@@ -36,8 +37,16 @@ step() { echo -e "\n${BOLD}── $1 ──${NC}"; }
 
 REPO_URL="${REPO_URL:-https://github.com/bldantas/unbound-dashboard.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 WORK_DIR="${WORK_DIR:-/tmp/unbound-dashboard-install}"
 KEEP_WORK_DIR="${KEEP_WORK_DIR:-false}"
+
+# Se GITHUB_TOKEN estiver setado e a URL for HTTPS GitHub, injeta o token
+# (formato suportado por GitHub: https://oauth2:TOKEN@github.com/...)
+CLONE_URL="$REPO_URL"
+if [ -n "$GITHUB_TOKEN" ] && [[ "$REPO_URL" =~ ^https://github\.com/ ]]; then
+    CLONE_URL="${REPO_URL/https:\/\/github.com\//https://oauth2:${GITHUB_TOKEN}@github.com/}"
+fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${NC}"
@@ -71,13 +80,20 @@ step "Etapa 2/4 — Clone do repositório"
 
 if [ -d "$WORK_DIR/.git" ]; then
     info "Repo já existe em $WORK_DIR — atualizando..."
+    # Re-aponta o remote pro CLONE_URL atual (pode incluir token novo)
+    git -C "$WORK_DIR" remote set-url origin "$CLONE_URL"
     git -C "$WORK_DIR" fetch --quiet origin "$REPO_BRANCH"
     git -C "$WORK_DIR" reset --hard "origin/$REPO_BRANCH" --quiet
     git -C "$WORK_DIR" clean -fd --quiet
 else
     rm -rf "$WORK_DIR"
-    info "Clonando $REPO_URL (branch: $REPO_BRANCH)..."
-    git clone --depth 1 --branch "$REPO_BRANCH" --quiet "$REPO_URL" "$WORK_DIR"
+    info "Clonando $REPO_URL (branch: $REPO_BRANCH)${GITHUB_TOKEN:+ — auth via GITHUB_TOKEN}..."
+    git clone --depth 1 --branch "$REPO_BRANCH" --quiet "$CLONE_URL" "$WORK_DIR"
+fi
+
+# Garante que token não fica no remote dentro do work dir após o clone
+if [ -n "$GITHUB_TOKEN" ]; then
+    git -C "$WORK_DIR" remote set-url origin "$REPO_URL"
 fi
 
 VERSION=$(tr -d '[:space:]' < "$WORK_DIR/VERSION" 2>/dev/null || echo "unknown")
