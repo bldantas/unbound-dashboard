@@ -1,5 +1,71 @@
 # Changelog
 
+## v2.3.0 — 2026-05-11
+
+### Página dedicada de Gestão de Usuários (`users.php`)
+
+A gestão de outros usuários sai da aba do `config.php` e ganha página
+própria com features mais completas. Tudo backed por endpoints existentes
+e dois novos no `api_service`.
+
+**Novo: `users.php`** (admin-only, link no sidebar em "Sistema"):
+
+- **Tabela** com colunas: avatar (iniciais coloridas por role), username,
+  email (inline edit), role (select inline), status (Ativo/Suspenso/Bloqueado),
+  last_login (relativo + absoluto), created_at, ações.
+- **Busca client-side** por username ou email + filtros de role e status.
+  Contador "Total: N · Visíveis: M".
+- **Edição inline:**
+  - Role: select onchange auto-submit (admin/viewer). Bloqueado pra self
+    (admin não pode rebaixar a si mesmo — outro admin precisa).
+  - Email: input + botão ✓ pra salvar.
+- **Reset de senha por admin:** botão 🔑 gera senha temporária aleatória
+  (12 chars urlsafe), exibida UMA VEZ em banner amarelo com botão "Copiar".
+- **Modal "Novo Usuário"** com validação HTML (regex username, email type,
+  minlength senha).
+- **Confirmações** via modal genérico do `footer.php` (data-confirm-message)
+  pra exclusão e reset.
+- **Coluna last_login** com timestamp relativo ("agora", "5 min atrás",
+  "2d atrás") + absoluto pra contas dormentes.
+
+**Backend: 2 endpoints novos em `api_service/app/routers/users.py`:**
+
+- `PUT /api/v1/users/{id}/role` (require_admin) — atualiza role; bloqueia
+  self-target e roles inválidos.
+- `POST /api/v1/users/{id}/password-reset` (require_admin) — gera senha
+  aleatória `secrets.token_urlsafe(9)[:12]`, hasheia com bcrypt, limpa
+  failed_logins/locked_until, retorna a senha em texto na resposta.
+
+**Schema DuckDB — migration V2 (`add_last_login`):**
+
+```sql
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP;
+```
+
+`auth_service.login_user()` agora chama `user_repo.touch_last_login()`
+após sucesso. `users_service.list_all()` expõe o campo no JSON.
+
+**`src/Auth.php` (PHP) — métodos novos:**
+
+- `updateRole(int $id, string $newRole)` — PUT /role via ApiClient.
+- `adminResetPassword(int $id)` — POST /password-reset, retorna a
+  temporary_password no array de resposta pra UI exibir.
+
+**Removido de `config.php`:**
+
+- Aba "Gestão de Usuários" inteira (substituída pela página).
+- Handlers `add_user`, `toggle_user`, `delete_user` (agora vivem em
+  `users.php`).
+- Aba "Meu Perfil" passou a aparecer pra admins também (eles agora
+  perdem o "Alterar Senha" que estava enterrado na aba de usuários).
+
+**Migrações:** após atualizar via `install-from-git.sh`, o
+`unbound-dashboard-api.service` aplica V2 automaticamente no startup
+(idempotente, `ADD COLUMN IF NOT EXISTS`). Testes `test_migrate.py`
+atualizados pra esperar `[1, 2]`. 58/58 testes passando.
+
+---
+
 ## v2.2.12 — 2026-05-11
 
 ### NetworkManager — DNS via systemd-resolved, /etc/hosts no setHostname, NTP chrony/ntpd

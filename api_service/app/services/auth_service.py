@@ -73,6 +73,7 @@ async def login(username: str, password: str) -> dict:
         raise InvalidCredentials
 
     await user_repo.reset_failed_logins(user["id"])
+    await user_repo.touch_last_login(user["id"])
 
     token = create_access_token({"sub": str(user["id"]), "role": user["role"]})
     return {

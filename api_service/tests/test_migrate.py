@@ -19,7 +19,7 @@ def test_apply_migrations_creates_schema(tmp_path) -> None:
 
     db = tmp_path / "test.duckdb"
     applied = run_migrations(str(db))
-    assert applied == [1]
+    assert applied == [1, 2]
 
     with duckdb.connect(str(db), read_only=True) as conn:
         tables = {
@@ -47,6 +47,6 @@ def test_apply_migrations_is_idempotent(tmp_path) -> None:
     first = run_migrations(str(db))
     second = run_migrations(str(db))
     third = run_migrations(str(db))
-    assert first == [1]
+    assert first == [1, 2]
     assert second == []
     assert third == []

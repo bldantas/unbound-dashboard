@@ -157,18 +157,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Serviço Unbound: " . strtoupper($op);
             $messageType = $ret === 0 ? 'success' : 'error';
         }
-    } elseif ($action === 'add_user' && $isAdmin) {
-        $res = \App\Auth::addUser($_POST['new_username'] ?? '', $_POST['new_password'] ?? '', $_POST['new_role'] ?? 'viewer', $_POST['new_email'] ?? null);
-        $message = $res['message'];
-        $messageType = $res['success'] ? 'success' : 'error';
-    } elseif ($action === 'toggle_user' && $isAdmin) {
-        $res = \App\Auth::toggleUserStatus((int)$_POST['user_id']);
-        $message = $res['message'];
-        $messageType = $res['success'] ? 'success' : 'error';
-    } elseif ($action === 'delete_user' && $isAdmin) {
-        $res = \App\Auth::deleteUser((int)$_POST['user_id']);
-        $message = $res['message'];
-        $messageType = $res['success'] ? 'success' : 'error';
     } elseif ($action === 'update_profile_pass') {
         $res = \App\Auth::updatePassword($_SESSION['username'], $_POST['old_pass'], $_POST['new_pass']);
         $message = $res['message'];
@@ -195,14 +183,6 @@ foreach ($timezoneOptions as $timezoneOption) {
 }
 if (!empty($currentTz) && !in_array($currentTz, $timezoneOptions, true)) {
     $timezoneGroups['Atual'][] = $currentTz;
-}
-$allUsers = $isAdmin ? \App\Auth::getAllUsers() : [];
-$me = null;
-foreach ($allUsers as $u) {
-    if ($u['id'] == $_SESSION['user_id']) {
-        $me = $u;
-        break;
-    }
 }
 $sbSettings = $sourceBalanceManager->getSettings();
 $currentBlocklistSource = $blocklistManager->getBlocklistSource();
@@ -378,7 +358,9 @@ function field($key, $label, $desc = '', $def = '')
             <div class="flex flex-col lg:flex-row gap-10">
                 <aside class="w-full lg:w-72 flex-shrink-0">
                     <nav class="glass-panel !p-2 rounded-3xl border border-slate-200 dark:border-white/5 space-y-1">
-                        <?php $tabs = $isAdmin ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'usuarios' => 'Gestão de Usuários'] : ['perfil' => 'Meu Perfil'];
+                        <?php $tabs = $isAdmin
+                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'perfil' => 'Meu Perfil']
+                            : ['perfil' => 'Meu Perfil'];
                         $activeTab = in_array($requestedTab, array_keys($tabs)) ? $requestedTab : array_key_first($tabs);
                         foreach ($tabs as $id => $label): ?>
                             <button onclick="switchTab('<?= $id ?>')" id="vtab-<?= $id ?>" class="v-tab <?= $id === $activeTab ? 'active' : '' ?> w-full text-left px-6 py-4 text-[11px] font-black uppercase tracking-widest transition-all"><?= $label ?></button>
@@ -682,63 +664,25 @@ function field($key, $label, $desc = '', $def = '')
                         <div id="btnSaveFloating" class="mt-10 flex justify-end animate-fade-in shadow-2xl"><button type="submit" id="btnSaveMain" class="glass-btn bg-blue-600 text-white px-12 py-4 text-xs font-black uppercase tracking-[0.2em] hover:bg-blue-500 transform hover:scale-105 transition-all">Sincronizar Todas Alterações</button></div>
                     </form>
 
-                    <div id="tab-usuarios" class="tab-content space-y-8">
+                    <div id="tab-perfil" class="tab-content space-y-8">
                         <?php if ($isAdmin): ?>
-                            <div class="glass-panel border-l-4 border-blue-500 border-slate-900/10 dark:border-white/5">
-                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase mb-8 border-b border-slate-900/10 dark:border-white/5 pb-4">Gestão Admin</h3>
-                                <div class="space-y-3">
-                                    <?php foreach ($allUsers as $u): ?>
-                                        <div class="flex items-center justify-between bg-slate-900/5 dark:bg-white/5 p-4 rounded-3xl border border-slate-200 dark:border-white/5">
-                                            <div class="flex items-center gap-4">
-                                                <div class="w-10 h-10 rounded-2xl bg-blue-600/10 text-blue-500 flex items-center justify-center font-black"><?= substr($u['username'], 0, 2) ?></div>
-                                                <div>
-                                                    <p class="text-sm font-black text-slate-900 dark:text-white"><?= htmlspecialchars($u['username']) ?></p>
-                                                    <p class="text-[9px] text-slate-500 font-bold uppercase"><?= $u['role'] ?> • <?= $u['email'] ?></p>
-                                                </div>
-                                            </div>
-                                            <div class="flex gap-2">
-                                                <form method="POST">
-                                                    <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                                                    <input type="hidden" name="tab" value="usuarios">
-                                                    <input type="hidden" name="action" value="toggle_user">
-                                                    <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
-                                                    <button type="submit" class="glass-btn !py-2 !px-3 text-[9px]"><?= $u['status'] === 'active' ? 'SUSPENDER' : 'ATIVAR' ?></button>
-                                                </form>
-                                                <form method="POST" data-confirm-message="Deseja excluir este usuário?" data-confirm-title="Confirmar exclusão" data-confirm-text="Excluir" data-confirm-variant="danger">
-                                                    <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                                                    <input type="hidden" name="tab" value="usuarios">
-                                                    <input type="hidden" name="action" value="delete_user">
-                                                    <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
-                                                    <button type="submit" class="glass-btn !py-2 !px-3 text-[9px] bg-red-500/10 text-red-500">EXCLUIR</button>
-                                                </form>
-                                            </div>
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-
-                            <div class="glass-panel border-l-4 border-emerald-500 border-slate-900/10 dark:border-white/5">
-                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase mb-6">Novo Usuário</h3>
-                                <form method="POST" class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                    <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                                    <input type="hidden" name="tab" value="usuarios">
-                                    <input type="hidden" name="action" value="add_user">
-                                    <input type="text" name="new_username" placeholder="Login" class="glass-input">
-                                    <input type="password" name="new_password" placeholder="Senha" class="glass-input">
-                                    <select name="new_role" class="glass-input">
-                                        <option value="viewer">VIEWER</option>
-                                        <option value="admin">ADMIN</option>
-                                    </select>
-                                    <button type="submit" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">Adicionar</button>
-                                </form>
+                            <div class="glass-panel border-l-4 border-blue-500">
+                                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Gestão de Usuários</p>
+                                <p class="text-sm text-slate-700 dark:text-slate-300 mb-3">
+                                    A gestão de outros usuários (criar, suspender, mudar role, resetar senha, excluir)
+                                    foi movida pra uma página dedicada com busca, filtros e edição inline.
+                                </p>
+                                <a href="users.php" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black inline-flex items-center gap-2">
+                                    Ir para Gestão de Usuários →
+                                </a>
                             </div>
                         <?php endif; ?>
 
                         <div class="glass-panel border-slate-900/10 dark:border-white/5">
-                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase mb-6">Alterar Senha</h3>
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase mb-6">Alterar Minha Senha</h3>
                             <form method="POST" class="space-y-4">
                                 <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                                <input type="hidden" name="tab" value="usuarios">
+                                <input type="hidden" name="tab" value="perfil">
                                 <input type="hidden" name="action" value="update_profile_pass">
                                 <input type="password" name="old_pass" placeholder="SENHA ATUAL" class="glass-input w-full">
                                 <input type="password" name="new_pass" placeholder="NOVA SENHA" class="glass-input w-full">

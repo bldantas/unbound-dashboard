@@ -52,6 +52,14 @@ async def reset_failed_logins(user_id: int) -> None:
     )
 
 
+async def touch_last_login(user_id: int) -> None:
+    """Marca last_login_at = now() após login bem-sucedido."""
+    await db_execute(
+        "UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [user_id],
+    )
+
+
 async def update_password_hash(user_id: int, new_hash: str) -> None:
     await db_execute(
         "UPDATE users SET password_hash = ? WHERE id = ?",
@@ -69,7 +77,7 @@ async def list_all() -> list[dict]:
     return await db_fetchall(
         """
         SELECT id, username, email, role, is_active,
-               failed_logins, locked_until, created_at
+               failed_logins, locked_until, created_at, last_login_at
         FROM users
         ORDER BY id ASC
         """
@@ -129,6 +137,30 @@ async def toggle_active(user_id: int) -> bool:
     if not row:
         return False
     await db_execute("UPDATE users SET is_active = NOT is_active WHERE id = ?", [user_id])
+    return True
+
+
+async def update_role(user_id: int, role: str) -> bool:
+    """Atualiza o role do user. Retorna True se row existe."""
+    row = await db_fetchone("SELECT id FROM users WHERE id = ?", [user_id])
+    if not row:
+        return False
+    await db_execute("UPDATE users SET role = ? WHERE id = ?", [role, user_id])
+    return True
+
+
+async def admin_set_password(user_id: int, new_hash: str) -> bool:
+    """
+    Reset de senha por admin — sem token, sem old_pass. Também limpa lockout
+    pra liberar o user imediatamente.
+    """
+    row = await db_fetchone("SELECT id FROM users WHERE id = ?", [user_id])
+    if not row:
+        return False
+    await db_execute(
+        "UPDATE users SET password_hash = ?, failed_logins = 0, locked_until = NULL WHERE id = ?",
+        [new_hash, user_id],
+    )
     return True
 
 

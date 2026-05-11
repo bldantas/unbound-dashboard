@@ -187,6 +187,44 @@ class Auth
         return ['success' => false, 'message' => 'Erro ao remover usuário.'];
     }
 
+    public static function updateRole(int $id, string $newRole): array
+    {
+        if (!self::isAdmin()) return ['success' => false, 'message' => 'Permissão negada.'];
+        if (($_SESSION['user_id'] ?? 0) == $id) {
+            return ['success' => false, 'message' => 'Você não pode mudar seu próprio role. Peça pra outro admin.'];
+        }
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        $result = ApiClient::put("/api/v1/users/{$id}/role", $jwt, ['role' => $newRole]);
+        if (!empty($result['ok'])) {
+            return ['success' => true, 'message' => 'Role atualizado para ' . $newRole . '.'];
+        }
+        $reason = $result['reason'] ?? '';
+        if ($reason === 'http_400') return ['success' => false, 'message' => 'Role inválido ou self-target.'];
+        if ($reason === 'http_404') return ['success' => false, 'message' => 'Usuário não encontrado.'];
+        return ['success' => false, 'message' => 'Erro ao atualizar role (' . $reason . ').'];
+    }
+
+    /**
+     * Admin gera senha temporária pra outro user. Retorna a senha em texto
+     * pra ser exibida UMA VEZ na UI; admin entrega manualmente.
+     */
+    public static function adminResetPassword(int $id): array
+    {
+        if (!self::isAdmin()) return ['success' => false, 'message' => 'Permissão negada.'];
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        $result = ApiClient::post("/api/v1/users/{$id}/password-reset", $jwt, []);
+        if (!empty($result['ok']) && isset($result['data']['temporary_password'])) {
+            return [
+                'success' => true,
+                'message' => 'Senha temporária gerada com sucesso.',
+                'temporary_password' => $result['data']['temporary_password'],
+            ];
+        }
+        $reason = $result['reason'] ?? '';
+        if ($reason === 'http_404') return ['success' => false, 'message' => 'Usuário não encontrado.'];
+        return ['success' => false, 'message' => 'Erro ao resetar senha (' . $reason . ').'];
+    }
+
     public static function hasUsers(): bool
     {
         $resp = self::_unauthedGet('/api/v1/users/exists');

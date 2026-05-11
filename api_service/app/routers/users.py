@@ -24,6 +24,10 @@ class UpdateEmailRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
 
 
+class UpdateRoleRequest(BaseModel):
+    role: str = Field(min_length=1, max_length=20)
+
+
 @router.get("")
 async def list_users(_: Annotated[dict, Depends(require_admin)]) -> list[dict]:
     return await users_service.list_all()
@@ -117,3 +121,50 @@ async def delete_user(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado"
         ) from None
+
+
+@router.put("/{user_id}/role", status_code=status.HTTP_204_NO_CONTENT)
+async def update_role(
+    user_id: Annotated[int, Path(ge=1)],
+    body: UpdateRoleRequest,
+    payload: Annotated[dict, Depends(require_admin)],
+) -> None:
+    try:
+        await users_service.update_role(
+            user_id, body.role, requesting_user_id=int(payload["sub"])
+        )
+    except users_service.InvalidRole:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Role inválido. Valores aceitos: admin, viewer.",
+        ) from None
+    except users_service.CannotTargetSelf:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Você não pode mudar seu próprio role. Peça pra outro admin.",
+        ) from None
+    except users_service.UserNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado"
+        ) from None
+
+
+@router.post("/{user_id}/password-reset")
+async def admin_reset_password(
+    user_id: Annotated[int, Path(ge=1)],
+    payload: Annotated[dict, Depends(require_admin)],
+) -> dict:
+    """
+    Admin gera senha temporária aleatória para o user. Senha é retornada
+    UMA VEZ na resposta (texto plano) — admin deve entregar manualmente
+    ao usuário e este deve trocar no primeiro acesso.
+    """
+    try:
+        new_pass = await users_service.admin_reset_password(
+            user_id, requesting_user_id=int(payload["sub"])
+        )
+    except users_service.UserNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado"
+        ) from None
+    return {"temporary_password": new_pass}

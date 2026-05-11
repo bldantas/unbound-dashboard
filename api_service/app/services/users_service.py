@@ -49,6 +49,9 @@ def _utc_naive_in(minutes: int) -> datetime:
     return (datetime.now(UTC) + timedelta(minutes=minutes)).replace(tzinfo=None)
 
 
+VALID_ROLES = {"admin", "viewer"}
+
+
 async def list_all() -> list[dict]:
     rows = await user_repo.list_all()
     return [
@@ -61,6 +64,7 @@ async def list_all() -> list[dict]:
             "failed_logins": int(r["failed_logins"] or 0),
             "locked_until": r["locked_until"].isoformat() if r.get("locked_until") else None,
             "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+            "last_login_at": r["last_login_at"].isoformat() if r.get("last_login_at") else None,
         }
         for r in rows
     ]
@@ -110,6 +114,37 @@ async def delete_user(user_id: int, requesting_user_id: int) -> None:
     ok = await user_repo.delete_by_id(user_id)
     if not ok:
         raise UserNotFound
+
+
+class InvalidRole(UserError):
+    pass
+
+
+async def update_role(user_id: int, role: str, requesting_user_id: int) -> None:
+    """
+    Atualiza o role. Bloqueia self-target (admin não pode rebaixar-se
+    sozinho — evita ficar sem admin no sistema; um outro admin precisa fazer).
+    """
+    if role not in VALID_ROLES:
+        raise InvalidRole
+    if user_id == requesting_user_id:
+        raise CannotTargetSelf
+    ok = await user_repo.update_role(user_id, role)
+    if not ok:
+        raise UserNotFound
+
+
+async def admin_reset_password(user_id: int, requesting_user_id: int) -> str:
+    """
+    Gera senha aleatória de 12 chars (alphanumérica) e substitui a do user.
+    Retorna a senha em texto pra que o admin entregue ao usuário.
+    Permitido em si mesmo (admin pode resetar sua própria senha).
+    """
+    raw = secrets.token_urlsafe(9)[:12]  # ~12 chars alphanuméricos
+    ok = await user_repo.admin_set_password(user_id, hash_password(raw))
+    if not ok:
+        raise UserNotFound
+    return raw
 
 
 # ---------------------------------------------------------------------------
