@@ -6,6 +6,52 @@ require_once __DIR__ . '/ShellHelper.php';
 
 class NetworkManager {
 
+    const NETPLAN_FILE = '/etc/netplan/99-unbound-dashboard.yaml';
+    const NETPLAN_TMP  = '/tmp/unbound-dashboard-netplan.yaml';
+    const NETPLAN_BACKUP_DIR = '/var/backups/unbound-dashboard';
+
+    /**
+     * Detecta o backend de rede em uso.
+     *
+     * @return string 'netplan' | 'ifupdown'
+     */
+    public function detectBackend(): string {
+        static $cached = null;
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $hasNetplanBin = is_executable('/usr/sbin/netplan');
+        $hasNetplanDir = is_dir('/etc/netplan');
+        $hasYaml = false;
+        if ($hasNetplanDir) {
+            $files = glob('/etc/netplan/*.yaml') ?: [];
+            $hasYaml = count($files) > 0;
+        }
+
+        // Considera netplan ativo se o binário existe E há YAML configurado
+        // (mesmo que seja só o /etc/netplan/50-cloud-init.yaml do cloud-init).
+        if ($hasNetplanBin && $hasYaml) {
+            $cached = 'netplan';
+        } else {
+            $cached = 'ifupdown';
+        }
+        return $cached;
+    }
+
+    /**
+     * Detecta o renderer pra netplan: networkd ou NetworkManager.
+     */
+    private function detectNetplanRenderer(): string {
+        $out = [];
+        $ret = 0;
+        \App\ShellHelper::exec('/usr/bin/systemctl', ['is-active', '--quiet', 'NetworkManager'], $out, $ret, false);
+        if ($ret === 0) {
+            return 'NetworkManager';
+        }
+        return 'networkd';
+    }
+
     /**
      * Normaliza a lista de servidores NTP preservando hostnames, IPv4 e IPv6.
      */
@@ -118,7 +164,384 @@ class NetworkManager {
         }
     }
 
+    /**
+     * Lê a config de uma interface a partir do YAML do dashboard
+     * (/etc/netplan/99-unbound-dashboard.yaml). Não tenta interpretar o
+     * 50-cloud-init.yaml — só o nosso. Se a interface não estiver no nosso
+     * YAML, retorna defaults (DHCP).
+     */
+    private function getInterfaceConfigNetplan(string $ifaceName): array {
+        $config = [
+            'mode' => 'dhcp', 'address' => '', 'gateway' => '', 'netmask' => '',
+            'v6_enabled' => false, 'v6_mode' => 'static', 'v6_address' => '', 'v6_gateway' => '', 'v6_netmask' => ''
+        ];
+
+        if (!file_exists(self::NETPLAN_FILE) || !function_exists('yaml_parse_file')) {
+            // Fallback: tenta ler como texto se php-yaml não estiver instalado.
+            if (file_exists(self::NETPLAN_FILE)) {
+                $data = $this->parseNetplanYamlFallback(self::NETPLAN_FILE);
+            } else {
+                return $config;
+            }
+        } else {
+            $data = @yaml_parse_file(self::NETPLAN_FILE);
+        }
+
+        if (!is_array($data)) return $config;
+
+        // network.ethernets.<ifaceName> — netplan padrão
+        $eth = $data['network']['ethernets'][$ifaceName] ?? null;
+        if (!is_array($eth)) return $config;
+
+        // IPv4
+        if (!empty($eth['dhcp4'])) {
+            $config['mode'] = 'dhcp';
+        } elseif (!empty($eth['addresses']) && is_array($eth['addresses'])) {
+            $config['mode'] = 'static';
+            foreach ($eth['addresses'] as $addr) {
+                if (strpos($addr, ':') === false) {
+                    // IPv4 CIDR (192.168.1.10/24)
+                    if (preg_match('/^([0-9.]+)\/(\d+)$/', $addr, $m)) {
+                        $config['address'] = $m[1];
+                        $config['netmask'] = $m[2]; // CIDR
+                    }
+                }
+            }
+            // Gateway (routes ou gateway4 legacy)
+            if (!empty($eth['routes']) && is_array($eth['routes'])) {
+                foreach ($eth['routes'] as $r) {
+                    if (($r['to'] ?? '') === 'default' && strpos($r['via'] ?? '', ':') === false) {
+                        $config['gateway'] = $r['via'];
+                    }
+                }
+            }
+            if (empty($config['gateway']) && !empty($eth['gateway4'])) {
+                $config['gateway'] = $eth['gateway4'];
+            }
+        }
+
+        // IPv6
+        $hasV6Static = false;
+        if (!empty($eth['addresses']) && is_array($eth['addresses'])) {
+            foreach ($eth['addresses'] as $addr) {
+                if (strpos($addr, ':') !== false && preg_match('/^([0-9a-fA-F:]+)\/(\d+)$/', $addr, $m)) {
+                    $config['v6_enabled'] = true;
+                    $config['v6_mode'] = 'static';
+                    $config['v6_address'] = $m[1];
+                    $config['v6_netmask'] = $m[2];
+                    $hasV6Static = true;
+                }
+            }
+        }
+        if (!$hasV6Static && !empty($eth['dhcp6'])) {
+            $config['v6_enabled'] = true;
+            $config['v6_mode'] = 'dhcp';
+        } elseif (!$hasV6Static && !empty($eth['accept-ra'])) {
+            $config['v6_enabled'] = true;
+            $config['v6_mode'] = 'auto';
+        }
+        // Gateway v6
+        if (!empty($eth['routes']) && is_array($eth['routes'])) {
+            foreach ($eth['routes'] as $r) {
+                if (($r['to'] ?? '') === 'default' && strpos($r['via'] ?? '', ':') !== false) {
+                    $config['v6_gateway'] = $r['via'];
+                }
+            }
+        }
+        if (empty($config['v6_gateway']) && !empty($eth['gateway6'])) {
+            $config['v6_gateway'] = $eth['gateway6'];
+        }
+
+        return $config;
+    }
+
+    /**
+     * Parser textual mínimo do YAML do dashboard (último recurso quando
+     * ext/yaml não está instalada). Suporta SOMENTE o formato que ESTE
+     * NetworkManager gera — não é um parser genérico.
+     */
+    private function parseNetplanYamlFallback(string $path): array {
+        $lines = @file($path) ?: [];
+        $data = ['network' => ['ethernets' => []]];
+        $currentIface = null;
+        $currentKey = null; // addresses|routes
+        foreach ($lines as $raw) {
+            $indent = strlen($raw) - strlen(ltrim($raw, ' '));
+            $line = trim($raw);
+            if ($line === '' || $line[0] === '#') continue;
+            // Detecta interface (indent 4, ex: "    eth0:")
+            if ($indent === 4 && preg_match('/^([a-zA-Z0-9_.:-]+):$/', $line, $m)) {
+                $currentIface = $m[1];
+                $data['network']['ethernets'][$currentIface] = [];
+                $currentKey = null;
+                continue;
+            }
+            if ($currentIface === null) continue;
+            // Detecta chave simples (indent 6, ex: "      dhcp4: true")
+            if ($indent === 6 && preg_match('/^([a-zA-Z0-9_-]+):\s*(.*)$/', $line, $m)) {
+                $key = $m[1]; $val = trim($m[2]);
+                $currentKey = $key;
+                if ($val === '') {
+                    $data['network']['ethernets'][$currentIface][$key] = [];
+                } else {
+                    if ($val === 'true') $val = true;
+                    elseif ($val === 'false') $val = false;
+                    $data['network']['ethernets'][$currentIface][$key] = $val;
+                }
+                continue;
+            }
+            // Item de lista (indent >= 8)
+            if ($indent >= 8 && preg_match('/^-\s*(.*)$/', $line, $m) && $currentKey !== null) {
+                $item = trim($m[1]);
+                // Sub-objeto de route: "- to: default" → next-line "via: ..."
+                if (preg_match('/^to:\s*(.*)$/', $item, $r)) {
+                    $data['network']['ethernets'][$currentIface][$currentKey][] = ['to' => trim($r[1])];
+                } else {
+                    // Item escalar — strip quotes
+                    $item = trim($item, '"\'');
+                    $data['network']['ethernets'][$currentIface][$currentKey][] = $item;
+                }
+                continue;
+            }
+            // Chave de sub-objeto de route (indent 10, "via: 1.2.3.4")
+            if ($indent >= 10 && preg_match('/^([a-zA-Z0-9_-]+):\s*(.*)$/', $line, $m) && $currentKey === 'routes') {
+                $list = $data['network']['ethernets'][$currentIface]['routes'] ?? [];
+                $lastIdx = count($list) - 1;
+                if ($lastIdx >= 0) {
+                    $list[$lastIdx][$m[1]] = trim($m[2]);
+                    $data['network']['ethernets'][$currentIface]['routes'] = $list;
+                }
+                continue;
+            }
+        }
+        return $data;
+    }
+
+    /**
+     * Gera o YAML e aplica via `netplan apply`. Faz backup do YAML
+     * anterior em /var/backups/unbound-dashboard/netplan-99-<ts>.yaml
+     * para permitir rollback manual via restoreLastNetplanBackup().
+     *
+     * CUIDADO: também derruba SSH em caso de mudança de IP/gateway.
+     * Não há janela de auto-rollback — admin DEVE poder voltar via
+     * console se perder conectividade.
+     */
+    private function applyNetplan(string $iface, string $mode, string $address, string $gateway, string $netmask, bool $v6_enabled, string $v6_mode, string $v6_address, string $v6_gateway, string $v6_netmask): array {
+        // Carrega YAML atual (ou inicializa vazio)
+        $data = [
+            'network' => [
+                'version' => 2,
+                'renderer' => $this->detectNetplanRenderer(),
+                'ethernets' => [],
+            ],
+        ];
+
+        if (file_exists(self::NETPLAN_FILE)) {
+            if (function_exists('yaml_parse_file')) {
+                $existing = @yaml_parse_file(self::NETPLAN_FILE);
+            } else {
+                $existing = $this->parseNetplanYamlFallback(self::NETPLAN_FILE);
+            }
+            if (is_array($existing) && isset($existing['network'])) {
+                $data['network'] = array_merge($data['network'], $existing['network']);
+                if (!isset($data['network']['ethernets']) || !is_array($data['network']['ethernets'])) {
+                    $data['network']['ethernets'] = [];
+                }
+            }
+        }
+
+        // Constrói o bloco da interface
+        $eth = [];
+        if ($mode === 'dhcp') {
+            $eth['dhcp4'] = true;
+        } else {
+            $cidr = $netmask;
+            // Se netmask veio como IP (255.255.255.0), converte pra CIDR
+            if (filter_var($netmask, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                $cidr = self::netmaskToCidr($netmask);
+            }
+            if ($cidr === '' || !preg_match('/^\d+$/', (string) $cidr)) {
+                $cidr = '24'; // fallback razoável
+            }
+            $addresses = ["$address/$cidr"];
+            if ($v6_enabled && $v6_mode === 'static' && $v6_address !== '') {
+                $v6cidr = $v6_netmask !== '' ? $v6_netmask : '64';
+                $addresses[] = "$v6_address/$v6cidr";
+            }
+            $eth['addresses'] = $addresses;
+            if (!empty($gateway) || ($v6_enabled && $v6_mode === 'static' && !empty($v6_gateway))) {
+                $eth['routes'] = [];
+                if (!empty($gateway)) {
+                    $eth['routes'][] = ['to' => 'default', 'via' => $gateway];
+                }
+                if ($v6_enabled && $v6_mode === 'static' && !empty($v6_gateway)) {
+                    $eth['routes'][] = ['to' => 'default', 'via' => $v6_gateway];
+                }
+            }
+        }
+
+        if ($v6_enabled) {
+            if ($v6_mode === 'dhcp') {
+                $eth['dhcp6'] = true;
+            } elseif ($v6_mode === 'auto') {
+                $eth['accept-ra'] = true;
+            }
+        } else {
+            // Garante que IPv6 fica desligado se admin desmarcou
+            $eth['accept-ra'] = false;
+            $eth['dhcp6'] = false;
+        }
+
+        $data['network']['ethernets'][$iface] = $eth;
+
+        // Serializa
+        $yaml = self::dumpNetplanYaml($data);
+
+        // Escreve em tmp dentro do data/tmp do projeto (matchea allowlist do sudoers)
+        $tmpFile = dirname(__FILE__) . '/data/tmp/unbound-dashboard-netplan.yaml';
+        @mkdir(dirname($tmpFile), 0775, true);
+        if (@file_put_contents($tmpFile, $yaml) === false) {
+            return ['success' => false, 'message' => "Erro ao escrever YAML temporário em $tmpFile"];
+        }
+
+        // Backup do YAML anterior (se existir) ANTES de sobrescrever
+        if (file_exists(self::NETPLAN_FILE)) {
+            $backupRes = $this->backupCurrentNetplan();
+            if (!$backupRes['success']) {
+                return ['success' => false, 'message' => 'Backup falhou (abortando apply): ' . $backupRes['message']];
+            }
+        }
+
+        // Move o tmp pra /etc/netplan/99-unbound-dashboard.yaml
+        $outMv = [];
+        $retMv = 0;
+        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, self::NETPLAN_FILE], $outMv, $retMv, true);
+        if ($retMv !== 0) {
+            return ['success' => false, 'message' => 'Falha ao mover YAML para /etc/netplan/: ' . implode(' ', $outMv)];
+        }
+
+        // Aplica
+        $outApply = [];
+        $retApply = 0;
+        \App\ShellHelper::exec('/usr/sbin/netplan', ['apply'], $outApply, $retApply, true);
+        if ($retApply !== 0) {
+            return [
+                'success' => false,
+                'message' => 'netplan apply falhou: ' . implode(' ', $outApply) . ' — use o botão "Reverter última mudança" se a conexão tiver caído.',
+            ];
+        }
+
+        return [
+            'success' => true,
+            'message' => "Configuração de $iface aplicada via netplan. Backup do YAML anterior salvo em " . self::NETPLAN_BACKUP_DIR . " — caso a conexão caia, use o botão de rollback (precisa de console local).",
+        ];
+    }
+
+    /**
+     * Salva uma cópia datada do YAML atual em /var/backups/unbound-dashboard/.
+     */
+    private function backupCurrentNetplan(): array {
+        @mkdir(self::NETPLAN_BACKUP_DIR, 0755, true);
+        $ts = date('Ymd-His');
+        $dest = self::NETPLAN_BACKUP_DIR . "/netplan-99-{$ts}.yaml";
+        $out = []; $ret = 0;
+        \App\ShellHelper::exec('/usr/bin/cp', [self::NETPLAN_FILE, $dest], $out, $ret, true);
+        if ($ret !== 0) {
+            return ['success' => false, 'message' => 'cp falhou: ' . implode(' ', $out)];
+        }
+        return ['success' => true, 'message' => "Backup em $dest", 'path' => $dest];
+    }
+
+    /**
+     * Retorna o backup mais recente do YAML netplan (ou null).
+     */
+    public function getLastNetplanBackup(): ?string {
+        $files = glob(self::NETPLAN_BACKUP_DIR . '/netplan-99-*.yaml') ?: [];
+        if (empty($files)) return null;
+        sort($files);
+        return end($files);
+    }
+
+    /**
+     * Restaura o backup mais recente e re-aplica. Permite o admin
+     * desfazer a última mudança se ainda tiver acesso à UI.
+     */
+    public function restoreLastNetplanBackup(): array {
+        if ($this->detectBackend() !== 'netplan') {
+            return ['success' => false, 'message' => 'Backend ativo não é netplan — rollback indisponível.'];
+        }
+        $last = $this->getLastNetplanBackup();
+        if ($last === null) {
+            return ['success' => false, 'message' => 'Nenhum backup encontrado em ' . self::NETPLAN_BACKUP_DIR];
+        }
+        $out = []; $ret = 0;
+        \App\ShellHelper::exec('/usr/bin/cp', [$last, self::NETPLAN_FILE], $out, $ret, true);
+        if ($ret !== 0) {
+            return ['success' => false, 'message' => 'cp falhou: ' . implode(' ', $out)];
+        }
+        $outA = []; $retA = 0;
+        \App\ShellHelper::exec('/usr/sbin/netplan', ['apply'], $outA, $retA, true);
+        if ($retA !== 0) {
+            return ['success' => false, 'message' => 'netplan apply pós-restore falhou: ' . implode(' ', $outA)];
+        }
+        return ['success' => true, 'message' => 'Rollback aplicado a partir de ' . basename($last)];
+    }
+
+    /**
+     * Converte máscara IPv4 (255.255.255.0) em CIDR (24).
+     */
+    private static function netmaskToCidr(string $mask): string {
+        $long = ip2long($mask);
+        if ($long === false) return '';
+        $bin = decbin($long);
+        return (string) substr_count($bin, '1');
+    }
+
+    /**
+     * Serializa array PHP no formato YAML que o netplan espera.
+     * Usa ext/yaml se disponível, senão um dumper textual mínimo
+     * suficiente pro schema do dashboard.
+     */
+    private static function dumpNetplanYaml(array $data): string {
+        if (function_exists('yaml_emit')) {
+            return "# Gerado pelo Unbound Dashboard\n" . yaml_emit($data, YAML_UTF8_ENCODING);
+        }
+        // Dumper textual (suficiente pro nosso schema)
+        $out = "# Gerado pelo Unbound Dashboard\n";
+        $out .= "network:\n";
+        $out .= "  version: " . ($data['network']['version'] ?? 2) . "\n";
+        $out .= "  renderer: " . ($data['network']['renderer'] ?? 'networkd') . "\n";
+        $out .= "  ethernets:\n";
+        foreach ($data['network']['ethernets'] ?? [] as $name => $cfg) {
+            $out .= "    $name:\n";
+            foreach ($cfg as $k => $v) {
+                if (is_bool($v)) {
+                    $out .= "      $k: " . ($v ? 'true' : 'false') . "\n";
+                } elseif (is_array($v) && $k === 'addresses') {
+                    $out .= "      $k:\n";
+                    foreach ($v as $a) {
+                        $out .= "        - \"" . str_replace('"', '\"', (string)$a) . "\"\n";
+                    }
+                } elseif (is_array($v) && $k === 'routes') {
+                    $out .= "      $k:\n";
+                    foreach ($v as $r) {
+                        $out .= "        - to: " . ($r['to'] ?? '') . "\n";
+                        $out .= "          via: " . ($r['via'] ?? '') . "\n";
+                    }
+                } else {
+                    $out .= "      $k: $v\n";
+                }
+            }
+        }
+        return $out;
+    }
+
     public function getInterfaceConfig(string $ifaceName): array {
+        // Despacha pra netplan se for o backend ativo
+        if ($this->detectBackend() === 'netplan') {
+            return $this->getInterfaceConfigNetplan($ifaceName);
+        }
+
         $config = [
             'mode' => 'dhcp', 'address' => '', 'gateway' => '', 'netmask' => '',
             'v6_enabled' => false, 'v6_mode' => 'static', 'v6_address' => '', 'v6_gateway' => '', 'v6_netmask' => ''
@@ -168,7 +591,8 @@ class NetworkManager {
     }
 
     /**
-     * Atualiza a configuração de uma interface no arquivo /etc/network/interfaces.
+     * Atualiza a configuração de uma interface. Despacha pro backend
+     * ativo (netplan ou ifupdown).
      */
     public function updateInterfaceConfig(string $iface, string $mode, string $address = '', string $gateway = '', string $netmask = '', bool $v6_enabled = false, string $v6_mode = 'static', string $v6_address = '', string $v6_gateway = '', string $v6_netmask = ''): array {
         $iface = trim($iface);
@@ -184,12 +608,7 @@ class NetworkManager {
             return ['success' => false, 'message' => "Interface $iface não encontrada no sistema."];
         }
 
-        if (!file_exists('/etc/network/interfaces')) {
-            return ['success' => false, 'message' => 'Arquivo interfaces não encontrado.'];
-        }
-
-        $ifacePattern = preg_quote($iface, '/');
-
+        // Validações comuns aos dois backends
         if ($mode === 'static') {
             if (!filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
                 return ['success' => false, 'message' => 'Endereço IP inválido.'];
@@ -201,7 +620,6 @@ class NetworkManager {
                 return ['success' => false, 'message' => 'Máscara de rede inválida (deve ser IP ou formato CIDR).'];
             }
         }
-
         if ($v6_enabled && $v6_mode === 'static') {
             if (!filter_var($v6_address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
                 return ['success' => false, 'message' => 'Endereço IPv6 inválido.'];
@@ -214,6 +632,18 @@ class NetworkManager {
             }
         }
 
+        // Despacho por backend
+        if ($this->detectBackend() === 'netplan') {
+            return $this->applyNetplan($iface, $mode, $address, $gateway, $netmask, $v6_enabled, $v6_mode, $v6_address, $v6_gateway, $v6_netmask);
+        }
+
+        // === ifupdown legacy abaixo ===
+        if (!file_exists('/etc/network/interfaces')) {
+            return ['success' => false, 'message' => 'Arquivo interfaces não encontrado.'];
+        }
+
+        // === ifupdown: edição do /etc/network/interfaces ===
+        $ifacePattern = preg_quote($iface, '/');
         $lines = file('/etc/network/interfaces');
         $newLines = [];
         $skip = false;
@@ -280,6 +710,8 @@ class NetworkManager {
 
     /**
      * Aplica as mudanças de rede reiniciando a interface.
+     * Em netplan, o apply já aconteceu no updateInterfaceConfig() — esse
+     * método é no-op nesse caso. Em ifupdown, dispara ifdown/ifup.
      * CUIDADO: Pode derrubar a conexão se o IP mudar!
      */
     public function applyInterfaceChanges(string $iface): array {
@@ -294,6 +726,11 @@ class NetworkManager {
 
         if (!$this->interfaceExists($iface)) {
             return ['success' => false, 'message' => "Interface $iface não encontrada no sistema."];
+        }
+
+        // No netplan o apply é parte do update — não há nada a fazer aqui.
+        if ($this->detectBackend() === 'netplan') {
+            return ['success' => true, 'message' => "Interface $iface: netplan apply executado durante o save."];
         }
 
         $safeIface = escapeshellarg($iface);

@@ -121,15 +121,19 @@ mkdir -p "$STAGING/system/bin"
 mkdir -p "$STAGING/system/etc"
 
 # --- Sudoers
-if [ -f "/etc/sudoers.d/unbound-dashboard" ]; then
+# Source of truth: system/sudoers/unbound-dashboard (versionada no repo).
+# Fallback: /etc/sudoers.d/ instalado (compatibilidade com builds antigos).
+if [ -f "$DASHBOARD_DIR/system/sudoers/unbound-dashboard" ]; then
+    cp "$DASHBOARD_DIR/system/sudoers/unbound-dashboard" "$STAGING/system/sudoers/"
+    log "Sudoers copiado do repo (system/sudoers/)"
+elif [ -f "/etc/sudoers.d/unbound-dashboard" ]; then
     cp /etc/sudoers.d/unbound-dashboard "$STAGING/system/sudoers/"
-    log "Sudoers copiado"
+    warn "system/sudoers/ ausente no repo — copiado de /etc/sudoers.d/ (legacy)"
 else
-    warn "Sudoers não encontrado — gerando template padrão"
-    cat > "$STAGING/system/sudoers/unbound-dashboard" << 'SUDOERS_EOF'
-www-data ALL=(ALL) NOPASSWD: /usr/sbin/unbound-control *, /usr/bin/cp /var/www/html/unbound-dashboard/src/data/tmp/unbound_* *, /usr/sbin/unbound-checkconf *, /usr/sbin/service unbound *, /usr/bin/systemctl * unbound, /usr/sbin/ifdown *, /usr/sbin/ifup *, /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/interfaces_new /etc/network/interfaces, /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/timesyncd.conf.new /etc/systemd/timesyncd.conf, /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/resolv_conf_new /etc/resolv.conf, /usr/bin/systemctl restart systemd-timesyncd, /usr/bin/timedatectl set-timezone *, /usr/bin/hostnamectl set-hostname *, /usr/bin/tail -n 300 /var/log/syslog, /usr/bin/tail -n 300 /var/log/unbound.log, /usr/bin/journalctl -u unbound -n 300 --no-pager, /usr/local/bin/unbound-health-fix.sh
-SUDOERS_EOF
+    err "Nenhuma fonte de sudoers encontrada: nem system/sudoers/ no repo, nem /etc/sudoers.d/unbound-dashboard"
 fi
+# Validação visudo (aborta build se sintaxe quebrar)
+visudo -c -f "$STAGING/system/sudoers/unbound-dashboard" >/dev/null || err "Sudoers inválido — visudo -c falhou"
 
 # --- Systemd unit do api_service (FastAPI)
 SRC_API_UNIT="$DASHBOARD_DIR/api_service/deployments/systemd/unbound-dashboard-api.service"

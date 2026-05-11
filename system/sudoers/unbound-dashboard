@@ -1,0 +1,38 @@
+# Unbound Dashboard — sudoers (source of truth versionada)
+#
+# Instalado em /etc/sudoers.d/unbound-dashboard pelo install.sh.
+# Cada vírgula separa um comando atômico permitido a www-data com NOPASSWD.
+# Paths absolutos sempre — wildcards limitados ao argumento final.
+#
+# IMPORTANTE: depois de editar, valide com `visudo -c -f <arquivo>` antes
+# de commitar. O install.sh roda essa validação automaticamente.
+
+www-data ALL=(ALL) NOPASSWD: \
+    /usr/sbin/unbound-control *, \
+    /usr/bin/cp /tmp/unbound_* *, \
+    /usr/bin/cp /var/www/html/unbound-dashboard/src/data/tmp/unbound_* *, \
+    /usr/sbin/unbound-checkconf *, \
+    /usr/sbin/service unbound *, \
+    /usr/bin/systemctl * unbound, \
+    /usr/sbin/ifdown *, \
+    /usr/sbin/ifup *, \
+    /usr/bin/mv /tmp/interfaces_new /etc/network/interfaces, \
+    /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/interfaces_new /etc/network/interfaces, \
+    /usr/bin/mv /tmp/timesyncd.conf.new /etc/systemd/timesyncd.conf, \
+    /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/timesyncd.conf.new /etc/systemd/timesyncd.conf, \
+    /usr/bin/mv /tmp/resolv_conf_new /etc/resolv.conf, \
+    /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/resolv_conf_new /etc/resolv.conf, \
+    /usr/bin/systemctl restart systemd-timesyncd, \
+    /usr/bin/timedatectl set-timezone *, \
+    /usr/bin/hostnamectl set-hostname *, \
+    /usr/bin/tail -n 300 /var/log/syslog, \
+    /usr/bin/tail -n 300 /var/log/unbound.log, \
+    /usr/bin/journalctl -u unbound -n 300 --no-pager, \
+    /usr/local/bin/unbound-health-fix.sh, \
+    /usr/sbin/netplan apply, \
+    /usr/sbin/netplan generate, \
+    /usr/bin/mv /tmp/unbound-dashboard-netplan.yaml /etc/netplan/99-unbound-dashboard.yaml, \
+    /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/unbound-dashboard-netplan.yaml /etc/netplan/99-unbound-dashboard.yaml, \
+    /usr/bin/cp /etc/netplan/99-unbound-dashboard.yaml /var/backups/unbound-dashboard/netplan-99-*.yaml, \
+    /usr/bin/cp /var/backups/unbound-dashboard/netplan-99-*.yaml /etc/netplan/99-unbound-dashboard.yaml, \
+    /usr/bin/rm /etc/netplan/99-unbound-dashboard.yaml

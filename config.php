@@ -131,6 +131,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message .= ' (Configuração aplicada no alias lo.1)';
             }
         }
+    } elseif ($action === 'rollback_network' && $isAdmin) {
+        $res = $networkManager->restoreLastNetplanBackup();
+        $message = $res['message'];
+        $messageType = $res['success'] ? 'success' : 'error';
     } elseif ($action === 'save_ntp') {
         $ntp_servers = '';
         if (isset($_POST['ntp_servers'])) {
@@ -182,6 +186,8 @@ $blockedDomainsTxt = implode("\n", $configManager->loadBlocklist());
 $currentNtp = $networkManager->getNtpServers();
 $currentTz = $networkManager->getSystemTimezone();
 $timezoneOptions = $networkManager->getAvailableTimezones();
+$networkBackend = $networkManager->detectBackend();
+$lastNetplanBackup = $networkBackend === 'netplan' ? $networkManager->getLastNetplanBackup() : null;
 $timezoneGroups = [];
 foreach ($timezoneOptions as $timezoneOption) {
     $timezoneGroup = explode('/', $timezoneOption, 2)[0] ?: 'Outros';
@@ -563,6 +569,30 @@ function field($key, $label, $desc = '', $def = '')
                         </div>
 
                         <div id="tab-config_rede" class="tab-content space-y-8">
+                            <div class="glass-panel mb-4 border-l-4 <?= $networkBackend === 'netplan' ? 'border-blue-500' : 'border-amber-500' ?>">
+                                <div class="flex items-center justify-between gap-4 flex-wrap">
+                                    <div>
+                                        <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Backend de Rede Detectado</p>
+                                        <p class="text-sm font-bold text-slate-900 dark:text-white">
+                                            <?php if ($networkBackend === 'netplan'): ?>
+                                                <span class="text-blue-600 dark:text-blue-400">netplan</span> — mudanças escritas em <code class="text-xs">/etc/netplan/99-unbound-dashboard.yaml</code> e aplicadas com <code class="text-xs">netplan apply</code>.
+                                            <?php else: ?>
+                                                <span class="text-amber-600 dark:text-amber-400">ifupdown (legacy)</span> — <code class="text-xs">/etc/network/interfaces</code> + <code class="text-xs">ifdown/ifup</code>.
+                                            <?php endif; ?>
+                                        </p>
+                                        <p class="text-[11px] text-slate-500 mt-2">
+                                            ⚠ Mudanças de IP/gateway na interface que serve sua sessão SSH podem derrubar a conexão. Tenha acesso ao console local antes de salvar.
+                                        </p>
+                                    </div>
+                                    <?php if ($networkBackend === 'netplan' && $lastNetplanBackup): ?>
+                                        <button type="submit" name="action" value="rollback_network"
+                                                onclick="return confirm('Restaurar a versão anterior do YAML netplan e re-aplicar? Isto reverte a última mudança de rede salva.');"
+                                                class="glass-btn text-[10px] font-black uppercase border border-amber-500/40 text-amber-700 dark:text-amber-300">
+                                            ↩ Reverter última mudança
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
                             <div class="glass-panel mb-8">
                                 <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6 border-b border-slate-900/10 dark:border-white/5 pb-4">Rede do Host</h3>
 

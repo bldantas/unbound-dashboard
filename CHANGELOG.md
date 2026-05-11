@@ -1,5 +1,70 @@
 # Changelog
 
+## v2.2.11 — 2026-05-11
+
+### NetworkManager — suporte a netplan (Debian/Ubuntu modernos)
+
+A aba **Configurações de Rede** agora detecta o backend em uso e despacha
+entre `netplan` (Debian 12+/Ubuntu 18+) e `ifupdown` legacy automaticamente.
+Antes era hardcoded em `ifdown/ifup + /etc/network/interfaces`, o que falhava
+silenciosamente em qualquer instalação cloud moderna (`netplan` é o default
+desde Ubuntu 18.04).
+
+**Novo em `src/NetworkManager.php`:**
+
+- `detectBackend()` — retorna `'netplan'` se `/usr/sbin/netplan` existe e há
+  YAML em `/etc/netplan/`; senão `'ifupdown'`. Cacheado por request.
+- `detectNetplanRenderer()` — escolhe `NetworkManager` se ativo, senão
+  `networkd` (default Debian server).
+- `getInterfaceConfig()` e `updateInterfaceConfig()` agora despacham por
+  backend. Para netplan:
+  - Lê e escreve apenas `/etc/netplan/99-unbound-dashboard.yaml` (não toca
+    nos YAMLs do cloud-init).
+  - Antes de sobrescrever, copia o YAML atual pra
+    `/var/backups/unbound-dashboard/netplan-99-<timestamp>.yaml`.
+  - Aplica via `netplan apply` (sem `netplan try` — não dá pra interagir
+    com TTY do PHP-FPM).
+- `restoreLastNetplanBackup()` — restaura o backup mais recente e re-aplica.
+  Permite admin desfazer a última mudança via UI (precisa de console local
+  se a sessão SSH caiu).
+- `applyInterfaceChanges()` é no-op no netplan (o apply acontece dentro do
+  update — não há fluxo de duas etapas).
+- Suporte a `yaml_emit`/`yaml_parse_file` (ext/yaml) com fallback de parser
+  textual mínimo pra ambientes sem a extensão.
+
+**Sudoers — agora versionado no repo (`system/sudoers/unbound-dashboard`):**
+
+Source of truth virou um arquivo commitado, não mais o heredoc no
+`build-package.sh`. Mudanças de sudoers passam por code review como o resto.
+Entradas novas (granulares, com paths fixos):
+
+- `/usr/sbin/netplan apply`, `/usr/sbin/netplan generate`
+- `/usr/bin/mv /tmp/unbound-dashboard-netplan.yaml /etc/netplan/99-unbound-dashboard.yaml`
+- `/usr/bin/cp` pra backup/restore em `/var/backups/unbound-dashboard/netplan-99-*.yaml`
+
+`build-package.sh` agora prefere `system/sudoers/unbound-dashboard` do repo
+sobre `/etc/sudoers.d/` instalado, e valida com `visudo -c` antes de incluir
+no pacote — build aborta se sintaxe quebra.
+
+**UI da aba `config_rede`:**
+
+- Banner no topo mostra o backend detectado (`netplan` em azul, `ifupdown`
+  em âmbar) com aviso de que mudanças de IP podem cortar SSH.
+- Botão **"↩ Reverter última mudança"** aparece quando há backup netplan
+  disponível. Confirma via prompt antes de restaurar.
+
+**Não muda em ifupdown legacy:** instalações antigas continuam usando
+`/etc/network/interfaces` + `ifdown/ifup` como antes — sem regressão.
+
+**Sintomas que isto corrige:**
+
+- "Salvei a interface em Ubuntu 22.04 server, mas o IP não mudou" — `netplan`
+  ignorava o `/etc/network/interfaces` editado pelo PHP.
+- "ifup falhou: interface não existe na conf" — netplan rendia configs em
+  runtime que o ifupdown não reconhecia.
+
+---
+
 ## v2.2.10 — 2026-05-11
 
 ### install.sh — migração de mod_php → PHP-FPM + pacotes críticos com fail-fast
