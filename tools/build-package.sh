@@ -22,7 +22,10 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 err()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 info() { echo -e "${CYAN}[i]${NC} $1"; }
 
-DASHBOARD_DIR="/var/www/html/unbound-dashboard"
+# Resolve DASHBOARD_DIR a partir do path do próprio script (parent do tools/).
+# Permite rodar o build de qualquer checkout (não só /var/www/html/unbound-dashboard).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DASHBOARD_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 VERSION_FILE="$DASHBOARD_DIR/VERSION"
 
 if [ ! -f "$VERSION_FILE" ]; then

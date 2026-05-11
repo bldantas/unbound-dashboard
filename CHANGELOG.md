@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.2.9 — 2026-05-11
+
+### Bugfix do build-package.sh — DASHBOARD_DIR hardcoded
+
+`build-package.sh` tinha `DASHBOARD_DIR="/var/www/html/unbound-dashboard"`
+hardcoded. Quando chamado pelo `install-from-git.sh` (que clona em
+`/tmp/unbound-dashboard-install/`), o build ia até `/var/www/html/...`
+e usava artefatos errados (ou inexistentes). Resultado: pacote gerado com
+versão antiga e arquivos faltando.
+
+**Fix:** `DASHBOARD_DIR` agora é derivado do path do próprio script:
+`SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"` →
+`DASHBOARD_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"`.
+
+Permite rodar o build a partir de qualquer checkout — alinhando com
+`build-update.sh` que já fazia isso.
+
+---
+
 ## v2.2.8 — 2026-05-04
 
 ### Feature: `install-from-git.sh` (one-liner do GitHub)
