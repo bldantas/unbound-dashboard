@@ -6,14 +6,14 @@ Painel de administração web para o servidor DNS **Unbound**, com monitoramento
 
 | Camada | Tecnologia |
 |---|---|
-| Frontend | PHP 8.1+ (Apache + mod_php), Tailwind CSS, Vanilla JS, Chart.js |
+| Frontend | PHP 8.1+ (Apache + PHP-FPM via mod_proxy_fcgi), Tailwind CSS, Vanilla JS, Chart.js |
 | API | FastAPI (Python 3.11+) servida por uvicorn em `127.0.0.1:8001` |
 | Banco | DuckDB (arquivo único em `/var/lib/unbound-dashboard/unbound_dash.duckdb`) |
 | Cache / Queue | Redis 7+ |
 | Resolver | Unbound 1.17+ |
 | Workers | asyncio: `LogWatcher`, `StatsAggregator`, `AlertChecker`, `JsonExporter` |
 
-O Apache faz reverse proxy de `/api/v1/*` para o FastAPI; o restante das rotas (páginas PHP, AJAX legado) continua em PHP-FPM/mod_php. JWT (HS256) é compartilhado entre PHP e FastAPI via sessão.
+O Apache faz reverse proxy de `/api/v1/*` para o FastAPI; o restante das rotas (páginas PHP, AJAX legado) é servido por PHP-FPM via `mod_proxy_fcgi`. JWT (HS256) é compartilhado entre PHP e FastAPI via sessão.
 
 > **MariaDB foi removido em 2026-05-04** (v2.2.0). Sistema agora roda 100% em DuckDB.
 
@@ -33,8 +33,8 @@ O Apache faz reverse proxy de `/api/v1/*` para o FastAPI; o restante das rotas (
 ## Requisitos
 
 - **SO**: Debian 12+ (Bookworm/Trixie) ou Ubuntu 22.04 LTS+
-- **Servidor web**: Apache 2.4+ com `proxy`, `proxy_http`, `proxy_wstunnel`, `headers`
-- **PHP**: 8.1+
+- **Servidor web**: Apache 2.4+ com `proxy`, `proxy_http`, `proxy_wstunnel`, `proxy_fcgi`, `setenvif`, `headers`
+- **PHP**: 8.1+ via PHP-FPM (`php-fpm` no apt) — `libapache2-mod-php` não é mais usado a partir de 2.2.10
 - **Python**: 3.11+ (com `uv` para gerenciar venv)
 - **Redis**: 7+
 - **DNS**: Unbound 1.17+
@@ -77,7 +77,7 @@ O instalador:
 
 1. Detecta SO e instala dependências (Apache, PHP 8+, Redis, Python 3.11+, Unbound)
 2. Instala `uv` em `/usr/local/bin/uv`
-3. Habilita módulos Apache (`proxy`, `proxy_http`, `proxy_wstunnel`, `headers`)
+3. Habilita módulos Apache (`proxy`, `proxy_http`, `proxy_wstunnel`, `proxy_fcgi`, `setenvif`, `headers`) e o conf do PHP-FPM detectado
 4. Sincroniza venv do `api_service` via `uv sync`
 5. Gera `JWT_SECRET` aleatório (`openssl rand -hex 32`) em `/etc/unbound-dashboard/api-v1.env`
 6. Habilita systemd unit `unbound-dashboard-api.service` e Apache `conf-available`

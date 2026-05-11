@@ -89,22 +89,29 @@ step "Etapa 2/8 — Dependências do Sistema (apt)"
 info "Atualizando índices do apt..."
 apt-get update -qq
 
-PACKAGES=(
+# Pacotes críticos — falha aborta a instalação (sem warn silencioso).
+# php-fpm é a única forma suportada de servir .php (mod_php foi removido em
+# 2.2.10 porque dpkg `libapache2-mod-php` falhava silenciosamente em alguns
+# ambientes deixando .php sem handler).
+CORE_PACKAGES=(
     apache2
-    libapache2-mod-php
-    php
+    php-fpm
     php-cli
     php-curl
     php-mbstring
     php-xml
     php-common
-    sudo
-    redis-server
     python3
     python3-venv
     python3-dev
-    build-essential
+    redis-server
     unbound
+)
+
+# Pacotes auxiliares — falha gera warn, instalação continua.
+EXTRA_PACKAGES=(
+    sudo
+    build-essential
     rsyslog
     dnsutils
     traceroute
@@ -116,10 +123,21 @@ PACKAGES=(
     ca-certificates
 )
 
-info "Instalando pacotes..."
-for pkg in "${PACKAGES[@]}"; do
+info "Instalando pacotes críticos..."
+for pkg in "${CORE_PACKAGES[@]}"; do
     if dpkg -l "$pkg" &>/dev/null; then
-        :  # já instalado, silencioso pra reduzir ruído
+        :  # já instalado
+    else
+        info "  → $pkg"
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$pkg" \
+            || err "Falha ao instalar pacote crítico '$pkg' — abortando"
+    fi
+done
+
+info "Instalando pacotes auxiliares..."
+for pkg in "${EXTRA_PACKAGES[@]}"; do
+    if dpkg -l "$pkg" &>/dev/null; then
+        :
     else
         info "  → $pkg"
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$pkg" || warn "Falha em $pkg, continuando"
@@ -133,6 +151,14 @@ PHP_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || 
 [ "${BASH_REMATCH[1]}" -lt 8 ] && err "PHP $PHP_VER detectado, requer 8.1+"
 log "PHP $PHP_VER OK"
 
+# Detecta o serviço php-fpm real (ex: php8.2-fpm.service). O nome do pacote
+# `php-fpm` é meta — o serviço/conf carregam a versão concreta.
+PHP_FPM_SVC=$(systemctl list-unit-files --type=service --no-legend 2>/dev/null \
+    | awk '{print $1}' | grep -E '^php[0-9.]+-fpm\.service$' | sort -V | tail -1)
+[ -n "$PHP_FPM_SVC" ] || err "php-fpm instalado mas nenhum serviço phpX.Y-fpm.service encontrado"
+PHP_FPM_CONF="${PHP_FPM_SVC%.service}"   # ex: php8.2-fpm
+log "PHP-FPM detectado: $PHP_FPM_SVC"
+
 PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "0")
 [[ "$PY_VER" =~ ^([0-9]+)\.([0-9]+)$ ]] || err "Python3 não detectado"
 PY_MAJ=${BASH_REMATCH[1]}
@@ -143,12 +169,35 @@ fi
 log "Python $PY_VER OK"
 
 # ============================================================
-# 3. Apache: módulos do reverse proxy
+# 3. Apache: módulos do reverse proxy + handler PHP-FPM
 # ============================================================
-step "Etapa 3/8 — Apache: habilitar módulos de proxy"
+step "Etapa 3/8 — Apache: módulos de proxy + PHP-FPM"
 
-a2enmod proxy proxy_http proxy_wstunnel headers rewrite >/dev/null 2>&1 || warn "a2enmod retornou erro"
-log "Módulos: proxy, proxy_http, proxy_wstunnel, headers, rewrite"
+# Módulos: proxy_http pro api_service (FastAPI), proxy_fcgi pro PHP-FPM,
+# setenvif requerido pelo conf do php-fpm.
+a2enmod proxy proxy_http proxy_wstunnel proxy_fcgi setenvif headers rewrite >/dev/null 2>&1 \
+    || warn "a2enmod retornou erro"
+log "Módulos: proxy, proxy_http, proxy_wstunnel, proxy_fcgi, setenvif, headers, rewrite"
+
+# Desabilita mod_php legado se houver (instalações <=2.2.9). Idempotente.
+LEGACY_MOD_PHP=$(a2query -m 2>/dev/null | awk '{print $1}' | grep -E '^php[0-9.]+$' || true)
+if [ -n "$LEGACY_MOD_PHP" ]; then
+    for m in $LEGACY_MOD_PHP; do
+        a2dismod "$m" >/dev/null 2>&1 || true
+        info "mod_php legado '$m' desabilitado (substituído por PHP-FPM)"
+    done
+fi
+
+# Habilita o conf do php-fpm (drop-in que registra SetHandler proxy:unix:...)
+if a2enconf "$PHP_FPM_CONF" >/dev/null 2>&1; then
+    log "Apache conf habilitado: $PHP_FPM_CONF (handler .php → PHP-FPM via fcgi)"
+else
+    warn "a2enconf $PHP_FPM_CONF falhou — verifique /etc/apache2/conf-available/"
+fi
+
+# Garante php-fpm ativo + boot
+systemctl enable --now "$PHP_FPM_SVC" >/dev/null 2>&1 || warn "Não foi possível habilitar $PHP_FPM_SVC"
+systemctl is-active --quiet "$PHP_FPM_SVC" && log "$PHP_FPM_SVC ativo" || warn "$PHP_FPM_SVC não está ativo"
 
 # ============================================================
 # 4. uv (gerenciador Python) + venv do api_service

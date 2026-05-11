@@ -1,5 +1,50 @@
 # Changelog
 
+## v2.2.10 — 2026-05-11
+
+### install.sh — migração de mod_php → PHP-FPM + pacotes críticos com fail-fast
+
+Validado em VM limpa via `install-from-git.sh`: o pacote
+`libapache2-mod-php` falhava silenciosamente em alguns ambientes (o loop
+de instalação apenas logava `[!] Falha em libapache2-mod-php, continuando`
+por causa do `|| warn`), deixando o Apache sem handler pra `.php` —
+páginas apareciam como download/texto puro.
+
+**Fix:**
+
+1. **Substituído `libapache2-mod-php` por `php-fpm`** na lista de pacotes.
+   PHP-FPM é o padrão moderno em Debian/Ubuntu, isolado do Apache, e
+   instala de forma confiável.
+
+2. **Detecção dinâmica da versão do PHP-FPM:** após o `apt install`, o
+   script lê `systemctl list-unit-files` pra encontrar `phpX.Y-fpm.service`
+   (8.2 em Debian 12, 8.3 em Debian 13, etc.) e usa essa versão pra
+   `a2enconf phpX.Y-fpm` + `systemctl enable --now`.
+
+3. **Apache modules ampliados:** Etapa 3 agora habilita também
+   `proxy_fcgi` e `setenvif` (exigidos pelo drop-in do PHP-FPM) além do
+   conjunto antigo de proxy do api_service. Idempotente.
+
+4. **`a2dismod phpX.Y` legado:** se houver instalação `<=2.2.9` com
+   `mod_php` ainda habilitado, o install desabilita silenciosamente antes
+   de ativar o FPM — evita conflito de handler.
+
+5. **Pacotes críticos com `|| err`:** lista de pacotes dividida em
+   `CORE_PACKAGES` (apache2, php-fpm, php-*, python3*, redis-server,
+   unbound) e `EXTRA_PACKAGES` (sudo, curl, wget, etc.). Falha em
+   crítico aborta a instalação com mensagem clara; auxiliares mantêm o
+   comportamento antigo de `|| warn`.
+
+**Compatibilidade:** instalações existentes em produção continuam
+funcionando — quando o `install.sh` rodar de novo numa máquina que já
+tem `libapache2-mod-php`, o `a2dismod` legado vai retirar mod_php e o
+FPM assume. Sem necessidade de remover o pacote manualmente.
+
+**Docs atualizadas:** `README.md` (Arquitetura, Requisitos, lista de
+módulos Apache) e `build-package.sh` (LEIAME.txt do pacote).
+
+---
+
 ## v2.2.9 — 2026-05-11
 
 ### Bugfix do build-package.sh — DASHBOARD_DIR hardcoded

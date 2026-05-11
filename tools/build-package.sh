@@ -207,7 +207,7 @@ cat > "$STAGING/LEIAME.txt" << EOF
 ============================================================
 
 Stack:
-  - Frontend  : PHP 8.x  (Apache + mod_php / php-fpm)
+  - Frontend  : PHP 8.x  (Apache + PHP-FPM via mod_proxy_fcgi)
   - API       : FastAPI 0.110+ via uvicorn  (Python 3.11+)
   - Banco     : DuckDB 1.x (arquivo único, sem servidor)
   - Cache/Q   : Redis 7+
