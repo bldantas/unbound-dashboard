@@ -1,5 +1,72 @@
 # Changelog
 
+## v2.2.12 — 2026-05-11
+
+### NetworkManager — DNS via systemd-resolved, /etc/hosts no setHostname, NTP chrony/ntpd
+
+Fecha os 3 problemas restantes da auditoria da aba **Configurações de Rede**
+(os mesmos sintomas do netplan: falha silenciosa em sistemas modernos).
+
+**DNS — `detectDnsBackend()` + setSystemDNSResolved():**
+
+- Detecta `systemd-resolved` ativo + `/etc/systemd/resolved.conf` presente.
+- Em vez do `mv /tmp/resolv_conf_new /etc/resolv.conf` (que era revertido
+  pelo daemon em segundos quando o arquivo é symlink stub), edita a chave
+  `DNS=` no `[Resolve]` do `/etc/systemd/resolved.conf` e faz
+  `systemctl restart systemd-resolved`. Persistente, oficial.
+- `getSystemDNS()` lê da mesma fonte (não de `/etc/resolv.conf` que pode
+  mostrar só `127.0.0.53` em sistemas com resolved).
+- Backend `file` (caminho legacy) preservado pra sistemas sem resolved.
+
+**Hostname — agora atualiza `/etc/hosts`:**
+
+- `setHostname()` continua chamando `hostnamectl set-hostname`, mas
+  depois disso reescreve a linha `127.0.1.1` (convenção Debian/Ubuntu)
+  pra apontar pro novo nome. Se a linha não existir, adiciona.
+- Sem isso, apps legados que resolvem o hostname local pelo `/etc/hosts`
+  (Apache `ServerName`, scripts cron, MTA local) viam o nome antigo até
+  rebooting.
+
+**NTP — `detectNtpBackend()` + despacho chrony/ntpd/timesyncd:**
+
+- Detecta o daemon ativo (ordem de preferência: chrony → ntpd/ntpsec →
+  systemd-timesyncd → none).
+- `getNtpServers()` e `setNtpServers()` agora despacham:
+  - **chrony**: edita `/etc/chrony/chrony.conf` ou `/etc/chrony.conf`,
+    substitui linhas `server`/`pool`, restart de `chrony`/`chronyd`.
+  - **ntpd/ntpsec**: edita `/etc/ntp.conf`, restart de `ntp`/`ntpd`/`ntpsec`.
+  - **timesyncd**: caminho original (edita `/etc/systemd/timesyncd.conf`).
+  - **none**: retorna erro pedindo pra instalar/habilitar um daemon.
+
+**Sudoers (`system/sudoers/unbound-dashboard`) — entradas novas:**
+
+```
+/usr/bin/mv /var/.../tmp/resolved.conf.new /etc/systemd/resolved.conf
+/usr/bin/systemctl restart systemd-resolved
+/usr/bin/mv /var/.../tmp/hosts.new /etc/hosts
+/usr/bin/mv /var/.../tmp/chrony.conf.new /etc/chrony/chrony.conf
+/usr/bin/mv /var/.../tmp/chrony.conf.new /etc/chrony.conf
+/usr/bin/mv /var/.../tmp/ntp.conf.new /etc/ntp.conf
+/usr/bin/systemctl restart chrony | chronyd | ntp | ntpd | ntpsec
+```
+
+Cada entrada tem path fixo no destino e wildcard só onde necessário —
+mantém a postura granular do sudoers.
+
+**Sintomas que isto corrige:**
+
+- "Mudei DNS na UI mas resolvconf voltou pros stubs em 5 segundos" —
+  agora persiste via `[Resolve]` do resolved.
+- "Mudei hostname mas Apache ainda loga o antigo no `ServerName`" —
+  `/etc/hosts` sincronizado.
+- "Configurei NTP mas o time drift continua" — chrony agora é editado se
+  for o daemon ativo (era padrão silencioso pra timesyncd inexistente).
+
+Sem regressão pra sistemas legacy — todos os caminhos antigos (file
+DNS, hostnamectl-only, timesyncd) ainda funcionam quando detectados.
+
+---
+
 ## v2.2.11 — 2026-05-11
 
 ### NetworkManager — suporte a netplan (Debian/Ubuntu modernos)

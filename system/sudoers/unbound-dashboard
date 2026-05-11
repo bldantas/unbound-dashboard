@@ -35,4 +35,15 @@ www-data ALL=(ALL) NOPASSWD: \
     /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/unbound-dashboard-netplan.yaml /etc/netplan/99-unbound-dashboard.yaml, \
     /usr/bin/cp /etc/netplan/99-unbound-dashboard.yaml /var/backups/unbound-dashboard/netplan-99-*.yaml, \
     /usr/bin/cp /var/backups/unbound-dashboard/netplan-99-*.yaml /etc/netplan/99-unbound-dashboard.yaml, \
-    /usr/bin/rm /etc/netplan/99-unbound-dashboard.yaml
+    /usr/bin/rm /etc/netplan/99-unbound-dashboard.yaml, \
+    /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/resolved.conf.new /etc/systemd/resolved.conf, \
+    /usr/bin/systemctl restart systemd-resolved, \
+    /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/hosts.new /etc/hosts, \
+    /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/chrony.conf.new /etc/chrony/chrony.conf, \
+    /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/chrony.conf.new /etc/chrony.conf, \
+    /usr/bin/mv /var/www/html/unbound-dashboard/src/data/tmp/ntp.conf.new /etc/ntp.conf, \
+    /usr/bin/systemctl restart chrony, \
+    /usr/bin/systemctl restart chronyd, \
+    /usr/bin/systemctl restart ntp, \
+    /usr/bin/systemctl restart ntpd, \
+    /usr/bin/systemctl restart ntpsec

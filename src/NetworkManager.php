@@ -102,8 +102,8 @@ class NetworkManager {
     }
 
     /**
-     * Altera o hostname do sistema.
-     * Requer permissão sudo para 'hostnamectl'.
+     * Altera o hostname do sistema e atualiza /etc/hosts.
+     * Requer permissão sudo para 'hostnamectl' e 'mv ... /etc/hosts'.
      */
     public function setHostname(string $newHostname): array {
         $newHostname = preg_replace('/[^a-zA-Z0-9.-]/', '', $newHostname);
@@ -111,21 +111,116 @@ class NetworkManager {
             return ['success' => false, 'message' => 'Hostname inválido.'];
         }
 
+        $oldHostname = gethostname() ?: '';
+
         $output = [];
         $returnVar = 0;
         \App\ShellHelper::exec('/usr/bin/hostnamectl', ['set-hostname', $newHostname], $output, $returnVar, true);
-
-        if ($returnVar === 0) {
-            return ['success' => true, 'message' => 'Hostname alterado com sucesso para ' . $newHostname];
-        } else {
+        if ($returnVar !== 0) {
             return ['success' => false, 'message' => 'Erro ao alterar hostname: ' . implode(" ", $output)];
         }
+
+        // Atualiza /etc/hosts: substitui entradas 127.0.1.1 (Debian/Ubuntu)
+        // que apontam pro hostname antigo. Se não houver, adiciona.
+        $hostsRes = $this->updateEtcHosts($oldHostname, $newHostname);
+        if (!$hostsRes['success']) {
+            // Não trata como falha fatal — hostname já mudou.
+            return ['success' => true, 'message' => 'Hostname alterado para ' . $newHostname . ' (mas /etc/hosts não pôde ser atualizado: ' . $hostsRes['message'] . ')'];
+        }
+        return ['success' => true, 'message' => 'Hostname alterado para ' . $newHostname . ' e /etc/hosts sincronizado.'];
     }
 
     /**
-     * Obtém os servidores DNS configurados no sistema (/etc/resolv.conf).
+     * Substitui o hostname antigo pelo novo em /etc/hosts na linha 127.0.1.1.
+     * Se a linha não existir, adiciona. Operação tolerante a falhas.
+     */
+    private function updateEtcHosts(string $oldHostname, string $newHostname): array {
+        if (!file_exists('/etc/hosts')) {
+            return ['success' => false, 'message' => '/etc/hosts ausente'];
+        }
+        if (!preg_match('/^[a-zA-Z0-9.-]+$/', $newHostname)) {
+            return ['success' => false, 'message' => 'Nome inválido'];
+        }
+        $lines = file('/etc/hosts');
+        $newLines = [];
+        $replaced = false;
+        foreach ($lines as $line) {
+            // Linha 127.0.1.1 (convenção Debian/Ubuntu pra hostname local)
+            if (preg_match('/^\s*127\.0\.1\.1\s+/', $line)) {
+                $newLines[] = "127.0.1.1\t$newHostname\n";
+                $replaced = true;
+                continue;
+            }
+            $newLines[] = $line;
+        }
+        if (!$replaced) {
+            $newLines[] = "127.0.1.1\t$newHostname\n";
+        }
+
+        $tmpFile = dirname(__FILE__) . '/data/tmp/hosts.new';
+        @mkdir(dirname($tmpFile), 0775, true);
+        if (@file_put_contents($tmpFile, implode('', $newLines)) === false) {
+            return ['success' => false, 'message' => "Erro ao escrever $tmpFile"];
+        }
+
+        $out = []; $ret = 0;
+        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, '/etc/hosts'], $out, $ret, true);
+        if ($ret !== 0) {
+            return ['success' => false, 'message' => 'mv falhou: ' . implode(' ', $out)];
+        }
+        return ['success' => true, 'message' => 'OK'];
+    }
+
+    /**
+     * Detecta o backend de DNS em uso.
+     *
+     * @return string 'systemd-resolved' | 'file'
+     */
+    public function detectDnsBackend(): string {
+        static $cached = null;
+        if ($cached !== null) return $cached;
+
+        $out = []; $ret = 0;
+        \App\ShellHelper::exec('/usr/bin/systemctl', ['is-active', '--quiet', 'systemd-resolved'], $out, $ret, false);
+        if ($ret === 0 && file_exists('/etc/systemd/resolved.conf')) {
+            $cached = 'systemd-resolved';
+        } else {
+            $cached = 'file';
+        }
+        return $cached;
+    }
+
+    /**
+     * Obtém os servidores DNS configurados no sistema. Em systemd-resolved,
+     * lê de /etc/systemd/resolved.conf (chave DNS=); em backend 'file',
+     * lê de /etc/resolv.conf.
      */
     public function getSystemDNS(): array {
+        if ($this->detectDnsBackend() === 'systemd-resolved') {
+            return $this->getSystemDNSResolved();
+        }
+        return $this->getSystemDNSFile();
+    }
+
+    private function getSystemDNSResolved(): array {
+        $dns = [];
+        if (!file_exists('/etc/systemd/resolved.conf')) return $dns;
+        $lines = file('/etc/systemd/resolved.conf');
+        foreach ($lines as $line) {
+            // Ignora comentadas. Match: DNS=1.1.1.1 8.8.8.8 (espaço-separado)
+            if (preg_match('/^DNS=\s*(.+)$/', trim($line), $m)) {
+                foreach (preg_split('/\s+/', trim($m[1])) as $ip) {
+                    if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP)) {
+                        $dns[] = $ip;
+                    }
+                }
+                break;
+            }
+        }
+        return $dns;
+    }
+
+    private function getSystemDNSFile(): array {
         $dns = [];
         if (file_exists('/etc/resolv.conf')) {
             $lines = file('/etc/resolv.conf');
@@ -139,29 +234,118 @@ class NetworkManager {
     }
 
     /**
-     * Atualiza os servidores DNS do sistema.
-     * Requer permissão sudo para gravar no /etc/resolv.conf.
+     * Atualiza os servidores DNS do sistema. Despacha entre
+     * systemd-resolved (edita /etc/systemd/resolved.conf + restart) e
+     * file (mv pra /etc/resolv.conf — legacy).
      */
     public function setSystemDNS(array $dnsArray): array {
-        $content = "# Gerado pelo Unbound Dashboard\n";
+        $validIps = [];
         foreach ($dnsArray as $ip) {
             $ip = trim($ip);
-            if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                $content .= "nameserver $ip\n";
+            if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP)) {
+                $validIps[] = $ip;
             }
         }
 
+        if ($this->detectDnsBackend() === 'systemd-resolved') {
+            return $this->setSystemDNSResolved($validIps);
+        }
+        return $this->setSystemDNSFile($validIps);
+    }
+
+    /**
+     * Reescreve /etc/systemd/resolved.conf preservando outras chaves,
+     * substituindo (ou inserindo) DNS= e fazendo restart do daemon.
+     */
+    private function setSystemDNSResolved(array $ips): array {
+        $path = '/etc/systemd/resolved.conf';
+        if (!file_exists($path)) {
+            return ['success' => false, 'message' => "$path não encontrado — systemd-resolved instalado?"];
+        }
+        $lines = file($path);
+        $newLines = [];
+        $inResolve = false;
+        $injected = false;
+        $dnsLine = empty($ips) ? "#DNS=\n" : 'DNS=' . implode(' ', $ips) . "\n";
+
+        foreach ($lines as $line) {
+            $trim = rtrim($line);
+            if (preg_match('/^\[Resolve\]\s*$/i', trim($trim))) {
+                $inResolve = true;
+                $newLines[] = $line;
+                continue;
+            }
+            // Nova seção: se ainda não injetou, injeta antes de mudar de seção.
+            if ($inResolve && preg_match('/^\[.+\]\s*$/', trim($trim))) {
+                if (!$injected) {
+                    $newLines[] = $dnsLine;
+                    $injected = true;
+                }
+                $inResolve = false;
+                $newLines[] = $line;
+                continue;
+            }
+            // Linha DNS=... (ou #DNS=...) dentro de [Resolve] — substitui
+            if ($inResolve && preg_match('/^#?DNS=/i', trim($trim))) {
+                if (!$injected) {
+                    $newLines[] = $dnsLine;
+                    $injected = true;
+                }
+                // Não escreve a linha original (substituída)
+                continue;
+            }
+            $newLines[] = $line;
+        }
+        // Se [Resolve] não existe no arquivo, adiciona
+        if (!$injected) {
+            $newLines[] = "\n[Resolve]\n";
+            $newLines[] = $dnsLine;
+        }
+
+        $tmpFile = dirname(__FILE__) . '/data/tmp/resolved.conf.new';
+        @mkdir(dirname($tmpFile), 0775, true);
+        if (@file_put_contents($tmpFile, implode('', $newLines)) === false) {
+            return ['success' => false, 'message' => "Erro ao escrever em $tmpFile"];
+        }
+
+        $out = []; $ret = 0;
+        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, $path], $out, $ret, true);
+        if ($ret !== 0) {
+            return ['success' => false, 'message' => 'mv falhou: ' . implode(' ', $out)];
+        }
+
+        $out2 = []; $ret2 = 0;
+        \App\ShellHelper::exec('/usr/bin/systemctl', ['restart', 'systemd-resolved'], $out2, $ret2, true);
+        if ($ret2 !== 0) {
+            return ['success' => false, 'message' => 'restart systemd-resolved falhou: ' . implode(' ', $out2)];
+        }
+
+        $msg = empty($ips)
+            ? 'DNS limpo do resolved.conf — usando defaults do sistema.'
+            : 'DNS do sistema atualizado via systemd-resolved: ' . implode(', ', $ips);
+        return ['success' => true, 'message' => $msg];
+    }
+
+    /**
+     * Caminho legacy: reescreve /etc/resolv.conf diretamente.
+     */
+    private function setSystemDNSFile(array $ips): array {
+        $content = "# Gerado pelo Unbound Dashboard\n";
+        foreach ($ips as $ip) {
+            $content .= "nameserver $ip\n";
+        }
+
         $tmpFile = dirname(__FILE__) . '/data/tmp/resolv_conf_new';
+        @mkdir(dirname($tmpFile), 0775, true);
         file_put_contents($tmpFile, $content);
         $output = [];
         $returnVar = 0;
         \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, '/etc/resolv.conf'], $output, $returnVar, true);
-        
+
         if ($returnVar === 0) {
             return ['success' => true, 'message' => 'DNS do sistema atualizado com sucesso.'];
-        } else {
-            return ['success' => false, 'message' => 'Erro ao aplicar DNS: ' . implode(" ", $output)];
         }
+        return ['success' => false, 'message' => 'Erro ao aplicar DNS: ' . implode(" ", $output)];
     }
 
     /**
@@ -859,27 +1043,102 @@ class NetworkManager {
         return is_array($data) ? $data : [];
     }
 
+    /**
+     * Detecta o daemon NTP em uso, na ordem de preferência:
+     * chrony (mais preciso) → ntpd (clássico) → systemd-timesyncd (default
+     * em systemd modernos). Retorna 'chrony' | 'ntpd' | 'timesyncd' | 'none'.
+     */
+    public function detectNtpBackend(): string {
+        static $cached = null;
+        if ($cached !== null) return $cached;
+
+        foreach (['chrony', 'chronyd'] as $svc) {
+            $out = []; $ret = 0;
+            \App\ShellHelper::exec('/usr/bin/systemctl', ['is-active', '--quiet', $svc], $out, $ret, false);
+            if ($ret === 0) { $cached = 'chrony'; return $cached; }
+        }
+        foreach (['ntp', 'ntpd', 'ntpsec'] as $svc) {
+            $out = []; $ret = 0;
+            \App\ShellHelper::exec('/usr/bin/systemctl', ['is-active', '--quiet', $svc], $out, $ret, false);
+            if ($ret === 0) { $cached = 'ntpd'; return $cached; }
+        }
+        $out = []; $ret = 0;
+        \App\ShellHelper::exec('/usr/bin/systemctl', ['is-active', '--quiet', 'systemd-timesyncd'], $out, $ret, false);
+        if ($ret === 0) { $cached = 'timesyncd'; return $cached; }
+
+        $cached = 'none';
+        return $cached;
+    }
+
     public function getNtpServers(): string {
+        switch ($this->detectNtpBackend()) {
+            case 'chrony':    return $this->getNtpServersChrony();
+            case 'ntpd':      return $this->getNtpServersNtpd();
+            case 'timesyncd':
+            default:          return $this->getNtpServersTimesyncd();
+        }
+    }
+
+    private function getNtpServersTimesyncd(): string {
         if (file_exists('/etc/systemd/timesyncd.conf')) {
-            $lines = file('/etc/systemd/timesyncd.conf');
-            foreach ($lines as $line) {
-                if (preg_match('/^NTP=(.+)/', trim($line), $m)) {
-                    return trim($m[1]);
-                }
+            foreach (file('/etc/systemd/timesyncd.conf') as $line) {
+                if (preg_match('/^NTP=(.+)/', trim($line), $m)) return trim($m[1]);
             }
         }
         return '';
     }
 
+    private function getNtpServersChrony(): string {
+        // chrony pode ler de /etc/chrony/chrony.conf ou /etc/chrony.conf
+        $paths = ['/etc/chrony/chrony.conf', '/etc/chrony.conf'];
+        $servers = [];
+        foreach ($paths as $p) {
+            if (file_exists($p)) {
+                foreach (file($p) as $line) {
+                    $line = trim($line);
+                    // server <hostname/ip> [iburst] [...]  ou  pool <...>
+                    if (preg_match('/^(?:server|pool)\s+(\S+)/', $line, $m)) {
+                        $servers[] = $m[1];
+                    }
+                }
+                break;
+            }
+        }
+        return implode(' ', $servers);
+    }
+
+    private function getNtpServersNtpd(): string {
+        $servers = [];
+        if (file_exists('/etc/ntp.conf')) {
+            foreach (file('/etc/ntp.conf') as $line) {
+                $line = trim($line);
+                if (preg_match('/^(?:server|pool)\s+(\S+)/', $line, $m)) {
+                    $servers[] = $m[1];
+                }
+            }
+        }
+        return implode(' ', $servers);
+    }
+
     public function setNtpServers($servers): array {
         $servers = $this->normalizeNtpServers($servers);
+        switch ($this->detectNtpBackend()) {
+            case 'chrony':    return $this->setNtpServersChrony($servers);
+            case 'ntpd':      return $this->setNtpServersNtpd($servers);
+            case 'timesyncd': return $this->setNtpServersTimesyncd($servers);
+            case 'none':
+            default:
+                return ['success' => false, 'message' => 'Nenhum daemon NTP ativo (chrony / ntpd / systemd-timesyncd). Instale e habilite um deles antes.'];
+        }
+    }
+
+    private function setNtpServersTimesyncd(string $servers): array {
         $file = '/etc/systemd/timesyncd.conf';
         if (!file_exists($file)) return ['success' => false, 'message' => 'timesyncd.conf não encontrado.'];
 
         $lines = file($file);
         $newLines = [];
         $found = false;
-
         foreach ($lines as $line) {
             if (preg_match('/^#?NTP=/', trim($line))) {
                 if (!empty($servers)) $newLines[] = "NTP=$servers\n";
@@ -893,15 +1152,120 @@ class NetworkManager {
             $newLines[] = "NTP=$servers\n";
         }
 
-        $newContent = implode("", $newLines);
         $tmpFile = dirname(__FILE__) . '/data/tmp/timesyncd.conf.new';
-        file_put_contents($tmpFile, $newContent);
+        @mkdir(dirname($tmpFile), 0775, true);
+        file_put_contents($tmpFile, implode('', $newLines));
         $safeTmp = escapeshellarg($tmpFile);
         $safeFile = escapeshellarg($file);
         \App\ShellHelper::shell("sudo /usr/bin/mv $safeTmp $safeFile && sudo /usr/bin/systemctl restart systemd-timesyncd", $out, $ret);
 
-        if ($ret === 0) return ['success' => true, 'message' => 'Servidores NTP salvos e serviço reiniciados com sucesso.'];
-        return ['success' => false, 'message' => 'Erro ao salvar configuração NTP: ' . implode(" ", $out)];
+        if ($ret === 0) return ['success' => true, 'message' => 'Servidores NTP (timesyncd) salvos e serviço reiniciado.'];
+        return ['success' => false, 'message' => 'Erro ao salvar NTP timesyncd: ' . implode(' ', $out)];
+    }
+
+    /**
+     * Edita /etc/chrony/chrony.conf (ou /etc/chrony.conf) substituindo todas
+     * as linhas `server`/`pool` por entradas pros novos servidores. Mantém o
+     * resto da conf intacta. Restart do daemon.
+     */
+    private function setNtpServersChrony(string $servers): array {
+        $paths = ['/etc/chrony/chrony.conf', '/etc/chrony.conf'];
+        $file = null;
+        foreach ($paths as $p) { if (file_exists($p)) { $file = $p; break; } }
+        if ($file === null) return ['success' => false, 'message' => 'chrony.conf não encontrado.'];
+
+        $lines = file($file);
+        $newLines = [];
+        $foundServerBlock = false;
+        foreach ($lines as $line) {
+            $trim = trim($line);
+            if (preg_match('/^(?:server|pool)\s+/', $trim)) {
+                if (!$foundServerBlock) {
+                    foreach (preg_split('/\s+/', trim($servers)) as $s) {
+                        if ($s !== '') $newLines[] = "server $s iburst\n";
+                    }
+                    $foundServerBlock = true;
+                }
+                continue;
+            }
+            $newLines[] = $line;
+        }
+        if (!$foundServerBlock) {
+            $newLines[] = "\n# Adicionado pelo Unbound Dashboard\n";
+            foreach (preg_split('/\s+/', trim($servers)) as $s) {
+                if ($s !== '') $newLines[] = "server $s iburst\n";
+            }
+        }
+
+        $tmpFile = dirname(__FILE__) . '/data/tmp/chrony.conf.new';
+        @mkdir(dirname($tmpFile), 0775, true);
+        file_put_contents($tmpFile, implode('', $newLines));
+
+        $out = []; $ret = 0;
+        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, $file], $out, $ret, true);
+        if ($ret !== 0) return ['success' => false, 'message' => 'mv falhou: ' . implode(' ', $out)];
+
+        // Detecta nome do serviço chrony (chrony em Debian, chronyd em Ubuntu/RHEL)
+        $svc = 'chrony';
+        $outA = []; $retA = 0;
+        \App\ShellHelper::exec('/usr/bin/systemctl', ['is-active', '--quiet', 'chronyd'], $outA, $retA, false);
+        if ($retA === 0) $svc = 'chronyd';
+
+        $out2 = []; $ret2 = 0;
+        \App\ShellHelper::exec('/usr/bin/systemctl', ['restart', $svc], $out2, $ret2, true);
+        if ($ret2 !== 0) return ['success' => false, 'message' => "restart $svc falhou: " . implode(' ', $out2)];
+
+        return ['success' => true, 'message' => 'Servidores NTP (chrony) salvos e serviço reiniciado.'];
+    }
+
+    private function setNtpServersNtpd(string $servers): array {
+        $file = '/etc/ntp.conf';
+        if (!file_exists($file)) return ['success' => false, 'message' => 'ntp.conf não encontrado.'];
+
+        $lines = file($file);
+        $newLines = [];
+        $foundBlock = false;
+        foreach ($lines as $line) {
+            $trim = trim($line);
+            if (preg_match('/^(?:server|pool)\s+/', $trim)) {
+                if (!$foundBlock) {
+                    foreach (preg_split('/\s+/', trim($servers)) as $s) {
+                        if ($s !== '') $newLines[] = "server $s iburst\n";
+                    }
+                    $foundBlock = true;
+                }
+                continue;
+            }
+            $newLines[] = $line;
+        }
+        if (!$foundBlock) {
+            $newLines[] = "\n# Adicionado pelo Unbound Dashboard\n";
+            foreach (preg_split('/\s+/', trim($servers)) as $s) {
+                if ($s !== '') $newLines[] = "server $s iburst\n";
+            }
+        }
+
+        $tmpFile = dirname(__FILE__) . '/data/tmp/ntp.conf.new';
+        @mkdir(dirname($tmpFile), 0775, true);
+        file_put_contents($tmpFile, implode('', $newLines));
+
+        $out = []; $ret = 0;
+        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, $file], $out, $ret, true);
+        if ($ret !== 0) return ['success' => false, 'message' => 'mv falhou: ' . implode(' ', $out)];
+
+        // Detecta nome do serviço (ntp em Debian, ntpd em RHEL, ntpsec em Debian moderno)
+        $svc = 'ntp';
+        foreach (['ntpsec', 'ntpd', 'ntp'] as $cand) {
+            $oA = []; $rA = 0;
+            \App\ShellHelper::exec('/usr/bin/systemctl', ['is-active', '--quiet', $cand], $oA, $rA, false);
+            if ($rA === 0) { $svc = $cand; break; }
+        }
+
+        $out2 = []; $ret2 = 0;
+        \App\ShellHelper::exec('/usr/bin/systemctl', ['restart', $svc], $out2, $ret2, true);
+        if ($ret2 !== 0) return ['success' => false, 'message' => "restart $svc falhou: " . implode(' ', $out2)];
+
+        return ['success' => true, 'message' => "Servidores NTP ($svc) salvos e serviço reiniciado."];
     }
 
     public function getSystemTimezone(): string {
