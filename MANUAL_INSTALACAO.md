@@ -59,6 +59,44 @@ Variáveis aceitas:
 
 Para instalações de **produção versionada** (release imutável + auditoria), continue usando o fluxo do pacote `.tar.gz` abaixo.
 
+### Atualizar com o mesmo one-liner
+
+O `install-from-git.sh` é idempotente: rodando numa máquina que já tem o
+dashboard instalado, ele faz uma **atualização in-place**. O `install.sh`
+detecta `data/.installed` e:
+
+- Faz **backup** automático do dir atual em
+  `/var/www/html/unbound-dashboard.backup.<timestamp>/` (rsync source pra
+  rollback rápido).
+- **Preserva** `/etc/unbound-dashboard/api-v1.env` (com `JWT_SECRET`).
+- **Preserva** o DuckDB em `/var/lib/unbound-dashboard/`.
+- **Pula** a criação de admin (não precisa passar `ADMIN_*` vars).
+- Re-roda `uv sync` se `pyproject.toml` mudou.
+- Reaplica systemd unit + Apache conf e reinicia o `unbound-dashboard-api`
+  (migrations DuckDB rodam no startup).
+
+```bash
+# Atualizar pra última versão do main:
+curl -fsSL https://raw.githubusercontent.com/bldantas/unbound-dashboard/main/tools/install-from-git.sh \
+  | sudo bash
+
+# Atualizar pra um branch específico (ex: testar feature antes do merge):
+curl -fsSL https://raw.githubusercontent.com/bldantas/unbound-dashboard/main/tools/install-from-git.sh \
+  | sudo REPO_BRANCH=feature/x bash
+```
+
+Rollback rápido se algo quebrar:
+```bash
+LAST_BACKUP=$(ls -1d /var/www/html/unbound-dashboard.backup.* | tail -1)
+sudo systemctl stop unbound-dashboard-api
+sudo rsync -a --delete "$LAST_BACKUP/" /var/www/html/unbound-dashboard/
+sudo systemctl start unbound-dashboard-api
+```
+
+Para releases versionadas em produção (release imutável + auditoria),
+prefira o fluxo do `tools/build-update.sh` + `update.sh` documentado no
+[README](README.md#atualização).
+
 ---
 
 ## 🏗 Passo 1: Gerar o Pacote (Servidor de Origem)

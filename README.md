@@ -86,6 +86,38 @@ O instalador:
 
 ## Atualização
 
+### Direto do GitHub (recomendado pra teste/dev)
+
+Re-executa o mesmo one-liner da instalação inicial. É idempotente: detecta
+`data/.installed`, pula a criação de admin, preserva `api-v1.env` (com o
+`JWT_SECRET`) e o DuckDB, faz **backup** do dir atual em
+`/var/www/html/unbound-dashboard.backup.<timestamp>/` antes de sobrescrever.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bldantas/unbound-dashboard/main/tools/install-from-git.sh \
+  | sudo bash
+```
+
+Para testar um branch específico:
+```bash
+curl -fsSL https://raw.githubusercontent.com/bldantas/unbound-dashboard/main/tools/install-from-git.sh \
+  | sudo REPO_BRANCH=feature/x bash
+```
+
+O `install.sh` recopia todos os arquivos, re-roda `uv sync` (instala novas
+deps Python se `pyproject.toml` mudou), re-aplica systemd unit + Apache conf
+e reinicia o `unbound-dashboard-api` — as migrations DuckDB rodam no startup.
+
+**Rollback** (se necessário):
+```bash
+LAST_BACKUP=$(ls -1d /var/www/html/unbound-dashboard.backup.* | tail -1)
+sudo systemctl stop unbound-dashboard-api
+sudo rsync -a --delete "$LAST_BACKUP/" /var/www/html/unbound-dashboard/
+sudo systemctl start unbound-dashboard-api
+```
+
+### Via pacote de update `.tar.gz` (recomendado pra prod versionada)
+
 ```bash
 # Em uma máquina build:
 sudo bash tools/build-update.sh
@@ -96,7 +128,10 @@ sudo DRY_RUN=true bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/paco
 sudo bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/pacote.tar.gz                # aplicar
 ```
 
-Cada update faz **3 backups automáticos** em `/var/backups/unbound-dashboard/`: tarball do código, snapshot do `.duckdb` e cópia do `api-v1.env` (preservando `JWT_SECRET`).
+Mais cirúrgico que o one-liner: o `update.sh` só toca o que mudou entre
+versões. Cada update faz **3 backups automáticos** em
+`/var/backups/unbound-dashboard/`: tarball do código, snapshot do `.duckdb`
+e cópia do `api-v1.env`.
 
 ## Estrutura do Projeto
 
