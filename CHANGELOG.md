@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.2.8 — 2026-05-04
+
+### Feature: `install-from-git.sh` (one-liner do GitHub)
+
+Novo `tools/install-from-git.sh`: clona o repo, builda o pacote local e
+executa `install.sh` em um único comando. Pra rodar do servidor de destino
+sem precisar empacotar `.tar.gz` em outra máquina.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bldantas/unbound-dashboard/main/tools/install-from-git.sh \
+  | sudo ADMIN_USERNAME=admin ADMIN_EMAIL=a@b.c ADMIN_PASSWORD='senha' bash
+```
+
+Aceita `REPO_BRANCH=outra` para testar branches. Instala git/rsync/curl/tar
+se faltarem, faz idempotente (`git pull` se o repo já existe), e limpa o
+work dir ao final (a menos que `KEEP_WORK_DIR=true`).
+
+README e MANUAL_INSTALACAO atualizados com o atalho one-liner.
+
+---
+
 ## v2.2.7 — 2026-05-04
 
 ### install.sh — adiciona www-data ao grupo `adm`

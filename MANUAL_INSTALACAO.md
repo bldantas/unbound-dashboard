@@ -25,6 +25,42 @@ O `install.sh` cuida da instalação automática de:
 
 ---
 
+## ⚡ Atalho: Instalar direto do GitHub (one-liner)
+
+Para teste/dev rápido, sem ter que gerar pacote em outra máquina:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bldantas/unbound-dashboard/main/tools/install-from-git.sh \
+  | sudo ADMIN_USERNAME=admin \
+         ADMIN_EMAIL=admin@empresa.com \
+         ADMIN_PASSWORD='senhaSegura123' \
+    bash
+```
+
+O `install-from-git.sh` no servidor de destino:
+
+1. Instala `git`, `rsync`, `tar`, `curl` se faltarem
+2. Clona o repo (`main` por default — use `REPO_BRANCH=outra` pra mudar)
+3. Roda `tools/build-package.sh` localmente
+4. Extrai o pacote e executa `install.sh` end-to-end
+5. Limpa `/tmp/unbound-dashboard-install` (use `KEEP_WORK_DIR=true` pra preservar)
+
+Variáveis aceitas:
+
+| Variável | Default | Descrição |
+|---|---|---|
+| `ADMIN_USERNAME` | (prompt) | Username do admin (regex `^[a-zA-Z0-9._-]+$`) |
+| `ADMIN_EMAIL` | (prompt) | Email do admin (opcional) |
+| `ADMIN_PASSWORD` | (prompt) | Senha (mín. 6 chars) |
+| `REPO_URL` | `https://github.com/bldantas/unbound-dashboard.git` | Repo de origem |
+| `REPO_BRANCH` | `main` | Branch a clonar |
+| `WORK_DIR` | `/tmp/unbound-dashboard-install` | Diretório de trabalho |
+| `KEEP_WORK_DIR` | `false` | Preserva o WORK_DIR ao final |
+
+Para instalações de **produção versionada** (release imutável + auditoria), continue usando o fluxo do pacote `.tar.gz` abaixo.
+
+---
+
 ## 🏗 Passo 1: Gerar o Pacote (Servidor de Origem)
 
 Em uma máquina que já tem o repositório clonado:

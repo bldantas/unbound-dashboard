@@ -42,10 +42,21 @@ O Apache faz reverse proxy de `/api/v1/*` para o FastAPI; o restante das rotas (
 
 ## Instalação
 
-Consulte o [Manual de Instalação](MANUAL_INSTALACAO.md) para o procedimento completo.
+Consulte o [Manual de Instalação](MANUAL_INSTALACAO.md) para detalhes.
+
+### Direto do GitHub (recomendado pra teste/dev)
 
 ```bash
-# Em uma máquina build (que já tem o repositório):
+curl -fsSL https://raw.githubusercontent.com/bldantas/unbound-dashboard/main/tools/install-from-git.sh \
+  | sudo ADMIN_USERNAME=admin ADMIN_EMAIL=admin@empresa.com ADMIN_PASSWORD='senhaSegura123' bash
+```
+
+Faz tudo: instala `git`/`rsync` se faltar, clona o repo, builda o pacote local, e executa o `install.sh`. Aceita também `REPO_BRANCH=feature/x` pra testar branches.
+
+### Via pacote `.tar.gz` (recomendado pra prod versionada)
+
+```bash
+# Em uma máquina build:
 cd /var/www/html/unbound-dashboard
 sudo bash tools/build-package.sh
 # → gera tools/unbound-dashboard-v<X.Y.Z>.tar.gz
@@ -53,17 +64,13 @@ sudo bash tools/build-package.sh
 # No servidor de destino:
 tar xzf unbound-dashboard-v<X.Y.Z>.tar.gz
 cd unbound-dashboard-v<X.Y.Z>
+
+# Modo interativo (pede username/senha):
 sudo bash install.sh
-# (interativo: pede username, email e senha do admin inicial)
-```
 
-Modo não-interativo:
-
-```bash
-ADMIN_USERNAME=admin \
-ADMIN_EMAIL=admin@empresa.com \
-ADMIN_PASSWORD='senhaSegura123' \
-sudo -E bash install.sh
+# OU modo não-interativo:
+ADMIN_USERNAME=admin ADMIN_EMAIL=admin@empresa.com ADMIN_PASSWORD='senhaSegura123' \
+    sudo -E bash install.sh
 ```
 
 O instalador:
