@@ -134,6 +134,40 @@ $currentPage = 'history.php';
 
             </div>
 
+            <!-- Toolbar: busca + filtros -->
+            <div class="glass-panel mb-4 border-slate-200 dark:border-white/5">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="md:col-span-2">
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Buscar (domínio ou IP)</label>
+                        <input type="text" id="historySearch" oninput="filterHistoryQueries()" placeholder="ex: google, 192.168, .com" class="glass-input w-full font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Ação</label>
+                        <select id="historyAction" onchange="filterHistoryQueries()" class="glass-input w-full uppercase text-[10px] font-black">
+                            <option value="">TODAS</option>
+                            <option value="blocked">BLOCKED</option>
+                            <option value="resolved">RESOLVED</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tipo</label>
+                        <select id="historyType" onchange="filterHistoryQueries()" class="glass-input w-full uppercase text-[10px] font-black">
+                            <option value="">TODOS</option>
+                            <?php
+                            $types = array_values(array_unique(array_filter(array_map(fn($q) => $q['query_type'] ?? '', $recentQueries))));
+                            sort($types);
+                            foreach ($types as $t): ?>
+                                <option value="<?= htmlspecialchars($t) ?>"><?= htmlspecialchars($t) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <p class="text-[10px] text-slate-500 mt-3 flex items-center gap-2">
+                    Total: <span id="historyCountTotal"><?= count($recentQueries) ?></span> · Visíveis: <span id="historyCountVisible"><?= count($recentQueries) ?></span>
+                    <button type="button" id="historyClearFilters" class="hidden ml-2 glass-btn !py-0.5 !px-2 text-[9px] uppercase tracking-widest">Limpar filtros</button>
+                </p>
+            </div>
+
             <div class="glass-table-container mb-8 border-slate-200 dark:border-white/5">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
                     <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Logs de Consulta em Tempo Real</h3>
@@ -148,7 +182,7 @@ $currentPage = 'history.php';
                         </select>
                     </form>
                 </div>
-                    <table class="glass-table">
+                    <table class="glass-table" id="historyTable">
                         <thead>
                             <tr>
                                 <th class="w-32">Timestamp</th>
@@ -166,7 +200,12 @@ $currentPage = 'history.php';
                             <?php else: ?>
 
                                 <?php foreach ($recentQueries as $q): ?>
-                                <tr>
+                                <tr class="history-row"
+                                    data-domain="<?= htmlspecialchars(strtolower($q['domain'] ?? '')) ?>"
+                                    data-ip="<?= htmlspecialchars(strtolower($q['client_ip'] ?? '')) ?>"
+                                    data-type="<?= htmlspecialchars($q['query_type'] ?? 'A') ?>"
+                                    data-action="<?= htmlspecialchars(strtolower($q['action'] ?? '')) ?>"
+                                    data-category="<?= htmlspecialchars($q['category'] ?? '') ?>">
                                     <td>
                                         <div class="text-[10px] font-mono text-slate-500"><?= date('H:i:s', (int)($q['timestamp'] ?? 0)) ?></div>
                                     </td>
@@ -193,6 +232,7 @@ $currentPage = 'history.php';
                             <?php endif; ?>
                         </tbody>
                     </table>
+                    <p id="historyEmptyFiltered" class="hidden text-center text-slate-500 text-sm py-8 px-4">Nenhuma linha atende aos filtros selecionados.</p>
                 </div>
 
             <?php include 'includes/footer.php'; ?>
@@ -244,31 +284,84 @@ $currentPage = 'history.php';
             }
         });
 
-        new Chart(document.getElementById('topDomainsChart'), {
+        const topDomainsChartInstance = new Chart(document.getElementById('topDomainsChart'), {
             type: 'pie',
             data: {
                 labels: <?= $topLabels ?>,
-                datasets: [{ 
-                    data: <?= $topValues ?>, 
+                datasets: [{
+                    data: <?= $topValues ?>,
                     backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#6366f1', '#14b8a6', '#f97316'],
                     borderWidth: 0
                 }]
             },
-            options: { 
-                maintainAspectRatio: false, 
+            options: {
+                maintainAspectRatio: false,
                 layout: { padding: 30 },
-                plugins: { 
-                    legend: { 
-                        position: 'bottom', 
-                        labels: { 
-                            boxWidth: 8, 
-                            usePointStyle: true, 
-                            padding: 15, 
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            boxWidth: 8,
+                            usePointStyle: true,
+                            padding: 15,
                             font: { size: 9, weight: '600' },
                             color: getLabelColor()
-                        } 
-                    } 
-                } 
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            footer: () => '— clique para filtrar a tabela'
+                        }
+                    }
+                },
+                onClick: function (_evt, elements) {
+                    if (!elements || elements.length === 0) return;
+                    const idx = elements[0].index;
+                    const domain = this.data.labels[idx];
+                    const searchEl = document.getElementById('historySearch');
+                    if (searchEl && domain) {
+                        searchEl.value = domain;
+                        filterHistoryQueries();
+                        document.getElementById('historyTable').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                }
+            }
+        });
+
+        // -- Filtros client-side da tabela --
+        function filterHistoryQueries() {
+            const q = (document.getElementById('historySearch').value || '').trim().toLowerCase();
+            const act = document.getElementById('historyAction').value;
+            const typ = document.getElementById('historyType').value;
+            const rows = document.querySelectorAll('.history-row');
+            let visible = 0;
+            rows.forEach(function (row) {
+                const matchQ = !q || row.dataset.domain.includes(q) || row.dataset.ip.includes(q);
+                const matchAct = !act || row.dataset.action === act;
+                const matchTyp = !typ || row.dataset.type === typ;
+                const show = matchQ && matchAct && matchTyp;
+                row.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            const total = rows.length;
+            const totalEl = document.getElementById('historyCountTotal');
+            const visEl = document.getElementById('historyCountVisible');
+            if (totalEl) totalEl.textContent = String(total);
+            if (visEl) visEl.textContent = String(visible);
+            const empty = document.getElementById('historyEmptyFiltered');
+            if (empty) empty.classList.toggle('hidden', visible !== 0 || total === 0);
+            const clearBtn = document.getElementById('historyClearFilters');
+            if (clearBtn) clearBtn.classList.toggle('hidden', !(q || act || typ));
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+            const clearBtn = document.getElementById('historyClearFilters');
+            if (clearBtn) {
+                clearBtn.addEventListener('click', function () {
+                    document.getElementById('historySearch').value = '';
+                    document.getElementById('historyAction').value = '';
+                    document.getElementById('historyType').value = '';
+                    filterHistoryQueries();
+                });
             }
         });
 

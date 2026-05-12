@@ -1,5 +1,30 @@
 # Changelog
 
+## v2.3.4 — 2026-05-12
+
+### history.php — busca + filtros + pie chart clicável
+
+A tabela de logs de consulta tinha só seletor de limite — sem busca,
+sem filtros. O pie chart de Top Domains era decorativo.
+
+**Mudanças:**
+
+- **Toolbar nova** acima da tabela: busca por domínio/IP, filtro por
+  ação (blocked/resolved), filtro por tipo de query (A/AAAA/CNAME/…
+  dropdown populado dinamicamente dos dados atuais).
+- **Contagem total/visível** + botão "Limpar filtros".
+- **Pie chart de Top 10 Domínios virou clicável**: clique numa fatia
+  preenche a busca com o domínio e rola até a tabela. Tooltip mostra
+  "— clique para filtrar a tabela".
+- Linhas da tabela ganharam `data-domain`/`data-ip`/`data-type`/
+  `data-action`/`data-category` pra filtragem client-side.
+- Mensagem "Nenhuma linha atende aos filtros" separada do empty state.
+
+Backend e gráficos de cache/latência intocados (continuam usando o
+mesmo `/api/v1/history/summary` + dados simulados pra timeseries).
+
+---
+
 ## v2.3.3 — 2026-05-12
 
 ### threats.php — busca + filtros + top lists clicáveis
