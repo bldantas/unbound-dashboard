@@ -12,6 +12,14 @@ if (!\App\Auth::isAdmin()) {
 // ─── RESTORE (POST) ────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
+    // Validação CSRF — sem isto qualquer site malicioso autenticado pelo
+    // browser do admin podia disparar restore com configs adversárias.
+    $token = $_POST['csrf_token'] ?? '';
+    if ($token === '' || !hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
+        http_response_code(403);
+        echo json_encode(['status' => 'error', 'message' => 'CSRF token inválido. Recarregue a página e tente novamente.']);
+        exit;
+    }
     restoreConfigBackup();
     exit;
 }
@@ -21,7 +29,7 @@ $type = $_GET['type'] ?? '';
 $range = $_GET['range'] ?? '24h';
 
 // Whitelist validation
-$validTypes = ['logs', 'stats', 'system_log', 'config_backup', 'blacklist'];
+$validTypes = ['logs', 'stats', 'system_log', 'config_backup', 'blacklist', 'cache', 'snapshot'];
 $validRanges = ['24h', '7d', '30d', 'all'];
 
 if (!in_array($type, $validTypes)) {
@@ -50,6 +58,12 @@ switch ($type) {
         break;
     case 'blacklist':
         exportBlacklist($dateStr);
+        break;
+    case 'cache':
+        exportCacheDump($dateStr);
+        break;
+    case 'snapshot':
+        exportSnapshot($dateStr);
         break;
 }
 
@@ -249,7 +263,142 @@ function exportBlacklist(string $dateStr) {
     exit;
 }
 
-// ─── 6. RESTAURAR BACKUP DE CONFIGURAÇÕES (POST) ───────────────────
+// ─── 6. DUMP DO CACHE DO UNBOUND (TXT raw, formato re-importável) ──
+function exportCacheDump(string $dateStr) {
+    $filename = "unbound_cache_dump_{$dateStr}.txt";
+    header('Content-Type: text/plain; charset=utf-8');
+    header("Content-Disposition: attachment; filename=\"{$filename}\"");
+
+    $out = [];
+    $ret = 0;
+    \App\ShellHelper::exec('/usr/sbin/unbound-control', ['dump_cache'], $out, $ret, true);
+    if ($ret !== 0) {
+        // Mantém o status 200 + corpo informativo (já mandamos headers de download)
+        echo "# Falha ao executar unbound-control dump_cache (ret={$ret})\n";
+        echo implode("\n", $out) . "\n";
+        exit;
+    }
+    echo implode("\n", $out) . "\n";
+    exit;
+}
+
+// ─── 7. SNAPSHOT COMPLETO (TAR.GZ com todos os exports) ────────────
+// Junta logs + stats + system_log + config_backup + blacklist + cache num
+// único tarball. Útil pra abrir chamado de suporte ou snapshot pré-update.
+function exportSnapshot(string $dateStr) {
+    $tmpDir = __DIR__ . '/../src/data/tmp';
+    $stageDir = "{$tmpDir}/snapshot_" . uniqid();
+    @mkdir($stageDir, 0755, true);
+
+    $jwt = $_SESSION['api_jwt'] ?? '';
+
+    // -- 1. Logs DNS (CSV, últimas 24h) --
+    $logsPath = "{$stageDir}/dns_queries_24h.csv";
+    $f = fopen($logsPath, 'w');
+    fprintf($f, chr(0xEF) . chr(0xBB) . chr(0xBF));
+    fputcsv($f, ['Data/Hora', 'IP Cliente', 'Domínio', 'Tipo', 'Ação'], ';');
+    $since = time() - 86400;
+    $r = \App\ApiClient::get("/api/v1/exports/query-logs?since={$since}", $jwt);
+    $rows = ($r['ok'] && is_array($r['data'])) ? $r['data'] : [];
+    foreach ($rows as $row) {
+        fputcsv($f, [
+            date('d/m/Y H:i:s', (int) $row['timestamp']),
+            $row['client_ip'] ?? '',
+            $row['domain'] ?? '',
+            $row['query_type'] ?? '',
+            ($row['action'] ?? '') === 'blocked' ? 'Bloqueado' : 'Resolvido',
+        ], ';');
+    }
+    fclose($f);
+
+    // -- 2. Stats (JSON) --
+    $statsPath = "{$stageDir}/stats.json";
+    $r = \App\ApiClient::get('/api/v1/exports/stats-report', $jwt);
+    @file_put_contents($statsPath, json_encode($r['data'] ?? new stdClass(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+
+    // -- 3. System log (300 linhas journalctl + syslog) --
+    $syslogPath = "{$stageDir}/system_log.txt";
+    $sys = [];
+    \App\ShellHelper::exec('/usr/bin/journalctl', ['-u', 'unbound', '-n', '300', '--no-pager'], $j, $jr, true);
+    $sys[] = "===== journalctl -u unbound (últimas 300) =====";
+    $sys = array_merge($sys, $j);
+    \App\ShellHelper::exec('/usr/bin/tail', ['-n', '300', '/var/log/syslog'], $s, $sr, true);
+    $sys[] = "\n===== tail -n 300 /var/log/syslog =====";
+    $sys = array_merge($sys, $s);
+    @file_put_contents($syslogPath, implode("\n", $sys));
+
+    // -- 4. Blacklist (CSV) --
+    $blPath = "{$stageDir}/blacklist.csv";
+    $f = fopen($blPath, 'w');
+    fprintf($f, chr(0xEF) . chr(0xBB) . chr(0xBF));
+    fputcsv($f, ['Domínio', 'Categoria'], ';');
+    $r = \App\ApiClient::get('/api/v1/exports/blocklist', $jwt);
+    $rows = ($r['ok'] && is_array($r['data'])) ? $r['data'] : [];
+    foreach ($rows as $row) {
+        fputcsv($f, [$row['domain'] ?? '', $row['category'] ?? ''], ';');
+    }
+    fclose($f);
+
+    // -- 5. Cache dump (raw, re-importável) --
+    $cachePath = "{$stageDir}/unbound_cache_dump.txt";
+    \App\ShellHelper::exec('/usr/sbin/unbound-control', ['dump_cache'], $cacheOut, $cacheRet, true);
+    @file_put_contents($cachePath, implode("\n", $cacheOut));
+
+    // -- 6. Configs do Unbound (cópia direta de /etc/unbound/) --
+    // /etc/unbound é 755 com .conf 644 — www-data lê sem sudo. Não usar sudo
+    // aqui (sudoers não permite /bin/cp pra esse caminho arbitrário).
+    $unboundConfigsDir = "{$stageDir}/unbound_configs";
+    @mkdir($unboundConfigsDir, 0755, true);
+    if (is_dir('/etc/unbound')) {
+        \App\ShellHelper::exec('/bin/cp', ['-r', '/etc/unbound/.', $unboundConfigsDir], $cpOut, $cpRet, false);
+    }
+
+    // -- 7. Dashboard settings.json (se existir) --
+    $settingsSrc = __DIR__ . '/../data/settings.json';
+    if (file_exists($settingsSrc)) {
+        @copy($settingsSrc, "{$stageDir}/dashboard_settings.json");
+    }
+
+    // -- README descritivo --
+    $readme  = "# Unbound Dashboard — Snapshot completo\n";
+    $readme .= "Gerado em: " . date('Y-m-d H:i:s') . "\n";
+    $readme .= "Hostname: " . gethostname() . "\n\n";
+    $readme .= "Conteúdo:\n";
+    $readme .= "  - dns_queries_24h.csv      — últimas 24h de consultas DNS\n";
+    $readme .= "  - stats.json               — métricas atuais do Unbound + DuckDB\n";
+    $readme .= "  - system_log.txt           — 300 linhas de journalctl + syslog\n";
+    $readme .= "  - blacklist.csv            — domínios bloqueados (categorizados)\n";
+    $readme .= "  - unbound_cache_dump.txt   — dump_cache raw (re-importável)\n";
+    $readme .= "  - unbound_configs/         — cópia de /etc/unbound/\n";
+    $readme .= "  - dashboard_settings.json  — settings persistidos do dashboard\n";
+    @file_put_contents("{$stageDir}/README.txt", $readme);
+
+    // Empacota tudo em tar.gz — sem sudo (tudo está em paths owned por www-data)
+    $tarFile = "{$tmpDir}/unbound_snapshot_{$dateStr}.tar.gz";
+    \App\ShellHelper::exec('/bin/tar', ['-czf', $tarFile, '-C', $stageDir, '.'], $tarOut, $tarRet, false);
+
+    // Limpa stage
+    if (function_exists('cleanupDir')) {
+        cleanupDir($stageDir);
+    }
+
+    if ($tarRet !== 0 || !file_exists($tarFile)) {
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo "Falha ao empacotar snapshot.\n" . implode("\n", $tarOut);
+        exit;
+    }
+
+    $filename = "unbound_snapshot_{$dateStr}.tar.gz";
+    header('Content-Type: application/gzip');
+    header("Content-Disposition: attachment; filename=\"{$filename}\"");
+    header('Content-Length: ' . filesize($tarFile));
+    readfile($tarFile);
+    @unlink($tarFile);
+    exit;
+}
+
+// ─── 8. RESTAURAR BACKUP DE CONFIGURAÇÕES (POST) ───────────────────
 function restoreConfigBackup() {
     $tmpDir = __DIR__ . '/../src/data/tmp';
     $extractDir = "{$tmpDir}/restore_" . uniqid();

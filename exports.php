@@ -8,6 +8,7 @@ if (!\App\Auth::isAdmin()) {
 }
 
 $currentPage = 'exports.php';
+$csrfToken = $_SESSION['csrf_token'] ?? '';
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -27,8 +28,14 @@ $currentPage = 'exports.php';
         <div class="page-container">
 
             <!-- Header -->
-            <div class="mb-8">
+            <div class="mb-8 flex items-start justify-between gap-4 flex-wrap">
                 <p class="text-sm text-slate-500 dark:text-slate-400 font-medium max-w-xl">Exporte dados do sistema, estatísticas e configurações para análise externa ou backup de segurança.</p>
+                <button onclick="downloadExport('snapshot')"
+                        class="glass-btn !bg-indigo-600 !text-white text-[10px] uppercase font-black flex items-center gap-2"
+                        title="Download de tudo num único arquivo TAR.GZ (logs + stats + config + blacklist + cache)">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                    📦 Snapshot Completo
+                </button>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -177,6 +184,30 @@ $currentPage = 'exports.php';
                     </button>
                 </div>
 
+                <!-- 6. Cache DNS -->
+                <div class="glass-panel group relative overflow-hidden flex flex-col border-slate-200 dark:border-white/5 hover:border-cyan-500/30 transition-all duration-300">
+                    <div class="absolute -right-6 -bottom-6 text-cyan-500/5 group-hover:text-cyan-500/10 transition-colors duration-500">
+                        <svg class="w-32 h-32" fill="currentColor" viewBox="0 0 24 24"><path d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+                    </div>
+
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-2xl bg-cyan-500/10 flex items-center justify-center text-cyan-500">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Cache DNS</h3>
+                            <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Formato TXT (raw)</p>
+                        </div>
+                    </div>
+
+                    <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-6 flex-1">Dump completo do cache do Unbound (rrset + msg + key cache) no formato bruto do <code>unbound-control dump_cache</code>. Pode ser re-importado com <code>load_cache</code>.</p>
+
+                    <button onclick="downloadExport('cache')" class="glass-btn bg-cyan-600/20 hover:bg-cyan-600 text-cyan-600 dark:text-cyan-400 hover:text-white border-cyan-500/30 w-full justify-center text-[10px] uppercase tracking-widest font-black gap-2 mt-auto">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        Download dump
+                    </button>
+                </div>
+
             </div>
 
             <?php include 'includes/footer.php'; ?>
@@ -246,28 +277,52 @@ $currentPage = 'exports.php';
     </div>
 
     <script>
+        const CSRF_TOKEN = <?= json_encode($csrfToken) ?>;
+
         function downloadExport(type, range = '24h') {
             const toast = document.getElementById('exportToast');
+            const titleEl = document.getElementById('toastTitle');
+            const descEl = document.getElementById('toastDesc');
             const titles = {
                 'logs': 'Exportando consultas DNS...',
                 'stats': 'Gerando relatório de estatísticas...',
                 'system_log': 'Coletando logs do sistema...',
                 'config_backup': 'Empacotando backup de configs...',
-                'blacklist': 'Exportando lista de bloqueios...'
+                'blacklist': 'Exportando lista de bloqueios...',
+                'cache': 'Exportando dump do cache...',
+                'snapshot': 'Empacotando snapshot completo (todos os dados)...',
             };
-            
-            document.getElementById('toastTitle').innerText = titles[type] || 'Exportando...';
+            const descs = {
+                'snapshot': 'Pode levar 10-30s — não feche a aba.',
+                'logs':     range === 'all' ? 'Dataset grande — pode levar 30s+.' : 'Aguarde o download iniciar.',
+            };
+
+            titleEl.innerText = titles[type] || 'Exportando...';
+            descEl.innerText  = descs[type] || 'Aguarde o download iniciar.';
             toast.classList.remove('hidden');
-            
+
             const iframe = document.createElement('iframe');
             iframe.style.display = 'none';
             iframe.src = `api/export.php?type=${type}&range=${range}`;
-            document.body.appendChild(iframe);
-            
-            setTimeout(() => {
+
+            // Toast some quando o iframe receber o evento `load`:
+            // significa que o response chegou e o browser disparou o save-as.
+            // Garantia: fallback após 60s se algo travar.
+            let cleanedUp = false;
+            const cleanup = () => {
+                if (cleanedUp) return;
+                cleanedUp = true;
                 toast.classList.add('hidden');
-                setTimeout(() => iframe.remove(), 5000);
-            }, 3000);
+                setTimeout(() => iframe.remove(), 2000);
+            };
+            iframe.addEventListener('load', () => {
+                // load só dispara em downloads servidos com Content-Disposition; o save-as
+                // do browser já abriu nesse ponto. Pequeno delay pra UX (toast não some abrupto).
+                setTimeout(cleanup, 1200);
+            });
+            setTimeout(cleanup, 60000); // hard fallback de 60s
+
+            document.body.appendChild(iframe);
         }
 
         // File label update
@@ -305,6 +360,14 @@ $currentPage = 'exports.php';
         // Restore form submit
         document.getElementById('restoreForm').addEventListener('submit', async function(e) {
             e.preventDefault();
+
+            const input = document.getElementById('restoreFileInput');
+            const filename = input.files && input.files[0] ? input.files[0].name : '(arquivo)';
+            // Confirmação dupla — restore é destrutivo (sobrescreve /etc/unbound/*.conf + restart).
+            if (!confirm(`Restaurar configs a partir de "${filename}"?\n\nIsto vai SOBRESCREVER /etc/unbound/*.conf e reiniciar o daemon. Não há rollback automático.`)) {
+                return;
+            }
+
             const btn = document.getElementById('restoreBtn');
             const result = document.getElementById('restoreResult');
             const originalText = btn.innerHTML;
@@ -315,6 +378,8 @@ $currentPage = 'exports.php';
 
             try {
                 const formData = new FormData(this);
+                // CSRF token — backend rejeita POST sem ele (api/export.php).
+                formData.append('csrf_token', CSRF_TOKEN);
                 const res = await fetch('api/export.php', { method: 'POST', body: formData });
                 const json = await res.json();
 

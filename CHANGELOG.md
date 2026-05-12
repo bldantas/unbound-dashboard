@@ -1,5 +1,62 @@
 # Changelog
 
+## v2.5.2 — 2026-05-12
+
+### exports.php — fix CSRF (restore), toast com progresso real, snapshot, cache
+
+Auditoria da página de Exportações encontrou 1 vuln crítica + 4 melhorias
+de UX/funcionalidade. Tudo coberto.
+
+**🔴 SECURITY FIX — CSRF token validado no restore:**
+
+`api/export.php` aceitava POST com upload `.tar.gz` sem validar
+`csrf_token` — admin autenticado podia ser CSRF-em-em em site malicioso
+pra restaurar um backup com configs adversárias (sobrescrita de
+`/etc/unbound/*.conf` + restart do daemon). Agora valida com
+`hash_equals` antes de processar; rejeita com 403 + JSON se ausente
+ou inválido. Frontend envia o token via `FormData.append('csrf_token', CSRF_TOKEN)`.
+
+**Confirm() no restore:**
+
+`<form id="restoreForm">` submit agora bloqueia com `confirm()` mostrando
+nome do arquivo + aviso "SOBRESCREVE /etc/unbound/*.conf e reinicia o
+daemon. Não há rollback automático."
+
+**Toast com progresso real:**
+
+Antes: `setTimeout(..., 3000)` fixo escondia o toast em 3s independente
+do tempo real do download. Em datasets grandes (range='all') o usuário
+achava que falhou. Agora: escuta `iframe.onload` (dispara quando o
+response chega + browser abre save-as) e some 1.2s depois. Fallback hard
+de 60s se algo travar. Texto descritivo dinâmico ("Pode levar 10-30s
+— não feche a aba" para snapshot, "Dataset grande" para logs all).
+
+**📦 Novo card "Snapshot Completo":**
+
+Botão destacado no header empacota tudo num único `.tar.gz`:
+- `dns_queries_24h.csv` — últimas 24h
+- `stats.json` — métricas atuais
+- `system_log.txt` — 300 linhas journalctl + syslog
+- `blacklist.csv` — domínios bloqueados
+- `unbound_cache_dump.txt` — dump raw (re-importável com `load_cache`)
+- `unbound_configs/` — cópia recursiva de `/etc/unbound/`
+- `dashboard_settings.json` (se existir)
+- `README.txt` — descritivo com timestamp + hostname
+
+Útil pra abrir chamado de suporte ou snapshot pré-update. Backend
+em `api/export.php::exportSnapshot()`. Validado em produção:
+**1.4 MB tarball com 7 arquivos**, gerado em segundos.
+
+**Novo card "Cache DNS":**
+
+Export do `unbound-control dump_cache` raw como `.txt`. Re-importável
+via `unbound-control load_cache`. Útil pra warm-up de cache em
+restore/migração de servidor.
+
+VERSION 2.5.1 → 2.5.2 (patch — security fix + UX).
+
+---
+
 ## v2.5.1 — 2026-05-12
 
 ### cache.php — paginação real + seletor "por página"
