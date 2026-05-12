@@ -1,5 +1,38 @@
 # Changelog
 
+## v2.3.3 — 2026-05-12
+
+### threats.php — busca + filtros + top lists clicáveis
+
+A página de ameaças tinha 3 cards de stats, 2 top lists e uma tabela
+estática só com seletor de limite. Bloqueios escalam rápido — sem busca
+ou filtros virava ruído.
+
+**Mudanças:**
+
+- **Toolbar nova** acima da tabela:
+  - **Busca** por domínio ou IP (oninput, client-side).
+  - **Filtro por categoria** (dropdown populado dinamicamente com os
+    valores distintos do payload — agnóstico de quais categorias o
+    backend retorna).
+  - **Filtro por severidade** (high / normal).
+  - Contagem total/visível + botão "Limpar filtros" que aparece quando
+    algum filtro está aplicado.
+- **Top Domains e Top Clients agora são clicáveis**: clique num chip
+  da top list aplica a busca pelo valor selecionado na tabela abaixo
+  (cursor pointer + hover laranja, atalho cross-link interno).
+- **Mensagem "Nenhuma linha atende aos filtros"** abaixo da tabela
+  quando filtros excluem todas as linhas (separada da mensagem de
+  payload vazio).
+- Filtros sobrevivem ao re-fetch (auto-refresh ou mudança de limite
+  preservam estado do dropdown).
+
+Backend intocado — endpoint `/api/v1/threats/data` (FastAPI) e fallback
+`api/threats_data.php` continuam iguais. Tudo client-side em cima do
+payload existente.
+
+---
+
 ## v2.3.2 — 2026-05-12
 
 ### blocklist.php — origem ativa visível + atualização sob demanda

@@ -96,6 +96,34 @@ $currentPage = 'threats.php';
                 </div>
             </div>
 
+            <!-- Toolbar: busca + filtros + limit -->
+            <div class="glass-panel mb-4 border-slate-200 dark:border-white/5">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="md:col-span-2">
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Buscar (domínio ou IP)</label>
+                        <input type="text" id="threatsSearch" oninput="filterThreats()" placeholder="ex: bet, casino, 192.168" class="glass-input w-full font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Categoria</label>
+                        <select id="threatsCategory" onchange="filterThreats()" class="glass-input w-full uppercase text-[10px] font-black">
+                            <option value="">TODAS</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Severidade</label>
+                        <select id="threatsSeverity" onchange="filterThreats()" class="glass-input w-full uppercase text-[10px] font-black">
+                            <option value="">TODAS</option>
+                            <option value="high">HIGH</option>
+                            <option value="normal">NORMAL</option>
+                        </select>
+                    </div>
+                </div>
+                <p class="text-[10px] text-slate-500 mt-3 flex items-center gap-2">
+                    Total: <span id="threatsCountTotal">--</span> · Visíveis: <span id="threatsCountVisible">--</span>
+                    <button type="button" id="threatsClearFilters" class="hidden ml-2 glass-btn !py-0.5 !px-2 text-[9px] uppercase tracking-widest">Limpar filtros</button>
+                </p>
+            </div>
+
             <div class="glass-table-container border-slate-200 dark:border-white/5">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
                     <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Logs de Bloqueio em Tempo Real</h3>
@@ -125,6 +153,7 @@ $currentPage = 'threats.php';
                         <tr><td colspan="5" class="px-6 py-20 text-center text-slate-500 text-xs font-black tracking-widest uppercase">Carregando ameaças...</td></tr>
                     </tbody>
                 </table>
+                <p id="threatsEmptyFiltered" class="hidden text-center text-slate-500 text-sm py-8 px-4">Nenhuma linha atende aos filtros selecionados.</p>
             </div>
 
             <?php include 'includes/footer.php'; ?>
@@ -140,7 +169,7 @@ $currentPage = 'threats.php';
             return String(input == null ? '' : input).replace(/[&<>"']/g, function (m) { return map[m]; });
         }
 
-        function renderTopList(containerId, items, emptyText, countClass) {
+        function renderTopList(containerId, items, emptyText, countClass, filterTarget) {
             const container = document.getElementById(containerId);
             if (!container) return;
 
@@ -152,31 +181,58 @@ $currentPage = 'threats.php';
             container.innerHTML = items.map(function (item) {
                 const label = escHtml(item.label || '---');
                 const count = fmtIntBr(item.count || 0);
-                return '<div class="flex items-center justify-between p-3 bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5">'
+                // filterTarget: 'domain' aplica filtro de busca na tabela; 'client_ip' idem.
+                // Clique no chip filtra a tabela abaixo — UX cross-link interno.
+                const dataAttr = filterTarget ? ' data-filter-target="' + filterTarget + '" data-filter-value="' + escHtml(item.label || '') + '"' : '';
+                const interact = filterTarget ? ' cursor-pointer hover:bg-orange-500/10 transition' : '';
+                return '<div class="threat-top-item flex items-center justify-between p-3 bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5' + interact + '"' + dataAttr + '>'
                     + '<span class="text-xs font-mono text-slate-700 dark:text-slate-300">' + label + '</span>'
                     + '<span class="text-xs font-black ' + countClass + '">' + count + '</span>'
                     + '</div>';
             }).join('');
+
+            // Anexa handler de clique pros chips filtráveis
+            container.querySelectorAll('.threat-top-item[data-filter-target]').forEach(function (el) {
+                el.addEventListener('click', function () {
+                    const searchEl = document.getElementById('threatsSearch');
+                    if (searchEl) {
+                        searchEl.value = el.getAttribute('data-filter-value') || '';
+                        filterThreats();
+                        searchEl.focus();
+                    }
+                });
+            });
         }
+
+        // Estado de payload guardado pra refilter sem re-fetch
+        let __threatsCurrentRows = [];
 
         function renderThreatRows(rows) {
             const tbody = document.getElementById('threatsRows');
             if (!tbody) return;
+            __threatsCurrentRows = Array.isArray(rows) ? rows : [];
 
-            if (!Array.isArray(rows) || rows.length === 0) {
+            if (__threatsCurrentRows.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-20 text-center text-slate-500 text-xs font-black tracking-widest uppercase">Nenhuma ameaça ativa detectada.</td></tr>';
+                document.getElementById('threatsCountTotal').textContent = '0';
+                document.getElementById('threatsCountVisible').textContent = '0';
                 return;
             }
 
-            tbody.innerHTML = rows.map(function (t) {
+            tbody.innerHTML = __threatsCurrentRows.map(function (t) {
                 const time = escHtml(t.time || '--:--:--');
                 const date = escHtml(t.date || '--/--/--');
                 const ip = escHtml(t.client_ip || '---');
                 const domain = escHtml(t.domain || '---');
                 const category = escHtml(t.category || 'Geral');
-                const highRisk = t.severity === 'high';
+                const severity = String(t.severity || 'normal').toLowerCase();
+                const highRisk = severity === 'high';
 
-                return '<tr>'
+                // data-attrs pra filtragem client-side
+                return '<tr class="threat-row" data-domain="' + escHtml(String(t.domain || '').toLowerCase()) + '"'
+                    + ' data-ip="' + escHtml(String(t.client_ip || '').toLowerCase()) + '"'
+                    + ' data-category="' + escHtml(String(t.category || '')) + '"'
+                    + ' data-severity="' + escHtml(severity) + '">'
                     + '<td class="px-6 py-4"><div class="text-[10px] font-mono text-slate-500">' + time + '</div><div class="text-[9px] text-slate-600">' + date + '</div></td>'
                     + '<td class="px-6 py-4 font-mono text-xs text-blue-500 dark:text-blue-400">' + ip + '</td>'
                     + '<td class="px-6 py-4 font-bold text-slate-900 dark:text-white text-xs">' + domain + '</td>'
@@ -187,7 +243,59 @@ $currentPage = 'threats.php';
                     + '<td class="text-right"><span class="text-[10px] font-black text-red-500 bg-red-950/40 px-3 py-1.5 rounded-xl border border-red-500/20 uppercase tracking-widest">BLOCKED</span></td>'
                     + '</tr>';
             }).join('');
+
+            // Atualiza dropdown de categorias com os valores distintos do payload atual
+            populateCategoryDropdown(__threatsCurrentRows);
+
+            // Reaplica filtros (mantém estado entre fetches)
+            filterThreats();
         }
+
+        function populateCategoryDropdown(rows) {
+            const sel = document.getElementById('threatsCategory');
+            if (!sel) return;
+            const current = sel.value;
+            const categories = Array.from(new Set(rows.map(r => String(r.category || '')).filter(Boolean))).sort();
+            sel.innerHTML = '<option value="">TODAS</option>' +
+                categories.map(c => '<option value="' + escHtml(c) + '"' + (c === current ? ' selected' : '') + '>' + escHtml(c.toUpperCase()) + '</option>').join('');
+        }
+
+        function filterThreats() {
+            const q = (document.getElementById('threatsSearch').value || '').trim().toLowerCase();
+            const cat = document.getElementById('threatsCategory').value;
+            const sev = document.getElementById('threatsSeverity').value;
+            const rows = document.querySelectorAll('.threat-row');
+            let visible = 0;
+            rows.forEach(function (row) {
+                const matchQ = !q || row.dataset.domain.includes(q) || row.dataset.ip.includes(q);
+                const matchCat = !cat || row.dataset.category === cat;
+                const matchSev = !sev || row.dataset.severity === sev;
+                const show = matchQ && matchCat && matchSev;
+                row.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            const total = rows.length;
+            document.getElementById('threatsCountTotal').textContent = String(total);
+            document.getElementById('threatsCountVisible').textContent = String(visible);
+            document.getElementById('threatsEmptyFiltered').classList.toggle('hidden', visible !== 0 || total === 0);
+
+            const anyFilter = !!(q || cat || sev);
+            const clearBtn = document.getElementById('threatsClearFilters');
+            if (clearBtn) clearBtn.classList.toggle('hidden', !anyFilter);
+        }
+
+        // Botão "Limpar filtros"
+        document.addEventListener('DOMContentLoaded', function () {
+            const clearBtn = document.getElementById('threatsClearFilters');
+            if (clearBtn) {
+                clearBtn.addEventListener('click', function () {
+                    document.getElementById('threatsSearch').value = '';
+                    document.getElementById('threatsCategory').value = '';
+                    document.getElementById('threatsSeverity').value = '';
+                    filterThreats();
+                });
+            }
+        });
 
         async function loadThreatsData() {
             const limitSelect = document.getElementById('threatsLimit');
@@ -234,8 +342,8 @@ $currentPage = 'threats.php';
                 if (totalThreatsEl) totalThreatsEl.textContent = fmtIntBr(totals.threats || 0);
                 if (ratioEl) ratioEl.textContent = Number(totals.ratio || 0).toFixed(2) + '%';
 
-                renderTopList('threatsTopDomains', top.domains || [], 'Nenhum bloqueio judicial registrado recentemente.', 'text-blue-500 dark:text-blue-400');
-                renderTopList('threatsTopClients', top.clients || [], 'Nenhum cliente bloqueado.', 'text-red-500');
+                renderTopList('threatsTopDomains', top.domains || [], 'Nenhum bloqueio judicial registrado recentemente.', 'text-blue-500 dark:text-blue-400', 'domain');
+                renderTopList('threatsTopClients', top.clients || [], 'Nenhum cliente bloqueado.', 'text-red-500', 'client_ip');
                 renderThreatRows(data.recent || []);
 
                 const nextUrl = new URL(window.location.href);
