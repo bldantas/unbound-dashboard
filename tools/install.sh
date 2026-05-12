@@ -445,8 +445,22 @@ fi
 # ============================================================
 step "Etapa 8/8 — Admin inicial"
 
+# Verifica se admin EXISTE de fato no DuckDB antes de confiar na flag.
+# Cenário comum: VM recriada / wipe do DuckDB sem remover data/.installed —
+# install.sh pulava criação e admin nunca era criado. Agora cruza os 2 sinais:
+ADMIN_EXISTS_FLAG="false"
 if [ -f "$INSTALL_DIR/data/.installed" ]; then
-    log "Sistema já marcado como instalado — pulando criação de admin"
+    USERS_EXISTS_RESP=$(curl -sf --max-time 3 http://127.0.0.1:8001/api/v1/users/exists 2>/dev/null || echo '')
+    if echo "$USERS_EXISTS_RESP" | grep -q '"exists":true'; then
+        ADMIN_EXISTS_FLAG="true"
+    else
+        warn "data/.installed presente mas DuckDB sem usuários — forçando criação de admin"
+        info "Resposta de /api/v1/users/exists: ${USERS_EXISTS_RESP:-(sem resposta)}"
+    fi
+fi
+
+if [ "$ADMIN_EXISTS_FLAG" = "true" ]; then
+    log "Sistema já instalado e admin existente — pulando criação"
 else
     ADMIN_USERNAME="${ADMIN_USERNAME:-}"
     ADMIN_EMAIL="${ADMIN_EMAIL:-}"

@@ -1,5 +1,47 @@
 # Changelog
 
+## v2.7.5 — 2026-05-12
+
+### install.sh: detecta "flag .installed presente + DuckDB vazio"
+
+Bug reportado no servidor de teste: instalação completou mas
+`/api/v1/users/exists` respondia `{"exists":false}` — sem admin, mas
+mensagem final dizia "sistema já marcado como instalado, pulando".
+
+**Causa raiz:** A Etapa 8 do `install.sh` checava só se
+`data/.installed` existia. Em cenário onde a VM foi recriada
+preservando `data/` (ou alguém wipou o `.duckdb` manualmente), a flag
+persistia mas o DuckDB ficava vazio. Re-rodar o install via
+`install-from-git.sh` via flag → pulava criação → admin nunca era
+criado.
+
+A flag não some no rsync da Etapa 5 (`--exclude='data/.installed'`),
+o que é correto pra preservar instalações. Mas o DuckDB pode sumir
+independentemente (`/var/lib/unbound-dashboard/` é outro path, podia
+estar montado em volume separado, ser ramdisk, ser apagado por erro).
+
+**Fix:** A Etapa 8 agora **cruza dois sinais**:
+
+```bash
+if [ -f .installed ] && curl /api/v1/users/exists == {"exists":true}
+   then PULAR criação
+   else CRIAR admin
+```
+
+Se a flag existe mas API responde "sem users", o install:
+
+1. Loga `warn "data/.installed presente mas DuckDB sem usuários —
+   forçando criação de admin"`
+2. Mostra a resposta crua de `/api/v1/users/exists` pra debug
+3. Prossegue com o prompt/env var de admin normalmente
+
+Idempotente: se admin já existe e DuckDB tem registros, comportamento
+inalterado.
+
+VERSION 2.7.4 → 2.7.5.
+
+---
+
 ## v2.7.4 — 2026-05-12
 
 ### "Sistema não instalado" — diagnóstico inline + tolerância a API offline
