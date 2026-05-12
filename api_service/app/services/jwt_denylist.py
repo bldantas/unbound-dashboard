@@ -97,3 +97,42 @@ async def clear_user_revocation(user_id: int) -> None:
         await r.delete(_key_for_user(user_id))
     except Exception:  # noqa: BLE001
         pass
+
+
+# --- Denylist por token-hash (revogação cirúrgica de uma sessão específica) ---
+_HASH_PREFIX = "udash:revoke:hash:"
+
+
+def _key_for_hash(token_hash: str) -> str:
+    return f"{_HASH_PREFIX}{token_hash}"
+
+
+async def revoke_token_hash(token_hash: str, ttl_seconds: int | None = None) -> bool:
+    """
+    Adiciona o hash do token à denylist. TTL default = jwt_expire_minutes
+    (depois disso o token já expirou naturalmente, nem precisa estar no
+    denylist).
+
+    Usado quando o usuário revoga uma sessão específica em /perfil →
+    "Encerrar sessão dessa máquina" (logout cirúrgico, não derruba as
+    outras sessões dele).
+    """
+    ttl = ttl_seconds or (settings.jwt_expire_minutes * 60)
+    r = await get_redis()
+    try:
+        await r.setex(_key_for_hash(token_hash), ttl, "1")
+        log.info("jwt_denylist.token_revoked", token_hash=token_hash[:12])
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("jwt_denylist.token_revoke_failed", error=str(exc))
+        return False
+
+
+async def is_token_hash_revoked(token_hash: str) -> bool:
+    """Fail-open se Redis indisponível."""
+    r = await get_redis()
+    try:
+        return bool(await r.exists(_key_for_hash(token_hash)))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("jwt_denylist.hash_check_failed", error=str(exc))
+        return False

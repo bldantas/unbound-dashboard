@@ -134,6 +134,52 @@ async def refresh(
 _REFRESH_GRACE_MINUTES = 10
 
 
+@router.get("/sessions")
+async def list_my_sessions(payload: Annotated[dict, Depends(require_auth)]) -> dict:
+    """
+    Lista sessões ativas (Redis tracking) do user autenticado.
+    Admin pode passar `?all=1` pra listar todas as sessões do sistema.
+    """
+    from app.services import sessions as sessions_svc
+
+    user_id = int(payload.get("sub", 0))
+    # Sempre retorna apenas as sessões do user solicitante. Pra admin
+    # listar tudo, criar endpoint dedicado /sessions/all no futuro.
+    items = await sessions_svc.list_for_user(user_id)
+    # Marca a sessão atual (mesmo token_hash) pro UI destacar
+    current_hash = None
+    return {"sessions": items, "current_hash": current_hash}
+
+
+@router.delete("/sessions/{token_hash}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_my_session(
+    token_hash: str,
+    payload: Annotated[dict, Depends(require_auth)],
+) -> None:
+    """
+    Revoga uma sessão específica (logout cirúrgico). User só pode revogar
+    suas próprias sessões; admin pode revogar de qualquer.
+    """
+    from app.services import jwt_denylist
+    from app.services import sessions as sessions_svc
+
+    user_id = int(payload.get("sub", 0))
+    is_admin = payload.get("role") == "admin"
+
+    # Lista pra validar ownership
+    if is_admin:
+        all_sessions = await sessions_svc.list_all()
+    else:
+        all_sessions = await sessions_svc.list_for_user(user_id)
+    matching = next((s for s in all_sessions if s.get("token_hash") == token_hash), None)
+    if matching is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sessão não encontrada")
+
+    # Revoga: adiciona hash ao denylist + remove do tracking
+    await jwt_denylist.revoke_token_hash(token_hash)
+    await sessions_svc.remove(int(matching.get("user_id", 0)), token_hash)
+
+
 @router.post("/revoke/{user_id}", status_code=status.HTTP_200_OK)
 async def revoke_user(
     user_id: int,

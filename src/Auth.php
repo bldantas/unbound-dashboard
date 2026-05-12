@@ -125,7 +125,7 @@ class Auth
     {
         if (empty(trim($email))) return ['success' => false];
 
-        // FastAPI gera token + grava em DuckDB; PHP envia o email com o link
+        // FastAPI gera token + grava em DuckDB; PHP entrega via mail() + log file
         $resp  = self::_unauthedPost('/api/v1/auth/password-reset/request', ['email' => $email]);
         $token = is_array($resp) ? ($resp['token'] ?? null) : null;
 
@@ -139,10 +139,30 @@ class Auth
                        "$resetLink\n\n" .
                        "Se você não solicitou, ignore este email.";
             $headers = "From: admin@$domain\r\nReply-To: admin@$domain\r\nX-Mailer: PHP/" . phpversion();
-            @mail($email, $subject, $message, $headers);
+
+            // 1) Tenta enviar via MTA local
+            $mailSent = @mail($email, $subject, $message, $headers);
+
+            // 2) Sempre grava no log local — admin pode recuperar via SSH se mail() falhou.
+            // Path: src/data/password-recovery.log (640 www-data, fora de tmp pra persistir).
+            $logFile = __DIR__ . '/data/password-recovery.log';
+            $logLine = sprintf(
+                "[%s] email=%s mail_sent=%s remote_ip=%s\n  link=%s\n",
+                date('Y-m-d H:i:s'),
+                $email,
+                $mailSent ? 'true' : 'false',
+                $_SERVER['REMOTE_ADDR'] ?? '?',
+                $resetLink
+            );
+            @file_put_contents($logFile, $logLine, FILE_APPEND | LOCK_EX);
+            @chmod($logFile, 0640);
         }
 
-        return ['success' => true, 'message' => 'Caso o seu email esteja inserido corretamente, você receberá um email contendo um link para gerar a nova senha.'];
+        // Mensagem genérica (timing-safe — não revela se email existe).
+        return [
+            'success' => true,
+            'message' => 'Caso o seu email esteja cadastrado, você receberá instruções para criar uma nova senha. O link expira em 10 minutos.',
+        ];
     }
 
     public static function resetPassword(string $token, string $newPassword): array
@@ -203,6 +223,41 @@ class Auth
         if ($reason === 'http_400') return ['success' => false, 'message' => 'Role inválido ou self-target.'];
         if ($reason === 'http_404') return ['success' => false, 'message' => 'Usuário não encontrado.'];
         return ['success' => false, 'message' => 'Erro ao atualizar role (' . $reason . ').'];
+    }
+
+    /**
+     * Lista sessões ativas do usuário corrente (Redis tracking).
+     * Inclui IP, user-agent, login_at, last_seen, token_hash.
+     */
+    public static function listMySessions(): array
+    {
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($jwt === '') return [];
+        $result = ApiClient::get('/api/v1/auth/sessions', $jwt);
+        if (!empty($result['ok']) && isset($result['data']['sessions'])) {
+            return $result['data']['sessions'];
+        }
+        return [];
+    }
+
+    /**
+     * Revoga uma sessão específica do user corrente. Adiciona o token_hash
+     * ao denylist Redis — próxima request com aquele token recebe 401.
+     */
+    public static function revokeMySession(string $tokenHash): array
+    {
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($jwt === '') return ['success' => false, 'message' => 'Sessão expirada.'];
+        // ApiClient::delete não aceita corpo — token_hash vai no path
+        $tokenHash = preg_replace('/[^a-f0-9]/', '', strtolower($tokenHash));
+        if ($tokenHash === '') return ['success' => false, 'message' => 'Hash inválido.'];
+        $result = ApiClient::delete("/api/v1/auth/sessions/{$tokenHash}", $jwt);
+        if (!empty($result['ok'])) {
+            return ['success' => true, 'message' => 'Sessão encerrada.'];
+        }
+        $reason = $result['reason'] ?? '';
+        if ($reason === 'http_404') return ['success' => false, 'message' => 'Sessão não encontrada (talvez já expirada).'];
+        return ['success' => false, 'message' => 'Falha ao encerrar sessão (' . $reason . ').'];
     }
 
     /**

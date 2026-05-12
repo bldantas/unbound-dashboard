@@ -178,6 +178,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Serviço Unbound: " . strtoupper($op);
             $messageType = $ret === 0 ? 'success' : 'error';
         }
+    } elseif ($action === 'revoke_session') {
+        $hash = trim($_POST['session_hash'] ?? '');
+        if ($hash !== '') {
+            $res = \App\Auth::revokeMySession($hash);
+            $message = $res['message'];
+            $messageType = !empty($res['success']) ? 'success' : 'error';
+        }
     } elseif ($action === 'update_profile_pass') {
         $res = \App\Auth::updatePassword($_SESSION['username'], $_POST['old_pass'], $_POST['new_pass']);
         $message = $res['message'];
@@ -1088,7 +1095,7 @@ function field($key, $label, $desc = '', $def = '')
                     </div>
                     <?php endif; /* isAdmin */ ?>
 
-                    <div id="tab-perfil" class="tab-content <?= $activeTab === 'perfil' ? 'active' : '' ?> space-y-8">
+                    <div id="tab-perfil" class="tab-content <?= $activeTab === 'perfil' ? 'active' : '' ?> space-y-6">
                         <div class="glass-panel border-slate-900/10 dark:border-white/5">
                             <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase mb-6">Alterar Minha Senha</h3>
                             <form method="POST" class="space-y-4">
@@ -1099,6 +1106,68 @@ function field($key, $label, $desc = '', $def = '')
                                 <input type="password" name="new_pass" placeholder="NOVA SENHA" class="glass-input w-full">
                                 <button type="submit" class="glass-btn w-full text-[10px] font-black uppercase">SALVAR NOVA SENHA</button>
                             </form>
+                        </div>
+
+                        <!-- Sessões Ativas (Redis tracking) -->
+                        <?php
+                            $mySessions = \App\Auth::listMySessions();
+                            $fmtSessTime = function($ts) {
+                                if (!$ts) return '—';
+                                $diff = time() - (int)$ts;
+                                if ($diff < 60) return 'agora';
+                                if ($diff < 3600) return floor($diff / 60) . ' min atrás';
+                                if ($diff < 86400) return floor($diff / 3600) . 'h atrás';
+                                return floor($diff / 86400) . 'd atrás';
+                            };
+                            $shortenUA = function($ua) {
+                                if (preg_match('/(Firefox|Chrome|Safari|Edge|Opera)\/(\d+)/i', $ua, $m)) {
+                                    $browser = $m[1] . ' ' . $m[2];
+                                    if (stripos($ua, 'Windows') !== false) $os = 'Windows';
+                                    elseif (stripos($ua, 'Mac OS') !== false) $os = 'macOS';
+                                    elseif (stripos($ua, 'Linux') !== false) $os = 'Linux';
+                                    elseif (stripos($ua, 'Android') !== false) $os = 'Android';
+                                    elseif (stripos($ua, 'iPhone') !== false || stripos($ua, 'iPad') !== false) $os = 'iOS';
+                                    else $os = '?';
+                                    return "$browser · $os";
+                                }
+                                return strlen($ua) > 60 ? substr($ua, 0, 57) . '...' : $ua;
+                            };
+                        ?>
+                        <div class="glass-panel border-slate-900/10 dark:border-white/5">
+                            <div class="flex justify-between items-center mb-4 border-b border-slate-900/10 dark:border-white/5 pb-3">
+                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase">Sessões Ativas</h3>
+                                <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest"><?= count($mySessions) ?> sessão(ões)</span>
+                            </div>
+                            <p class="text-[11px] text-slate-500 mb-4">Cada navegador/dispositivo onde você está logado. Revogar uma sessão força logout naquela máquina imediatamente (denylist Redis).</p>
+
+                            <?php if (empty($mySessions)): ?>
+                                <p class="text-sm text-slate-500 italic py-4">Nenhuma sessão ativa detectada. Se você está logado agora, recarregue a página em alguns segundos pra o tracking iniciar.</p>
+                            <?php else: ?>
+                                <div class="space-y-2">
+                                    <?php foreach ($mySessions as $sess):
+                                        $ip = htmlspecialchars($sess['ip'] ?? '?');
+                                        $ua = htmlspecialchars($shortenUA($sess['user_agent'] ?? '?'));
+                                        $lastSeen = $fmtSessTime($sess['last_seen'] ?? 0);
+                                        $loginAt = date('d/m/Y H:i', (int)($sess['login_at'] ?? 0));
+                                        $hash = $sess['token_hash'] ?? '';
+                                        ?>
+                                        <div class="flex items-center justify-between gap-3 p-3 bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5">
+                                            <div class="flex-1 min-w-0">
+                                                <p class="font-bold text-xs text-slate-900 dark:text-white"><?= $ua ?></p>
+                                                <p class="text-[10px] text-slate-500 font-mono">IP <?= $ip ?> · login em <?= htmlspecialchars($loginAt) ?></p>
+                                                <p class="text-[10px] text-emerald-500 font-mono">Última atividade: <?= htmlspecialchars($lastSeen) ?></p>
+                                            </div>
+                                            <form method="POST" data-confirm-message="Encerrar esta sessão? Você será deslogado nessa máquina imediatamente." data-confirm-title="Encerrar sessão" data-confirm-text="Encerrar" data-confirm-variant="danger">
+                                                <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                                <input type="hidden" name="tab" value="perfil">
+                                                <input type="hidden" name="action" value="revoke_session">
+                                                <input type="hidden" name="session_hash" value="<?= htmlspecialchars($hash) ?>">
+                                                <button type="submit" class="glass-btn !py-1 !px-3 text-[9px] uppercase font-black bg-red-500/10 text-red-500" title="Encerrar essa sessão">Encerrar</button>
+                                            </form>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
 

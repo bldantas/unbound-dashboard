@@ -1,5 +1,111 @@
 # Changelog
 
+## v2.10.0 — 2026-05-12
+
+### Recuperação de senha funcional + Sessões ativas listáveis/revogáveis
+
+Duas features de auth fechadas:
+
+#### 1. Password reset via UI (recover.php + reset.php)
+
+Antes: `recover.php` era stub com TODO (`'Se o usuário existir, as
+instruções foram enviadas'` fake — não chamava nada). `reset.php`
+aceitava qualquer senha sem token.
+
+Agora: fluxo completo integrado com endpoints existentes do FastAPI
+(`POST /api/v1/auth/password-reset/{request,confirm}`).
+
+**`recover.php`** — form com email, chama `Auth::requestPasswordReset`,
+mostra mensagem genérica timing-safe. Bonus rodapé: dica de que admin
+pode consultar o link em `src/data/password-recovery.log` se sem MTA.
+
+**`reset.php`** — aceita `?token=XYZ` na URL, valida tamanho da senha
+(≥6) + match com confirmação, chama `Auth::resetPassword`. Banner verde
+com link "Ir para Login" no sucesso.
+
+**`Auth::requestPasswordReset`** estendido com **dual delivery**:
+- Tenta `mail()` do PHP (usa MTA local se houver).
+- **Sempre** grava em `src/data/password-recovery.log` (640
+  `www-data:www-data`):
+  ```
+  [2026-05-12 18:32:01] email=user@x.com mail_sent=true remote_ip=1.2.3.4
+    link=https://dashboard.local/reset.php?token=abc123def...
+  ```
+  Admin pode `tail -f` esse arquivo via SSH se mail() falhar
+  silenciosamente.
+
+Mensagem retornada à UI é **sempre genérica** — não revela se email
+existe (proteção timing-attack).
+
+`login.php` já tinha link "Esqueceu a senha?" apontando pra
+`recover.php` — sem mudança.
+
+#### 2. Sessões Ativas (Redis tracking + revogação cirúrgica)
+
+Complemento natural do denylist por user (v2.9.0). Agora cada sessão
+individual aparece no perfil do user e pode ser revogada sem afetar
+as outras.
+
+**Backend (`api_service`):**
+
+- `services/sessions.py` novo:
+  - `track(user_id, token_hash, ip, ua, iat, exp)` — chamado em todo
+    `require_auth`. Grava em `udash:session:<user_id>:<hash>` =
+    JSON({ip, user_agent, iat, exp, login_at, last_seen}) com
+    TTL = exp - now. `login_at` preservado entre updates,
+    `last_seen` atualizado a cada hit.
+  - `list_for_user(user_id)`, `list_all()`, `remove(user_id, hash)`.
+  - `hash_token()` = sha256 truncado em 16 chars.
+- `services/jwt_denylist.py` estendido:
+  - `revoke_token_hash(hash, ttl)` — adiciona hash à denylist por
+    token (chave `udash:revoke:hash:<hash>`).
+  - `is_token_hash_revoked(hash)`.
+- `core/deps.py::require_auth` agora:
+  - Decoda JWT (como antes)
+  - Checa user-revocation (como antes)
+  - **Checa token-hash revocation** (novo) — 401 com "Sessão encerrada".
+  - **Registra a sessão** no Redis (best-effort, não derruba request
+    se Redis off).
+  - IP via `X-Forwarded-For` (Apache passa); fallback `request.client.host`.
+- `routers/auth.py`:
+  - `GET /api/v1/auth/sessions` — lista sessões do user atual.
+  - `DELETE /api/v1/auth/sessions/{token_hash}` — revoga uma sessão
+    (denylist por hash + remove do tracking). User só revoga as suas;
+    admin pode revogar de qualquer.
+
+**PHP (`src/Auth.php`):**
+
+- `listMySessions()` — GET `/api/v1/auth/sessions`.
+- `revokeMySession($hash)` — DELETE `/api/v1/auth/sessions/{hash}`.
+
+**UI (`config.php` aba "Meu Perfil"):**
+
+- Bloco "Sessões Ativas" abaixo do "Alterar Minha Senha".
+- Lista cada sessão com:
+  - User-Agent simplificado (Chrome 120 · Windows / Firefox 119 · Linux).
+  - IP do request (X-Forwarded-For aware).
+  - Timestamp do login (DD/MM HH:MM) + tempo desde última atividade
+    (relativo: "agora", "5 min atrás", "2h atrás").
+  - Botão "Encerrar" — POST `revoke_session` com confirmação modal.
+- Handler `revoke_session` no `config.php` chama `revokeMySession`.
+- Empty state quando lista vazia (após login fresh + reload).
+
+**Validação:**
+
+- 58/58 testes pytest passando.
+- Smoke test end-to-end: hit `/users` → registra sessão → GET
+  `/sessions` retorna 1 entry com IP + UA + hash.
+
+**Compat:**
+
+- Sessões pré-2.10.0 (sem tracking): aparecem na lista após o primeiro
+  request autenticado pós-deploy (require_auth registra).
+- Tokens sem claim `iat` (legacy): tracking pulado mas auth funciona.
+
+VERSION 2.9.3 → 2.10.0 (minor bump — 2 features de auth).
+
+---
+
 ## v2.9.3 — 2026-05-12
 
 ### Aba "Controle de Acesso" — busca + filtro por ação + contadores live

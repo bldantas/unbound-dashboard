@@ -1,15 +1,22 @@
 <?php
 require_once 'src/Auth.php';
+
 $msg = '';
+$msgType = '';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // TODO: Implementar a lógica de recuperação de senha.
-    // 1. Validar o 'username' recebido.
-    // 2. Procurar o usuário no banco de dados.
-    // 3. Se o usuário existir, gerar um token de reset de senha com tempo de expiração.
-    // 4. Salvar o token no banco de dados associado ao usuário.
-    // 5. Enviar um e-mail para o usuário com um link contendo o token.
-    // 6. O link levará a uma nova página (ex: reset_password.php?token=...).
-    $msg = 'Se o usuário existir, as instruções foram enviadas para o email cadastrado.';
+    $email = trim($_POST['email'] ?? '');
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $msg = 'Email inválido.';
+        $msgType = 'error';
+    } else {
+        // Sempre retorna a mesma mensagem (timing-safe — não revela se email existe).
+        // Auth::requestPasswordReset chama o backend; se token gerado, tenta
+        // mail() + grava em src/data/password-recovery.log de qualquer forma.
+        $res = \App\Auth::requestPasswordReset($email);
+        $msg = $res['message'] ?? 'Solicitação processada. Verifique seu email.';
+        $msgType = 'success';
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -26,26 +33,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body class="flex items-center justify-center h-screen bg-[#0b1120]">
     <div class="glass-panel w-full max-w-md p-8 rounded-3xl shadow-2xl relative overflow-hidden">
-        <h2 class="text-2xl font-bold text-white mb-4">Recuperação de Acesso</h2>
-        <p class="text-slate-400 text-sm mb-6">Digite seu usuário para receber instruções de recuperação.</p>
-        
+        <h2 class="text-2xl font-bold text-white mb-2">Recuperação de Acesso</h2>
+        <p class="text-slate-400 text-sm mb-6">Digite o email cadastrado. Você receberá um link válido por 10 minutos.</p>
+
         <?php if ($msg): ?>
-            <div class="bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 p-4 rounded-xl text-sm mb-6 text-center font-bold">
+            <div class="<?= $msgType === 'success' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-red-500/15 border-red-500/30 text-red-300' ?> border p-4 rounded-xl text-sm mb-6 font-bold">
                 <?= htmlspecialchars($msg) ?>
             </div>
         <?php endif; ?>
 
         <form method="POST" class="space-y-4">
             <div>
-                <label class="block text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">Usuário</label>
-                <input type="text" name="username" required class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder-slate-600">
+                <label class="block text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">Email</label>
+                <input type="email" name="email" required autofocus
+                       value="<?= htmlspecialchars($_POST['email'] ?? '') ?>"
+                       class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder-slate-600"
+                       placeholder="seu@email.com">
             </div>
-            
+
             <div class="pt-4 flex items-center justify-between">
-                <a href="login.php" class="text-xs text-slate-400 hover:text-white transition-colors">Voltar ao Login</a>
-                <button type="submit" class="bg-blue-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-blue-500 transition-colors">Recuperar</button>
+                <a href="login.php" class="text-xs text-slate-400 hover:text-white transition-colors">← Voltar ao Login</a>
+                <button type="submit" class="bg-blue-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-blue-500 transition-colors">Enviar Link</button>
             </div>
         </form>
+
+        <?php if ($msgType === 'success'): ?>
+            <p class="text-[10px] text-slate-500 mt-6 text-center">
+                Não recebeu? Verifique o spam. Se o servidor não tem MTA configurado, o admin pode<br>
+                consultar o link em <code class="text-slate-400">src/data/password-recovery.log</code>.
+            </p>
+        <?php endif; ?>
     </div>
 </body>
 </html>

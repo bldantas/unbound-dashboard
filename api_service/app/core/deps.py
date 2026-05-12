@@ -4,28 +4,35 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.security import JWTError, decode_token
-from app.services.jwt_denylist import is_user_revoked
+from app.services import sessions
+from app.services.jwt_denylist import is_token_hash_revoked, is_user_revoked
 
 _bearer = HTTPBearer(auto_error=True)
 
 
 async def require_auth(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
 ) -> dict:
     """
-    Exige JWT válido e não-revogado. Retorna o payload (com `sub` + `role`).
+    Exige JWT válido e não-revogado. Retorna o payload.
 
     Validações:
     1. Assinatura + `exp` (via decode_token)
-    2. Denylist Redis (per-user revocation): se `iat` < `revoked_at`,
-       rejeita com 401 — usado quando admin desativa/banir conta.
+    2. Denylist per-user: se `iat` < `revoked_at`, rejeita 401.
+       Usado quando admin desativa conta — corta todas as sessões do user.
+    3. Denylist por token-hash: se a sessão específica foi revogada
+       (ex: user clicou "Encerrar sessão dessa máquina" no perfil).
+
+    Side-effect: registra a sessão em Redis pra "Sessões Ativas" UI.
     """
+    token = credentials.credentials
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(token)
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -33,19 +40,37 @@ async def require_auth(
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
 
-    # Denylist check — fail-open se Redis indisponível
     try:
         user_id = int(payload.get("sub", 0))
         iat = payload.get("iat")
+        exp = payload.get("exp")
     except (TypeError, ValueError):
         user_id = 0
         iat = None
+        exp = None
+
     if user_id and await is_user_revoked(user_id, iat):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token revogado — conta foi desativada ou banida",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    token_hash = sessions.hash_token(token)
+    if await is_token_hash_revoked(token_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sessão encerrada — faça login novamente",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Tracking: best-effort, não derruba a request se Redis off
+    if user_id and isinstance(iat, int) and isinstance(exp, int):
+        # IP do cliente atrás do proxy (Apache passa X-Forwarded-For)
+        xff = request.headers.get("x-forwarded-for", "")
+        ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
+        ua = request.headers.get("user-agent", "")
+        await sessions.track(user_id, token_hash, ip or "?", ua or "?", iat, exp)
 
     return payload
 
