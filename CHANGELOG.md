@@ -1,5 +1,38 @@
 # Changelog
 
+## v2.9.2 — 2026-05-12
+
+### Fix crítico: aba NTP não salvava nada (form-em-form)
+
+A v2.7.3 separou NTP e Timezone em dois forms independentes — MAS os
+forms ficaram **aninhados dentro do `mainConfigForm`** (linha 456) que
+engloba todas as outras abas. HTML5 proíbe forms aninhados: o browser
+ignora o filho e submete o pai com `action=save_unbound_settings`.
+
+Resultado: clicar "Salvar NTP" ou "Salvar Fuso Horário" submetia o
+mainConfigForm — `save_ntp_only` e `save_timezone_only` **nunca eram
+chamados**. Smoke test backend mostrava handlers OK, mas no browser
+nada acontecia.
+
+**Fix:** o bloco inteiro `<div id="tab-ntp">` foi movido pra **DEPOIS**
+de `</form>` do mainConfigForm. Agora os 2 forms internos (NTP +
+Timezone) são realmente independentes e seus submits chegam aos
+handlers corretos.
+
+**Bonus:** `applyTabSwitch` esconde o botão "Sincronizar Todas
+Alterações" quando a aba atual tem form próprio (lista atualizada:
+`usuarios`, `ntp`, `perfil`). Antes só escondia em `usuarios` — em
+`ntp` o botão aparecia mas era irrelevante (e podia confundir o admin
+fazendo achar que o save dele estava lá).
+
+Estado verificado: `mainConfigForm` linha 456 → fecha linha 705.
+`tab-ntp` começa em 710 (fora). Forms internos em 738 e 783 (filhos
+diretos do `tab-ntp`).
+
+VERSION 2.9.1 → 2.9.2.
+
+---
+
 ## v2.9.1 — 2026-05-12
 
 ### NetworkManager — lock concorrente via flock
