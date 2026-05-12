@@ -74,10 +74,41 @@ class NetworkManager {
     }
 
     /**
-     * Retorna a lista de fusos válidos reconhecidos pelo sistema PHP.
+     * Retorna a lista de fusos válidos. Tenta primeiro `timezone_identifiers_list()`
+     * (rápido, sem I/O). Se PHP retorna vazio (ex: tzdata ausente em container
+     * mínimo), faz fallback varrendo `/usr/share/zoneinfo/` em disco — é o que
+     * o `timedatectl` também usa. Garantia de lista sempre populada na UI.
      */
     public function getAvailableTimezones(): array {
-        return timezone_identifiers_list();
+        $tz = @timezone_identifiers_list();
+        if (is_array($tz) && count($tz) > 0) {
+            return $tz;
+        }
+        return $this->_scanZoneinfoDir();
+    }
+
+    /**
+     * Fallback: lê /usr/share/zoneinfo recursivamente e retorna IDs
+     * (Continent/City). Filtra arquivos não-zona (zone.tab, posix, right…).
+     */
+    private function _scanZoneinfoDir(): array {
+        $base = '/usr/share/zoneinfo';
+        if (!is_dir($base)) return ['UTC'];
+        $skip = ['posix', 'right', 'leapseconds', 'zone.tab', 'zone1970.tab', 'iso3166.tab', 'tzdata.zi', 'localtime', 'leap-seconds.list'];
+        $out = [];
+        $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($base, \RecursiveDirectoryIterator::SKIP_DOTS));
+        foreach ($it as $file) {
+            if (!$file->isFile()) continue;
+            $rel = ltrim(substr($file->getPathname(), strlen($base)), '/');
+            $first = explode('/', $rel, 2)[0] ?? '';
+            if (in_array($first, $skip, true)) continue;
+            // IDs canônicos têm pelo menos um '/' (Continent/City) ou são especiais (UTC, GMT, etc).
+            // Pula nomes que parecem arquivos auxiliares.
+            if (preg_match('/\.(tab|zi|list)$/', $rel)) continue;
+            $out[] = $rel;
+        }
+        sort($out);
+        return $out ?: ['UTC'];
     }
 
     /**

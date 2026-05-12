@@ -1,5 +1,64 @@
 # Changelog
 
+## v2.7.3 — 2026-05-12
+
+### Aba NTP — fix do save de timezone + UX melhorada
+
+A aba "Tempo & NTP" tinha 3 problemas reportados:
+
+1. **Não salvava o timezone** — handler `save_ntp` submetia NTP + Timezone
+   no mesmo POST e usava AND lógico pra status; qualquer falha em um
+   bloqueava o status do outro. Pior: se o `<select>` gigante (400+
+   opções) tinha `<option value="" selected>Selecione...</option>` no
+   topo e o user não escolhia, o POST mandava vazio e o `setSystemTimezone('')`
+   falhava silenciosamente como "Timezone vazio".
+
+2. **Select inutilizável** — 400+ opções num dropdown vertical. Encontrar
+   "America/Sao_Paulo" sem busca é tortura.
+
+3. **Aba também tinha o bug do `active` class missing** — só ativava
+   após DOMContentLoaded, FOUC visível.
+
+**Mudanças em `config.php` (aba NTP):**
+
+- **Aba `tab-ntp` ganhou `<?= $activeTab === 'ntp' ? 'active' : '' ?>`**.
+- **Dois cards independentes**: "Servidores NTP" e "Fuso Horário", cada
+  um com **form próprio + botão de save próprio**. Falha em um não
+  bloqueia o outro.
+- **NTP** mantém o pool com `addNtpRow()`. Submit `action=save_ntp_only`.
+- **Timezone vira combobox** (`<input list="tz-options">` + `<datalist>`):
+  - Input mostra o valor atual pré-preenchido.
+  - User digita "America/" pra filtrar Américas, "Europe/" pra Europa, etc.
+    Browser nativo faz fuzzy match — sem JS adicional.
+  - `pattern="[A-Za-z_./+\-]+"` + `required` impede submit vazio.
+  - Submit `action=save_timezone_only`.
+- **Painel "Atual"** mostra o timezone detectado pelo sistema (lado
+  esquerdo) + hora local agora. UX: usuário vê de imediato o que tá
+  configurado.
+- **Aviso se lista vazia**: se `getAvailableTimezones()` retorna `[]`,
+  banner amarelo sugerindo `apt install tzdata`.
+
+**`NetworkManager::getAvailableTimezones()`** ganhou fallback robusto:
+
+1. Tenta `timezone_identifiers_list()` (PHP nativo, rápido).
+2. Se vazio (raríssimo, mas pode acontecer em containers mínimos sem
+   tzdata), faz fallback varrendo `/usr/share/zoneinfo/` em disco —
+   é o mesmo data source que `timedatectl` usa.
+3. Filtra arquivos não-zona (`zone.tab`, `posix/`, `right/`, `.tab`,
+   `.zi`, `.list`).
+4. Garante mínimo `['UTC']` se nada existir.
+
+**Handlers POST novos em `config.php`:**
+
+- `save_ntp_only` — só toca NTP.
+- `save_timezone_only` — só timezone, com validação explícita de
+  string vazia.
+- `save_ntp` (antigo) mantido pra compat com forms externos.
+
+VERSION 2.7.2 → 2.7.3.
+
+---
+
 ## v2.7.2 — 2026-05-12
 
 ### Fix: Debian 13/PHP 8.4 — gera phpX.Y-fpm.conf quando ausente

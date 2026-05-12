@@ -138,6 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $message = $res['message'];
         $messageType = $res['success'] ? 'success' : 'error';
     } elseif ($action === 'save_ntp') {
+        // Mantido pra compat com forms antigos que mandam os dois juntos.
         $ntp_servers = '';
         if (isset($_POST['ntp_servers'])) {
             $ntp_servers = is_array($_POST['ntp_servers']) ? implode(' ', array_filter($_POST['ntp_servers'])) : $_POST['ntp_servers'];
@@ -146,6 +147,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $resTz = $networkManager->setSystemTimezone($_POST['system_timezone'] ?? '');
         $message = "NTP: {$resNtp['message']} | Timezone: {$resTz['message']}";
         $messageType = ($resNtp['success'] && $resTz['success']) ? 'success' : 'error';
+    } elseif ($action === 'save_ntp_only') {
+        $ntp_servers = '';
+        if (isset($_POST['ntp_servers'])) {
+            $ntp_servers = is_array($_POST['ntp_servers']) ? implode(' ', array_filter($_POST['ntp_servers'])) : $_POST['ntp_servers'];
+        }
+        $resNtp = $networkManager->setNtpServers($ntp_servers);
+        $message = $resNtp['message'];
+        $messageType = $resNtp['success'] ? 'success' : 'error';
+    } elseif ($action === 'save_timezone_only') {
+        $tz = trim($_POST['system_timezone'] ?? '');
+        if ($tz === '') {
+            $message = 'Nenhum fuso horário informado.';
+            $messageType = 'error';
+        } else {
+            $resTz = $networkManager->setSystemTimezone($tz);
+            $message = $resTz['message'];
+            $messageType = $resTz['success'] ? 'success' : 'error';
+        }
     } elseif ($action === 'save_source_balance') {
         $sbSettings = ['enabled' => isset($_POST['sb_enabled']), 'instances' => (int)($_POST['sb_instances'] ?? 4), 'anycast_ipv4' => $_POST['anycast_ipv4'] ?? '', 'anycast_ipv6' => $_POST['anycast_ipv6'] ?? ''];
         $sourceBalanceManager->saveSettings($sbSettings);
@@ -680,48 +699,88 @@ function field($key, $label, $desc = '', $def = '')
                             </div>
                         </div>
 
-                        <div id="tab-ntp" class="tab-content space-y-8">
-                            <div class="glass-panel">
-                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-8 border-b border-slate-900/10 dark:border-white/5 pb-4">Tempo & NTP</h3>
+                        <div id="tab-ntp" class="tab-content <?= $activeTab === 'ntp' ? 'active' : '' ?> space-y-6">
 
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    <div>
-                                        <div class="flex justify-between items-center mb-2">
-                                            <label class="block text-[10px] font-black text-slate-500 uppercase">NTP Servers</label>
-                                            <button type="button" onclick="addNtpRow()" class="glass-btn text-[10px] font-black uppercase">Adicionar Servidor</button>
+                            <!-- Card NTP — form independente -->
+                            <div class="glass-panel">
+                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6 border-b border-slate-900/10 dark:border-white/5 pb-4">Servidores NTP</h3>
+                                <form method="POST" data-loader="off">
+                                    <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                    <input type="hidden" name="tab" value="ntp">
+                                    <input type="hidden" name="action" value="save_ntp_only">
+                                    <div class="flex justify-between items-center mb-3">
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase">Pool de servidores</label>
+                                        <button type="button" onclick="addNtpRow()" class="glass-btn text-[10px] font-black uppercase">+ Adicionar Servidor</button>
+                                    </div>
+                                    <div id="ntp-list" class="space-y-3 mb-4">
+                                        <?php
+                                        $ntpServers = !empty($currentNtp) ? explode(' ', $currentNtp) : [''];
+                                        foreach ($ntpServers as $server): ?>
+                                            <div class="flex gap-3 animate-fade-in">
+                                                <input type="text" name="ntp_servers[]" value="<?= htmlspecialchars($server) ?>" placeholder="pool.ntp.br" class="glass-input flex-1 font-mono">
+                                                <button type="button" onclick="this.parentElement.remove()" class="p-4 text-red-500 hover:bg-red-500/10 rounded-2xl transition-all" title="Remover">
+                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"></path></svg>
+                                                </button>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <div class="flex justify-end">
+                                        <button type="submit" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">Salvar NTP</button>
+                                    </div>
+                                </form>
+                            </div>
+
+                            <!-- Card Timezone — form independente -->
+                            <div class="glass-panel">
+                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6 border-b border-slate-900/10 dark:border-white/5 pb-4">Fuso Horário</h3>
+                                <form method="POST" data-loader="off">
+                                    <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                    <input type="hidden" name="tab" value="ntp">
+                                    <input type="hidden" name="action" value="save_timezone_only">
+
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                                        <div>
+                                            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Atual</p>
+                                            <p class="text-base font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                                                <?= htmlspecialchars($currentTz ?: '— não detectado —') ?>
+                                            </p>
+                                            <p class="text-[10px] text-slate-500 mt-1">Hora local agora: <span class="font-mono"><?= htmlspecialchars(date('d/m/Y H:i:s')) ?></span></p>
                                         </div>
-                                        <div id="ntp-list" class="space-y-3">
-                                            <?php
-                                            $ntpServers = !empty($currentNtp) ? explode(' ', $currentNtp) : [''];
-                                            foreach ($ntpServers as $server): ?>
-                                                <div class="flex gap-3 animate-fade-in">
-                                                    <input type="text" name="ntp_servers[]" value="<?= htmlspecialchars($server) ?>" class="glass-input flex-1 font-mono">
-                                                    <button type="button" onclick="this.parentElement.remove()" class="p-4 text-red-500 hover:bg-red-500/10 rounded-2xl transition-all"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path d="M6 18L18 6M6 6l12 12"></path>
-                                                        </svg></button>
-                                                </div>
-                                            <?php endforeach; ?>
+                                        <div>
+                                            <label class="block text-[10px] font-black text-slate-500 uppercase mb-2">
+                                                Novo fuso (digite para filtrar — <?= count($timezoneOptions) ?> opções)
+                                            </label>
+                                            <input
+                                                type="text"
+                                                name="system_timezone"
+                                                list="tz-options"
+                                                value="<?= htmlspecialchars($currentTz) ?>"
+                                                placeholder="ex: America/Sao_Paulo"
+                                                pattern="[A-Za-z_./+\-]+"
+                                                required
+                                                class="glass-input w-full font-mono"
+                                                autocomplete="off">
+                                            <datalist id="tz-options">
+                                                <?php foreach ($timezoneOptions as $timezoneOption): ?>
+                                                    <option value="<?= htmlspecialchars($timezoneOption) ?>"></option>
+                                                <?php endforeach; ?>
+                                            </datalist>
+                                            <p class="mt-2 text-[10px] text-slate-500">Digite "America/" para ver as Américas, "Europe/" Europa, etc.</p>
                                         </div>
                                     </div>
-                                    <div>
-                                        <label class="block text-[10px] font-black text-slate-500 uppercase mb-2">Timezone</label>
-                                        <select name="system_timezone" class="glass-input w-full font-mono">
-                                            <?php if (empty($currentTz)): ?>
-                                                <option value="" selected>Selecione um fuso horário</option>
-                                            <?php endif; ?>
-                                            <?php foreach ($timezoneGroups as $groupLabel => $groupTimezones): ?>
-                                                <optgroup label="<?= htmlspecialchars($groupLabel) ?>">
-                                                    <?php foreach ($groupTimezones as $timezoneOption): ?>
-                                                        <option value="<?= htmlspecialchars($timezoneOption) ?>" <?= $timezoneOption === $currentTz ? 'selected' : '' ?>>
-                                                            <?= htmlspecialchars($timezoneOption) ?>
-                                                        </option>
-                                                    <?php endforeach; ?>
-                                                </optgroup>
-                                            <?php endforeach; ?>
-                                        </select>
-                                        <p class="mt-2 text-[10px] text-slate-500 font-medium">A lista contém apenas fusos reconhecidos pelo sistema para evitar erro no salvamento.</p>
+
+                                    <div class="flex justify-end mt-6 pt-6 border-t border-slate-900/10 dark:border-white/5">
+                                        <button type="submit" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">Salvar Fuso Horário</button>
                                     </div>
-                                </div>
+                                </form>
+                                <?php if (empty($timezoneOptions)): ?>
+                                    <div class="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                                        <p class="text-[11px] text-amber-700 dark:text-amber-300 font-bold">
+                                            ⚠ Lista de timezones vazia. Verifique se <code>tzdata</code> está instalado:
+                                            <code class="text-[10px]">sudo apt install -y tzdata</code>
+                                        </p>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         </div>
 
