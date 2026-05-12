@@ -1,5 +1,56 @@
 # Changelog
 
+## v2.6.0 — 2026-05-12
+
+### Consolidação: Gestão de Usuários volta pra dentro de `config.php`
+
+Em v2.3.0 a gestão de usuários virou página dedicada `/users.php` (admin-only)
+e a aba "usuarios" do `config.php` foi removida. Resultado: dois menus de
+usuário desconectados — um no sidebar separado, outro escondido em
+`config.php#tab-perfil` (auto-serviço de senha). Esta release **reverte
+parcialmente**: tudo volta pra `config.php` como aba `usuarios`, com **as
+features adicionadas em v2.3.0 preservadas** (busca, filtros, edição
+inline, last_login, reset de senha por admin).
+
+**Mudanças:**
+
+- **`config.php`**:
+  - Nova aba `Gestão de Usuários` (admin-only) no array `$tabs`,
+    posicionada antes de `Meu Perfil`.
+  - Handlers POST reativados: `add_user`, `toggle_user`, `delete_user`,
+    `update_role`, `update_email`, `reset_password` (todos com check
+    `$isAdmin`).
+  - Carrega `$allUsers` via `\App\Auth::getAllUsers()` quando admin.
+  - Helpers `$fmtUserDate` / `$relativeUserTime` (mesma lógica de v2.3.0).
+  - Aba `tab-usuarios` com tabela completa: avatar colorido por role,
+    email com inline edit, role com select auto-submit (bloqueado pra
+    self), status (Ativo/Suspenso/Bloqueado), Último Login (relativo +
+    absoluto), Criado, ações (🔑 reset / ⏸ suspend / ✕ delete).
+  - Toolbar com busca por username/email + filtros de role/status +
+    contador total/visível.
+  - Modal "Novo Usuário" (admin-only) com validação HTML.
+  - Banner "Senha temporária gerada" no topo da aba quando reset é
+    executado, com botão copiar.
+  - JS `filterUsers()` no rodapé do `<script>`.
+  - Aba `tab-perfil` perdeu o painel "Ir pra Gestão de Usuários" (já
+    não faz sentido — está logo ao lado).
+- **`includes/sidebar.php`**: entry "Usuários" removido (não faz mais
+  sentido — não é mais página dedicada).
+- **`users.php`**: virou redirect 301 pra `config.php?tab=usuarios#tab-usuarios`
+  pra não quebrar bookmarks/links externos antigos. Pode ser removido em
+  release futura.
+
+Backend (FastAPI) intocado — os endpoints `/api/v1/users/*` continuam os
+mesmos, só o frontend foi reorganizado.
+
+**Quando atualizar:** após `install-from-git.sh`, links/bookmarks pra
+`/users.php` continuam funcionando via redirect. Admins veem a aba nova
+em `config.php`. Viewer só vê `Meu Perfil`.
+
+VERSION 2.5.2 → 2.6.0 (minor bump — reorganização de UX).
+
+---
+
 ## v2.5.2 — 2026-05-12
 
 ### exports.php — fix CSRF (restore), toast com progresso real, snapshot, cache
