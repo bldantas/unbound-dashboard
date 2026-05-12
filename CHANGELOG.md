@@ -1,5 +1,57 @@
 # Changelog
 
+## v2.7.4 — 2026-05-12
+
+### "Sistema não instalado" — diagnóstico inline + tolerância a API offline
+
+Servidor recém-instalado mostrava "Sistema ainda não foi instalado" mesmo
+após o install.sh completar com sucesso. O diagnóstico estava enterrado
+no CLI; a página só dizia "ainda não instalado" sem indicar **em qual
+etapa parou**.
+
+**Causa raiz mais provável:** `Auth::hasUsers()` faz GET a
+`/api/v1/users/exists` e retorna `false` se a chamada falhar (curl
+timeout, api_service ainda subindo após restart, etc). `index.php`
+redireciona pra `not_installed.php` sem dar pista de que o problema
+é de conectividade, não de instalação.
+
+**Fix em `src/Auth.php`:**
+
+- Novo método **`hasUsersOrApiDown()`** — tolerante a transientes:
+  - API responde `{exists: true}` → `true` ✓
+  - API responde `{exists: false}` → `false` (sistema cru)
+  - **API não responde** mas `data/.installed` existe → `true`
+    (assume instalado; install.sh marcou a flag)
+  - API não responde E flag ausente → `false`
+- `hasUsers()` original mantém comportamento estrito (usado em outros
+  pontos que precisam de resposta autoritativa da API).
+
+**Fix em `index.php`:** usa `hasUsersOrApiDown()`. Hiccup do
+api_service não derruba o admin pra wizard.
+
+**`not_installed.php` ganhou diagnóstico inline em tempo real:**
+
+Quando a página renderiza, checa 3 sinais e mostra um card colorido:
+
+- `data/.installed` existe? (✓/✗)
+- `unbound-dashboard-api.service` em 127.0.0.1:8001 responde? (✓/✗)
+- Tabela `users` no DuckDB tem registros? (✓/✗/?)
+
+Com base nas combinações, exibe um diagnóstico narrativo e a seção
+"Como resolver" **adaptada ao cenário**:
+
+- API offline → comandos `systemctl status / journalctl / restart`.
+- API OK + users vazio → comando exato do `create_admin.py` manual
+  com env vars prontos pra copy-paste.
+- Outros casos → fallback genérico (rodar install.sh).
+
+Bloco de comandos de diagnóstico sempre visível no fim com 4 comandos
+prontos pra copy.
+
+VERSION 2.7.3 → 2.7.4.
+
+---
+
 ## v2.7.3 — 2026-05-12
 
 ### Aba NTP — fix do save de timezone + UX melhorada

@@ -226,10 +226,39 @@ class Auth
         return ['success' => false, 'message' => 'Erro ao resetar senha (' . $reason . ').'];
     }
 
+    /**
+     * Retorna true se há ao menos um user no DuckDB. Estritamente
+     * baseado na resposta da API. Use `hasUsersOrApiDown()` em
+     * páginas públicas que NÃO devem redirecionar quando a API
+     * está só temporariamente offline.
+     */
     public static function hasUsers(): bool
     {
         $resp = self::_unauthedGet('/api/v1/users/exists');
         return is_array($resp) && !empty($resp['exists']);
+    }
+
+    /**
+     * Verificação tolerante usada por index.php: retorna `true` se
+     * existem users OU se a API está offline mas existe a flag
+     * data/.installed (sistema foi instalado mas api_service não
+     * está respondendo agora). Evita o cenário "redireciono pro
+     * wizard de instalação só porque o api_service caiu por 5s".
+     *
+     * Casos:
+     *   - API respondeu `{exists: true}` → true (caminho feliz)
+     *   - API respondeu `{exists: false}` → false (sistema cru, mostra wizard)
+     *   - API não respondeu mas `data/.installed` existe → true (transiente)
+     *   - API não respondeu E `data/.installed` ausente → false (instalação incompleta)
+     */
+    public static function hasUsersOrApiDown(): bool
+    {
+        $resp = self::_unauthedGet('/api/v1/users/exists');
+        if (is_array($resp)) {
+            return !empty($resp['exists']);
+        }
+        // API não respondeu — confia na flag local de instalação completa.
+        return file_exists(__DIR__ . '/../data/.installed');
     }
 
     public static function check(): void

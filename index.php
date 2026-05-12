@@ -6,7 +6,9 @@ use App\Auth;
 
 // Se não houver usuários (sistema não instalado), exibe página estática.
 // Wizard PHP foi removido em v2.2.x — install.sh cria o admin.
-if (!\App\Auth::hasUsers()) {
+// Tolerante a API offline: se api_service não responde mas data/.installed
+// existe, assume "instalado" pra não exibir wizard durante hiccup.
+if (!\App\Auth::hasUsersOrApiDown()) {
     header('Location: not_installed.php');
     exit;
 }
