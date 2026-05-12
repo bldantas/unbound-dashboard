@@ -106,6 +106,12 @@ async def toggle_active(user_id: int, requesting_user_id: int) -> None:
     ok = await user_repo.toggle_active(user_id)
     if not ok:
         raise UserNotFound
+    # Após toggle, revoga tokens se a conta passou a inativa.
+    # (toggle_active inverte o valor — se ficou inactive agora, revoga)
+    user_now = await user_repo.find_by_id(user_id)
+    if user_now is not None and not user_now.get("is_active"):
+        from app.services import jwt_denylist  # late import — evita ciclo
+        await jwt_denylist.revoke_user_tokens(user_id)
 
 
 async def delete_user(user_id: int, requesting_user_id: int) -> None:
@@ -114,6 +120,10 @@ async def delete_user(user_id: int, requesting_user_id: int) -> None:
     ok = await user_repo.delete_by_id(user_id)
     if not ok:
         raise UserNotFound
+    # User deletado: revoga tokens (defesa em depth — find_by_id já falha
+    # depois, mas se algum middleware esquecer o check, o revoke pega).
+    from app.services import jwt_denylist
+    await jwt_denylist.revoke_user_tokens(user_id)
 
 
 class InvalidRole(UserError):
@@ -124,6 +134,10 @@ async def update_role(user_id: int, role: str, requesting_user_id: int) -> None:
     """
     Atualiza o role. Bloqueia self-target (admin não pode rebaixar-se
     sozinho — evita ficar sem admin no sistema; um outro admin precisa fazer).
+
+    Side-effect: revoga tokens do user se o role mudou. Sem isso, o user
+    rebaixado de admin pra viewer continuaria com role=admin no JWT até
+    o token expirar.
     """
     if role not in VALID_ROLES:
         raise InvalidRole
@@ -132,6 +146,9 @@ async def update_role(user_id: int, role: str, requesting_user_id: int) -> None:
     ok = await user_repo.update_role(user_id, role)
     if not ok:
         raise UserNotFound
+    # Revoga tokens — força re-login com role novo no claim
+    from app.services import jwt_denylist
+    await jwt_denylist.revoke_user_tokens(user_id)
 
 
 async def admin_reset_password(user_id: int, requesting_user_id: int) -> str:

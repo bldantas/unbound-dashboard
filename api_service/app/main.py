@@ -107,6 +107,10 @@ async def lifespan(app: FastAPI):
     await asyncio.gather(*_background_tasks, return_exceptions=True)
     _background_tasks.clear()
 
+    # Fecha conexão Redis singleton (denylist JWT, etc)
+    from app.infrastructure.redis_client import close_redis
+    await close_redis()
+
 
 app = FastAPI(
     title="Unbound Dashboard API (v1 modernization)",

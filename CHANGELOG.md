@@ -1,5 +1,62 @@
 # Changelog
 
+## v2.9.0 — 2026-05-12
+
+### Denylist Redis — revogação imediata de JWT
+
+Sliding session (v2.7.0) cobriu sessões zumbi pós-expiração, mas
+mantinha um buraco: quando admin **desativa um user** (ou rebaixa de
+admin pra viewer), o JWT antigo continuava válido pelo resto da janela
+(até 60min). Cenário: user comprometido permanece logado, ou ex-admin
+mantém privilégios por 1h após mudança de role.
+
+Solução: **per-user revocation timestamp em Redis**.
+
+**Modelo:**
+
+- Quando admin desativa/exclui/rebaixa um user, gravamos
+  `udash:revoke:user:<id> = <epoch_seconds>` em Redis com TTL =
+  `jwt_expire_minutes * 60` (60min default).
+- JWT agora carrega claim `iat` (issued at) — gravado em
+  `create_access_token`.
+- `require_auth` decodifica o JWT, depois checa: se
+  `iat < revoked_at`, retorna 401 com mensagem "Token revogado".
+
+**Fail-open**: se Redis estiver indisponível, `is_user_revoked` retorna
+`False` (aceita o token). Razão: denylist é defesa adicional — JWT
+ainda tem `exp`. Bloquear todos os logins porque Redis caiu é pior
+que perder revogação imediata.
+
+**Mudanças:**
+
+- `core/security.py::create_access_token` — adiciona `iat`.
+- `core/deps.py::require_auth` — check de denylist após decode_token.
+- `infrastructure/redis_client.py` — singleton async com pool,
+  inicializado lazy + `close_redis()` no shutdown do lifespan.
+- `services/jwt_denylist.py` — API pública: `revoke_user_tokens()`,
+  `is_user_revoked()`, `clear_user_revocation()`.
+- `services/users_service.py` — `toggle_active`, `delete_user`,
+  `update_role` agora revogam tokens do user afetado automaticamente.
+- `routers/auth.py::revoke_user` — endpoint `POST /api/v1/auth/revoke/{user_id}`:
+  - Admin pode revogar qualquer user.
+  - User pode revogar a si mesmo (auto-logout-everywhere).
+
+**Testado em produção:**
+
+- JWT fresh + revoke explícito → próxima chamada 401 com mensagem clara
+- JWT emitido APÓS revogação → passa normalmente (iat > revoked_at)
+- 58/58 testes pytest passando
+
+**Compatibilidade:**
+
+- Tokens antigos sem claim `iat` (pré-v2.9.0): `is_user_revoked` retorna
+  False (sem como comparar). Aceitos até expirarem naturalmente.
+  Próximo login emite token novo com `iat`.
+
+VERSION 2.8.3 → 2.9.0 (minor bump — feature de segurança).
+
+---
+
 ## v2.8.3 — 2026-05-12
 
 ### index.php — barra de status + controle do auto-refresh

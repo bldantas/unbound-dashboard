@@ -134,6 +134,30 @@ async def refresh(
 _REFRESH_GRACE_MINUTES = 10
 
 
+@router.post("/revoke/{user_id}", status_code=status.HTTP_200_OK)
+async def revoke_user(
+    user_id: int,
+    payload: Annotated[dict, Depends(require_auth)],
+) -> dict:
+    """
+    Force-revoke todos os tokens emitidos pra `user_id` até este momento.
+
+    Permissões:
+      - Admin pode revogar qualquer user
+      - User pode revogar a SI MESMO (auto-logout-everywhere)
+    """
+    requester_id = int(payload.get("sub", 0))
+    is_admin = payload.get("role") == "admin"
+    if not (is_admin or requester_id == user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas admin ou o próprio user pode revogar tokens",
+        )
+    from app.services import jwt_denylist
+    ok = await jwt_denylist.revoke_user_tokens(user_id)
+    return {"revoked": ok, "user_id": user_id}
+
+
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(_: Annotated[dict, Depends(require_auth)]) -> None:
     """

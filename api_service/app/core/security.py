@@ -41,9 +41,13 @@ def verify_password_dummy() -> None:
 
 
 def create_access_token(payload: dict, expires_delta: timedelta | None = None) -> str:
-    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=settings.jwt_expire_minutes))
+    now = datetime.now(UTC)
+    expire = now + (expires_delta or timedelta(minutes=settings.jwt_expire_minutes))
+    # `iat` (issued at) é usado pelo denylist Redis: quando admin
+    # desativa um user, gravamos `user:<id>:revoked_at = now`. Tokens
+    # com `iat < revoked_at` são rejeitados em require_auth.
     return jwt.encode(
-        {**payload, "exp": expire},
+        {**payload, "iat": int(now.timestamp()), "exp": expire},
         settings.jwt_secret.get_secret_value(),
         algorithm=settings.jwt_algorithm,
     )
