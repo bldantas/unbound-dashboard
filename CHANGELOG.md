@@ -1,5 +1,47 @@
 # Changelog
 
+## v2.9.3 — 2026-05-12
+
+### Aba "Controle de Acesso" — busca + filtro por ação + contadores live
+
+A aba ACL tinha só "Nova Regra" + lista flat de N linhas. Em servidores
+com muitas regras (faixas grandes de clientes), encontrar uma faixa ou
+ver "quantas DENY tenho?" exigia scroll manual.
+
+**Adições:**
+
+- **Toolbar** acima da lista:
+  - **Busca por IP / CIDR** (oninput, client-side, case-insensitive).
+    Match parcial: "192.168" mostra todas as 192.168.x.x; "10.0.0.0/8"
+    encontra a faixa exata.
+  - **Dropdown "Filtrar ação"** com contagem em cada opção:
+    `TODAS (N) / ALLOW (X) / DENY (Y) / REFUSE (Z)`.
+- **Chips clicáveis por ação** abaixo da toolbar:
+  - "Todas (N)" / "Allow (X)" verde / "Deny (Y)" vermelho /
+    "Refuse (Z)" âmbar.
+  - Clique aplica o filtro de ação (setAclFilter).
+- **Contador "Visíveis: X / N"** alinhado à direita.
+- **Mensagem "Nenhuma regra atende ao filtro"** quando filtros excluem
+  tudo.
+
+**Linhas ACL ganharam `data-ip` e `data-action`:**
+
+- `oninput` do IP atualiza `data-ip` em lowercase pra busca funcionar
+  enquanto o admin digita.
+- `onchange` do select atualiza `data-action` + chama `updateAclCounts()`
+  pra refletir nos chips em tempo real (sem reload).
+- Botão remover idem: chama `updateAclCounts` + `filterAclRows`.
+
+**`addAclRow()`** atualizado pra criar linha com data-attrs e listeners
+inline + chama `updateAclCounts` no final.
+
+Tudo client-side — backend (save_unbound_settings que processa
+`acl_ips[]`/`acl_actions[]`) intocado.
+
+VERSION 2.9.2 → 2.9.3.
+
+---
+
 ## v2.9.2 — 2026-05-12
 
 ### Fix crítico: aba NTP não salvava nada (form-em-form)

@@ -616,20 +616,84 @@ function field($key, $label, $desc = '', $def = '')
                             </div>
                         </div>
 
-                        <div id="tab-acl" class="tab-content space-y-8">
+                        <div id="tab-acl" class="tab-content space-y-6">
+                            <?php
+                                // Contagens por ação pra header dos chips
+                                $aclCounts = ['allow' => 0, 'deny' => 0, 'refuse' => 0];
+                                foreach ($currentConfig['access-control'] ?? [] as $aclItem) {
+                                    $a = $aclItem['action'] ?? 'allow';
+                                    if (isset($aclCounts[$a])) $aclCounts[$a]++;
+                                }
+                                $aclTotal = array_sum($aclCounts);
+                            ?>
+
                             <div class="glass-panel">
-                                <div class="flex justify-between items-center mb-8 border-b border-slate-900/10 dark:border-white/5 pb-4">
-                                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">ACLs</h3><button type="button" onclick="addAclRow()" class="glass-btn text-[10px] font-black uppercase">Nova Regra</button>
+                                <div class="flex justify-between items-center mb-6 border-b border-slate-900/10 dark:border-white/5 pb-4 flex-wrap gap-3">
+                                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">ACLs (Controle de Acesso)</h3>
+                                    <button type="button" onclick="addAclRow()" class="glass-btn text-[10px] font-black uppercase">+ Nova Regra</button>
                                 </div>
 
-                                <div id="acl-list" class="space-y-3"><?php foreach ($currentConfig['access-control'] ?? [] as $acl): ?><div class="flex items-center gap-3 bg-slate-900/5 dark:bg-white/5 p-3 rounded-2xl border border-slate-200 dark:border-white/5"><input type="text" name="acl_ips[]" value="<?= htmlspecialchars($acl['ip']) ?>" class="flex-1 bg-transparent text-slate-900 dark:text-white font-mono text-sm border-none"><select name="acl_actions[]" class="bg-slate-200 dark:bg-slate-800 text-[10px] font-black text-slate-900 dark:text-white uppercase rounded-xl border-none">
-                                                <option value="allow" <?= $acl['action'] === 'allow' ? 'selected' : '' ?>>ALLOW</option>
-                                                <option value="deny" <?= $acl['action'] === 'deny' ? 'selected' : '' ?>>DENY</option>
-                                                <option value="refuse" <?= $acl['action'] === 'refuse' ? 'selected' : '' ?>>REFUSE</option>
-                                            </select><button type="button" onclick="this.parentElement.remove()" class="text-red-500/50 p-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path d="M6 18L18 6M6 6l12 12"></path>
-                                                </svg></button></div><?php endforeach; ?></div>
+                                <!-- Toolbar: busca + filtro de ação + chips de contagem -->
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                                    <div class="md:col-span-2">
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Buscar IP / CIDR</label>
+                                        <input type="text" id="aclSearch" oninput="filterAclRows()" placeholder="ex: 192.168, 10.0.0.0/8, ::1" class="glass-input w-full font-mono text-xs">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Filtrar ação</label>
+                                        <select id="aclActionFilter" onchange="filterAclRows()" class="glass-input w-full uppercase text-[10px] font-black">
+                                            <option value="">TODAS (<?= $aclTotal ?>)</option>
+                                            <option value="allow">ALLOW (<?= $aclCounts['allow'] ?>)</option>
+                                            <option value="deny">DENY (<?= $aclCounts['deny'] ?>)</option>
+                                            <option value="refuse">REFUSE (<?= $aclCounts['refuse'] ?>)</option>
+                                        </select>
+                                    </div>
+                                </div>
 
+                                <!-- Chips por ação — clique aplica filtro -->
+                                <div class="flex flex-wrap gap-2 mb-4">
+                                    <button type="button" onclick="setAclFilter('')" class="acl-chip glass-btn !py-1 !px-3 text-[9px] uppercase tracking-widest font-black">
+                                        Todas (<span id="aclCountAll"><?= $aclTotal ?></span>)
+                                    </button>
+                                    <button type="button" onclick="setAclFilter('allow')" class="acl-chip glass-btn !py-1 !px-3 text-[9px] uppercase tracking-widest font-black border-emerald-500/30 text-emerald-500">
+                                        Allow (<span id="aclCountAllow"><?= $aclCounts['allow'] ?></span>)
+                                    </button>
+                                    <button type="button" onclick="setAclFilter('deny')" class="acl-chip glass-btn !py-1 !px-3 text-[9px] uppercase tracking-widest font-black border-red-500/30 text-red-500">
+                                        Deny (<span id="aclCountDeny"><?= $aclCounts['deny'] ?></span>)
+                                    </button>
+                                    <button type="button" onclick="setAclFilter('refuse')" class="acl-chip glass-btn !py-1 !px-3 text-[9px] uppercase tracking-widest font-black border-amber-500/30 text-amber-500">
+                                        Refuse (<span id="aclCountRefuse"><?= $aclCounts['refuse'] ?></span>)
+                                    </button>
+                                    <span class="ml-auto text-[10px] text-slate-500 font-black uppercase tracking-widest self-center">
+                                        Visíveis: <span id="aclCountVisible"><?= $aclTotal ?></span> / <?= $aclTotal ?>
+                                    </span>
+                                </div>
+
+                                <div id="acl-list" class="space-y-3">
+                                    <?php foreach ($currentConfig['access-control'] ?? [] as $acl):
+                                        $aclIp = $acl['ip'] ?? '';
+                                        $aclAction = $acl['action'] ?? 'allow';
+                                        ?>
+                                        <div class="acl-row flex items-center gap-3 bg-slate-900/5 dark:bg-white/5 p-3 rounded-2xl border border-slate-200 dark:border-white/5"
+                                             data-ip="<?= htmlspecialchars(strtolower($aclIp)) ?>"
+                                             data-action="<?= htmlspecialchars($aclAction) ?>">
+                                            <input type="text" name="acl_ips[]" value="<?= htmlspecialchars($aclIp) ?>"
+                                                   oninput="this.parentElement.dataset.ip = this.value.toLowerCase(); filterAclRows();"
+                                                   class="flex-1 bg-transparent text-slate-900 dark:text-white font-mono text-sm border-none">
+                                            <select name="acl_actions[]"
+                                                    onchange="this.parentElement.dataset.action = this.value; updateAclCounts(); filterAclRows();"
+                                                    class="bg-slate-200 dark:bg-slate-800 text-[10px] font-black text-slate-900 dark:text-white uppercase rounded-xl border-none">
+                                                <option value="allow" <?= $aclAction === 'allow' ? 'selected' : '' ?>>ALLOW</option>
+                                                <option value="deny" <?= $aclAction === 'deny' ? 'selected' : '' ?>>DENY</option>
+                                                <option value="refuse" <?= $aclAction === 'refuse' ? 'selected' : '' ?>>REFUSE</option>
+                                            </select>
+                                            <button type="button" onclick="this.parentElement.remove(); updateAclCounts(); filterAclRows();" class="text-red-500/50 p-2" title="Remover">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"></path></svg>
+                                            </button>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                                <p id="aclEmpty" class="hidden text-center text-slate-500 text-sm py-6">Nenhuma regra atende ao filtro.</p>
                             </div>
                         </div>
 
@@ -1351,10 +1415,70 @@ function field($key, $label, $desc = '', $def = '')
         function addAclRow() {
             const list = document.getElementById('acl-list');
             const div = document.createElement('div');
-            div.className = "flex items-center gap-3 bg-slate-900/5 dark:bg-white/5 p-3 rounded-2xl border border-slate-200 dark:border-white/5 animate-fade-in";
-            div.innerHTML = `<input type="text" name="acl_ips[]" class="flex-1 bg-transparent text-slate-900 dark:text-white font-mono text-sm border-none"><select name="acl_actions[]" class="bg-slate-200 dark:bg-slate-800 text-[10px] font-black text-slate-900 dark:text-white uppercase rounded-xl border-none"><option value="allow">ALLOW</option><option value="deny">DENY</option><option value="refuse">REFUSE</option></select><button type="button" onclick="this.parentElement.remove()" class="text-red-500/50 p-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"></path></svg></button>`;
+            div.className = "acl-row flex items-center gap-3 bg-slate-900/5 dark:bg-white/5 p-3 rounded-2xl border border-slate-200 dark:border-white/5 animate-fade-in";
+            div.dataset.ip = '';
+            div.dataset.action = 'allow';
+            div.innerHTML = `<input type="text" name="acl_ips[]" oninput="this.parentElement.dataset.ip = this.value.toLowerCase(); filterAclRows();" class="flex-1 bg-transparent text-slate-900 dark:text-white font-mono text-sm border-none"><select name="acl_actions[]" onchange="this.parentElement.dataset.action = this.value; updateAclCounts(); filterAclRows();" class="bg-slate-200 dark:bg-slate-800 text-[10px] font-black text-slate-900 dark:text-white uppercase rounded-xl border-none"><option value="allow">ALLOW</option><option value="deny">DENY</option><option value="refuse">REFUSE</option></select><button type="button" onclick="this.parentElement.remove(); updateAclCounts(); filterAclRows();" class="text-red-500/50 p-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"></path></svg></button>`;
             list.appendChild(div);
+            updateAclCounts();
+            filterAclRows();
         }
+
+        // -- Filtros e contagens da aba Controle de Acesso (ACL) --
+        function filterAclRows() {
+            const searchEl = document.getElementById('aclSearch');
+            const filterEl = document.getElementById('aclActionFilter');
+            if (!searchEl || !filterEl) return; // aba não renderizada (não-admin)
+            const q = (searchEl.value || '').trim().toLowerCase();
+            const act = filterEl.value;
+            const rows = document.querySelectorAll('.acl-row');
+            let visible = 0;
+            rows.forEach(row => {
+                const matchQ = !q || (row.dataset.ip || '').includes(q);
+                const matchAct = !act || row.dataset.action === act;
+                const show = matchQ && matchAct;
+                row.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            const visEl = document.getElementById('aclCountVisible');
+            const emptyEl = document.getElementById('aclEmpty');
+            if (visEl) visEl.textContent = visible;
+            if (emptyEl) emptyEl.classList.toggle('hidden', visible !== 0 || rows.length === 0);
+        }
+
+        function setAclFilter(action) {
+            const el = document.getElementById('aclActionFilter');
+            if (el) { el.value = action; filterAclRows(); }
+        }
+
+        function updateAclCounts() {
+            const rows = document.querySelectorAll('.acl-row');
+            let allow = 0, deny = 0, refuse = 0;
+            rows.forEach(r => {
+                if (r.dataset.action === 'allow') allow++;
+                else if (r.dataset.action === 'deny') deny++;
+                else if (r.dataset.action === 'refuse') refuse++;
+            });
+            const setIf = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            const total = allow + deny + refuse;
+            setIf('aclCountAll', total);
+            setIf('aclCountAllow', allow);
+            setIf('aclCountDeny', deny);
+            setIf('aclCountRefuse', refuse);
+            // Atualiza também as opções do select (textos com contagem)
+            const sel = document.getElementById('aclActionFilter');
+            if (sel) {
+                const opts = sel.querySelectorAll('option');
+                if (opts[0]) opts[0].textContent = `TODAS (${total})`;
+                if (opts[1]) opts[1].textContent = `ALLOW (${allow})`;
+                if (opts[2]) opts[2].textContent = `DENY (${deny})`;
+                if (opts[3]) opts[3].textContent = `REFUSE (${refuse})`;
+            }
+        }
+        // Expostas globalmente pros onclick inline
+        window.filterAclRows = filterAclRows;
+        window.setAclFilter = setAclFilter;
+        window.updateAclCounts = updateAclCounts;
 
         // Adiciona uma nova linha de entrada para encaminhadores DNS.
         function addFwdRow() {
