@@ -1,5 +1,56 @@
 # Changelog
 
+## v2.5.0 — 2026-05-12
+
+### Nova página Cache DNS (cache.php)
+
+Inspeção visual do cache do Unbound (rrset + msg), com flush por entry,
+distribuição de TTL e top types. Estava só acessível via CLI
+(`unbound-control dump_cache`).
+
+**Backend (PHP):**
+
+- `api/cache_dump.php` — executa `unbound-control dump_cache`, parseia
+  ambas seções (rrset_cache + msg_cache), agrega stats e devolve JSON.
+  - Limita a 5000 entries por seção (mais que isso o filtro client-side
+    engasga; flag `truncated` quando aplica).
+  - Cache em arquivo `src/data/tmp/unbound_cache_dump.json` por **30s**
+    pra não estressar o daemon; `?force=1` ignora cache.
+  - Stats: total/shown/truncated por seção, `ttl_buckets`
+    (expirado/<60s/<5min/<1h/<1d/>1d), top 10 types, top 10 TLDs,
+    contagem distinta.
+- `api/cache_flush.php` — POST admin-only com `csrf_token` + `domain`.
+  Roda `unbound-control flush <domain>` (validação:
+  `[a-zA-Z0-9._-]+`, ≤253 chars). Invalida o cache JSON pra próximo
+  refresh refletir.
+
+**UI (`cache.php`):**
+
+- Stats cards: total RRset, total Msg, types distintos, TLDs distintos
+  (com indicador "truncado" quando aplica).
+- **Bar chart de distribuição de TTL** (Chart.js) por bucket
+  (expirado, <1min, 1-5min, 5-60min, 1-24h, >1d), cores semáforo.
+- **Top Types** lista lateral.
+- **Tabs RRset Cache / Msg Cache** — alterna a tabela e o tipo de
+  filtro disponível.
+- **Toolbar**: busca por nome ou rdata, filtro de tipo (populado
+  dinamicamente), contagem total/visível, flag de truncamento.
+- **Tabela** com nome, tipo (badge colorido), valor/flags, TTL
+  formatado (s/m/h/d, amarelo se ≤60s).
+- **Render limit visual: 1000 linhas** (mais que isso vira footer
+  "exibindo X de Y — refine os filtros").
+- **Flush por linha** (admin-only): botão 🗑 com confirm + toast +
+  recarga automática.
+- Botão "Atualizar" no header (força ?force=1).
+
+**Sidebar**: entry "Cache DNS" em "Ferramentas".
+
+Sudoers já permitia `unbound-control *` — sem mudança.
+
+VERSION 2.4.0 → 2.5.0 (minor bump — página nova).
+
+---
+
 ## v2.4.0 — 2026-05-12
 
 ### Limiares de alerta editáveis pela UI
