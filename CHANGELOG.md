@@ -1,5 +1,67 @@
 # Changelog
 
+## v2.8.0 — 2026-05-12
+
+### logs.php — fontes novas, busca/filtro/highlighting/auto-refresh
+
+Página de logs tinha 3 fontes (syslog, unbound, live) e era basicamente
+um `tail -300` server-side. Sem filtros, sem busca, sem destaque por
+nível, sem auto-refresh.
+
+**Fontes novas (3 adicionadas, total 6):**
+
+| Fonte | Comando | Cor |
+|---|---|---|
+| Syslog O.S. | `tail -n N /var/log/syslog` | slate |
+| Unbound Daemon | `tail` / `journalctl -u unbound` | emerald |
+| **API FastAPI** | `journalctl -u unbound-dashboard-api` | blue |
+| **Apache** | `journalctl -u apache2` | orange |
+| **PHP-FPM** | `journalctl -u phpX.Y-fpm` (detecta versão) | pink |
+| Live Sniffer | polling `api/live_log.php` | purple |
+
+Todas via grupo `adm` do www-data (sem precisar de sudo extra) —
+`install.sh` já adiciona o user ao grupo desde v2.2.7.
+
+**Toolbar nova (logs estáticos):**
+
+- **Busca no buffer**: filtro client-side por texto (case-insensitive).
+- **Filtro por nível**: dropdown (TODOS/ERROR/WARN/INFO/DEBUG). Detecção
+  regex sobre cada linha — `\berror|err|fatal|critical\b` → error,
+  `\bwarning|warn\b` → warn, etc.
+- **Seletor de linhas**: 100/300/500/1000/2000 (default 300, max 5000).
+  Reload da página com `?lines=N`.
+- **Auto-refresh 5s**: checkbox no fim da toolbar — reload da página
+  inteira em loop. Útil pra acompanhar erros em tempo real.
+- **Contador total/visíveis** + timestamp da última atualização.
+
+**Syntax highlighting** — cada linha ganha cor pelo nível detectado:
+
+- 🔴 Vermelho — `error`, `err`, `fatal`, `critical`
+- 🟡 Âmbar — `warning`, `warn`
+- 🔵 Slate-400 — `info`, `notice`
+- 🩶 Slate-600 — `debug`, `trace`
+
+Fácil escanear visualmente onde estão os problemas.
+
+**Live Sniffer** ganhou:
+
+- **Botão ⏸ Pause / ▶ Resume** — pausa o polling pra inspecionar saída.
+- **Botão 🗑 Limpar** — esvazia o buffer (mantendo polling).
+
+**Botão 📋 Copiar** nos logs estáticos: copia para o clipboard apenas
+as linhas atualmente visíveis (respeita filtros).
+
+**Hardening:**
+
+- `$logFile` validado contra allowlist `['syslog','unbound','api','apache','phpfpm','live']`.
+- `$linesParam` clampado: `max(50, min(5000, ...))`.
+- Removido o uso de `sudo` (grupo `adm` é suficiente — menos pressão no
+  sudoers entries que estão ficando longas).
+
+VERSION 2.7.5 → 2.8.0 (minor bump — 3 fontes + features novas).
+
+---
+
 ## v2.7.5 — 2026-05-12
 
 ### install.sh: detecta "flag .installed presente + DuckDB vazio"
