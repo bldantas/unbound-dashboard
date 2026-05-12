@@ -1,15 +1,39 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/BlocklistManager.php';
 use App\Auth;
+use App\BlocklistManager;
 Auth::check();
 
 $currentPage = 'blocklist.php';
+
+// Source ativa + metadata da blocklist
+$bm = new BlocklistManager();
+$blocklistSource = $bm->getBlocklistSource(); // stevenblack | hagezi_normal | hagezi_pro
+$sourceLabels = [
+    'stevenblack'   => ['name' => 'StevenBlack',       'desc' => 'Hosts unificado (Adware/Malware/Trackers)'],
+    'hagezi_normal' => ['name' => 'Hagezi Normal',     'desc' => 'Multi NORMAL'],
+    'hagezi_pro'    => ['name' => 'Hagezi Pro',        'desc' => 'Multi PRO (mais agressivo)'],
+];
+$sourceMeta = $sourceLabels[$blocklistSource] ?? ['name' => $blocklistSource, 'desc' => 'Fonte personalizada'];
+
+$blocklistFile = __DIR__ . '/src/data/official_blocklist.conf';
+$blocklistMtime = file_exists($blocklistFile) ? filemtime($blocklistFile) : 0;
+$blocklistAgeSecs = $blocklistMtime > 0 ? (time() - $blocklistMtime) : null;
+$fmtAge = function ($secs) {
+    if ($secs === null) return 'nunca';
+    if ($secs < 60) return $secs . 's atrás';
+    if ($secs < 3600) return floor($secs / 60) . ' min atrás';
+    if ($secs < 86400) return floor($secs / 3600) . 'h atrás';
+    return floor($secs / 86400) . 'd atrás';
+};
+$blocklistAgeText = $fmtAge($blocklistAgeSecs);
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Lista Judicial ANATEL - Unbound DNS</title>
-    <meta name="description" content="Consulta e pesquisa de domínios bloqueados judicialmente pela ANATEL via Anablock.">
+    <title>Lista de Bloqueio - Unbound DNS</title>
+    <meta name="description" content="Consulta e pesquisa de domínios na lista de bloqueio ativa (StevenBlack / Hagezi).">
     <?php include 'includes/head.php'; ?>
 </head>
 <body class="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 transition-colors duration-300">
@@ -17,11 +41,40 @@ $currentPage = 'blocklist.php';
     <?php include 'includes/sidebar.php'; ?>
     
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
-        <?php 
-        $pageTitle = "Lista Judicial ANATEL";
-        include 'includes/topbar.php'; 
+        <?php
+        $pageTitle = "Lista de Bloqueio Ativa";
+        include 'includes/topbar.php';
         ?>
         <div class="page-container">
+
+            <!-- Source info panel -->
+            <div class="glass-panel border-l-4 border-orange-500 mb-6 border-slate-200 dark:border-white/5">
+                <div class="flex items-center justify-between gap-4 flex-wrap">
+                    <div>
+                        <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Origem Ativa</p>
+                        <p class="text-sm font-bold text-slate-900 dark:text-white">
+                            <span class="text-orange-500 dark:text-orange-400"><?= htmlspecialchars($sourceMeta['name']) ?></span>
+                            <span class="text-slate-500 dark:text-slate-400 font-medium"> · <?= htmlspecialchars($sourceMeta['desc']) ?></span>
+                        </p>
+                        <p class="text-[11px] text-slate-500 mt-1">
+                            Última atualização do arquivo:
+                            <span class="font-mono font-bold text-slate-700 dark:text-slate-300"><?= htmlspecialchars($blocklistAgeText) ?></span>
+                            <?php if ($blocklistMtime > 0): ?>
+                                <span class="text-slate-500 dark:text-slate-600">(<?= date('d/m/Y H:i', $blocklistMtime) ?>)</span>
+                            <?php endif; ?>
+                            <span class="ml-2 text-slate-500 dark:text-slate-600">— configure a fonte em <a href="config.php#tab-rpz" class="text-orange-500 hover:underline">Configurações → Lista de Bloqueios</a>.</span>
+                        </p>
+                    </div>
+                    <?php if (\App\Auth::isAdmin()): ?>
+                        <button type="button" id="btnUpdateBlocklist"
+                                class="glass-btn !bg-orange-600 !text-white text-[10px] uppercase font-black flex items-center gap-2"
+                                title="Re-baixa a fonte ativa e regenera o arquivo">
+                            <svg id="iconRefresh" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                            <span id="btnUpdateBlocklistLabel">Atualizar Agora</span>
+                        </button>
+                    <?php endif; ?>
+                </div>
+            </div>
 
             <!-- Stats Cards -->
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8" id="statsCards">
@@ -32,7 +85,7 @@ $currentPage = 'blocklist.php';
                         <div class="metric-value text-orange-500" id="statTotal">
                             <div class="w-16 h-7 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse"></div>
                         </div>
-                        <div class="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-2">Lista Oficial Anablock</div>
+                        <div class="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-2">Origem: <?= htmlspecialchars($sourceMeta['name']) ?></div>
                     </div>
                 </div>
                 <div class="glass-panel group border-slate-200 dark:border-white/5 relative overflow-hidden">
@@ -145,7 +198,7 @@ $currentPage = 'blocklist.php';
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
                     <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
                         <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
-                        Domínios Bloqueados — Determinação Judicial
+                        Domínios Bloqueados — Origem: <?= htmlspecialchars($sourceMeta['name']) ?>
                     </h3>
                     <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest" id="tableInfo">Carregando...</span>
                 </div>
@@ -529,6 +582,41 @@ $currentPage = 'blocklist.php';
             fetchDomains();
         }
     };
+
+    // -- Botão "Atualizar Agora" (admin only) --
+    const btnUpdate = document.getElementById('btnUpdateBlocklist');
+    if (btnUpdate) {
+        btnUpdate.addEventListener('click', async () => {
+            const label = document.getElementById('btnUpdateBlocklistLabel');
+            const icon = document.getElementById('iconRefresh');
+            btnUpdate.disabled = true;
+            label.textContent = 'Atualizando...';
+            icon && icon.classList.add('animate-spin');
+            try {
+                const fd = new FormData();
+                fd.append('action', 'update_blacklist');
+                const res = await fetch('api/service_control.php', { method: 'POST', body: fd, cache: 'no-store' });
+                const json = await res.json().catch(() => ({}));
+                if (window.AppUI && typeof window.AppUI.toast === 'function') {
+                    window.AppUI.toast(json.message || 'Sincronização iniciada.', json.success ? 'success' : 'error');
+                } else {
+                    alert(json.message || 'Sincronização iniciada.');
+                }
+                // Aguarda ~5s pra dar tempo do background script iniciar, depois recarrega
+                // (a página vai pegar o mtime novo no PHP server-side).
+                setTimeout(() => location.reload(), 5000);
+            } catch (err) {
+                if (window.AppUI && typeof window.AppUI.toast === 'function') {
+                    window.AppUI.toast('Falha ao iniciar sincronização: ' + err.message, 'error');
+                } else {
+                    alert('Falha ao iniciar sincronização: ' + err.message);
+                }
+                btnUpdate.disabled = false;
+                label.textContent = 'Atualizar Agora';
+                icon && icon.classList.remove('animate-spin');
+            }
+        });
+    }
 
     // -- Init --
     fetchDomains();

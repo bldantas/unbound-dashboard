@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.3.2 — 2026-05-12
+
+### blocklist.php — origem ativa visível + atualização sob demanda
+
+A página da lista de bloqueio tinha título hardcoded em "Lista Judicial ANATEL —
+Anablock", mas a origem real era configurável em `config.php` (StevenBlack /
+Hagezi Normal / Hagezi Pro). Anablock nem é mais uma opção. Resultado:
+usuário não sabia qual lista estava vendo nem quando foi atualizada.
+
+**Mudanças:**
+
+- **Título**: "Lista Judicial ANATEL" → "Lista de Bloqueio Ativa"
+  (HTML title, topbar title, meta description).
+- **Novo painel "Origem Ativa"** no topo:
+  - Mostra a fonte ativa (StevenBlack / Hagezi Normal / Hagezi Pro) com
+    descrição curta lendo `blacklist_source` setting via
+    `BlocklistManager::getBlocklistSource()` (que usa FastAPI/DuckDB).
+  - Badge "Última atualização do arquivo: N min/h/d atrás (DD/MM HH:MM)"
+    calculado de `filemtime(src/data/official_blocklist.conf)`.
+  - Link "Configurações → Lista de Bloqueios" pra trocar a origem.
+- **Botão "Atualizar Agora"** (admin-only):
+  - Dispara `POST api/service_control.php action=update_blacklist` (já
+    existia — re-baixa a fonte ativa em background via
+    `scripts/update_blacklist.php`).
+  - Animação de spinner no ícone + label muda pra "Atualizando...".
+  - Toast de sucesso/erro, page reload depois de 5s pra refletir o mtime
+    novo.
+- **Card "Total de Domínios"** e **header da tabela** agora dizem
+  "Origem: <Source>" em vez do hardcoded "Anablock".
+
+Sem mudança de backend — `BlocklistManager` e `api/service_control.php`
+já existiam. Endpoint de leitura da lista (`api/blocklist_search.php`)
+continua igual (lê do arquivo flat, cache JSON local).
+
+---
+
 ## v2.3.1 — 2026-05-12
 
 ### alerts.php — repaginação da tabela de histórico + thresholds visíveis
