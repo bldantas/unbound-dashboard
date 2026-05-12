@@ -1,5 +1,49 @@
 # Changelog
 
+## v2.3.1 — 2026-05-12
+
+### alerts.php — repaginação da tabela de histórico + thresholds visíveis
+
+A tabela de "Ocorrências Críticas" ganhou filtros, busca e visibilidade
+do campo `severity` (que já existia no schema mas era ignorado na UI).
+Cards de hardware no topo agora mostram o threshold que dispara cada
+categoria de alerta — dá contexto entre "métrica atual" e "alerta
+histórico".
+
+**Cards de hardware (topo) — thresholds inline:**
+
+- CPU: `⚠ Alerta se load1 > 4.0`
+- RAM: `⚠ Alerta se uso > 90% · swap > 50%`
+- Armazenamento: `⚠ Alerta se uso > 90%`
+- Network: `⚠ Alerta se errors ou drops > 100`
+- SSH: `⚠ Alerta se falhas hoje > 50`
+
+Valores hardcoded espelhando `api_service/app/workers/alert_checker.py:48-53`
+(comentário no PHP avisa pra manter em sync — promovido a settings dinâmico
+quando justificar overhead).
+
+**Tabela de alertas — features novas:**
+
+- **Severity coluna**: badge colorido (critical=vermelho, warning=âmbar,
+  info=azul) lendo o campo `severity` que vinha sendo descartado.
+- **Coluna duração**: lê `duration_secs` do endpoint pra resolvidos; pra
+  ativos, calcula em tempo real (now - started_at). Formatação humanizada
+  (s/min/h/d).
+- **Busca por mensagem ou tipo** (client-side, oninput).
+- **Filtros**: status (ativo/resolvido), severidade (critical/warning/info).
+- **Chips por tipo** acima da toolbar: contagem `ativos/total` por tipo,
+  bolinha vermelha pulsante se há ativos, clique aplica filtro de tipo.
+  Lista os tipos conhecidos: cpu, memory, swap, disk, network, security,
+  webserver, no_queries (oculta tipos sem ocorrências).
+- **Contagem total/visível** na toolbar.
+- **Confirmação modal** no "Limpar Resolvidos" via `data-confirm-message`.
+
+Backend não mudou — endpoints `/api/v1/alerts/{list,resolve,clear-resolved}`
+já retornavam `severity` e `duration_secs`. Página continua usando Strangler
+Fig (FastAPI primário, AlertManager PHP/DuckDB fallback).
+
+---
+
 ## v2.3.0 — 2026-05-11
 
 ### Página dedicada de Gestão de Usuários (`users.php`)

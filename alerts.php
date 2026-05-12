@@ -130,6 +130,34 @@ if (!$loadedFromApi) {
 }
 
 $currentPage = 'alerts.php';
+
+// Thresholds que disparam alertas — espelhar com
+// api_service/app/workers/alert_checker.py:48-53. Mostrar na UI dá contexto
+// pro admin entre "métrica atual" e "alerta histórico".
+$thresholds = [
+    'cpu_load1'        => 4.0,
+    'mem_percent'      => 90.0,
+    'swap_percent'     => 50.0,
+    'disk_percent'     => 90.0,
+    'network_counters' => 100,
+    'ssh_failed_day'   => 50,
+];
+
+// Tipos conhecidos pra contagem agregada — usar no header da tabela
+$alertTypes = ['cpu', 'memory', 'swap', 'disk', 'network', 'security', 'webserver', 'no_queries'];
+$countsByType = array_fill_keys($alertTypes, ['active' => 0, 'total' => 0]);
+foreach (($alerts ?? []) as $a) {
+    $t = $a['type'] ?? 'other';
+    if (!isset($countsByType[$t])) {
+        $countsByType[$t] = ['active' => 0, 'total' => 0];
+    }
+    $countsByType[$t]['total']++;
+    if (empty($a['resolved_at'])) {
+        $countsByType[$t]['active']++;
+    }
+}
+// Remove tipos com zero ocorrências do header
+$countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
 ?>
     <?php include 'includes/sidebar.php'; ?>
 
@@ -164,6 +192,7 @@ $currentPage = 'alerts.php';
                     <div class="flex justify-between items-end">
                         <div id="alertsCpuLoadValues" class="text-2xl font-black text-blue-500 dark:text-blue-400">-- / -- / --</div>
                     </div>
+                    <p class="text-[9px] text-slate-500 mt-2 uppercase tracking-widest font-bold">⚠ Alerta se load1 &gt; <?= $thresholds['cpu_load1'] ?></p>
 
                 </div>
 
@@ -181,6 +210,7 @@ $currentPage = 'alerts.php';
                     <div class="progress-bar">
                         <div id="alertsMemBar" class="progress-value bg-emerald-500" style="width: 0%"></div>
                     </div>
+                    <p class="text-[9px] text-slate-500 mt-2 uppercase tracking-widest font-bold">⚠ Alerta se uso &gt; <?= $thresholds['mem_percent'] ?>% · swap &gt; <?= $thresholds['swap_percent'] ?>%</p>
                 </div>
 
                 <!-- Swap/Disk -->
@@ -197,6 +227,7 @@ $currentPage = 'alerts.php';
                     <div class="progress-bar">
                         <div id="alertsDiskBar" class="progress-value bg-purple-500" style="width: 0%"></div>
                     </div>
+                    <p class="text-[9px] text-slate-500 mt-2 uppercase tracking-widest font-bold">⚠ Alerta se uso &gt; <?= $thresholds['disk_percent'] ?>%</p>
                 </div>
 
                 <!-- Network -->
@@ -213,6 +244,7 @@ $currentPage = 'alerts.php';
                     <div class="flex justify-between items-end">
                         <div id="alertsNetTotal" class="text-2xl font-black text-cyan-500 dark:text-cyan-400">--</div>
                     </div>
+                    <p class="text-[9px] text-slate-500 mt-2 uppercase tracking-widest font-bold">⚠ Alerta se errors ou drops &gt; <?= $thresholds['network_counters'] ?></p>
 
                 </div>
             </div>
@@ -234,6 +266,7 @@ $currentPage = 'alerts.php';
                         </div>
                         <p class="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-3">Falhas detectadas no auth.log hoje (Acessos suspeitos).</p>
                         <div id="alertsFailedLogins" class="text-3xl font-black text-slate-800 dark:text-slate-300">--</div>
+                        <p class="text-[9px] text-slate-500 mt-2 uppercase tracking-widest font-bold">⚠ Alerta se falhas hoje &gt; <?= $thresholds['ssh_failed_day'] ?></p>
                     </div>
                 </div>
 
@@ -272,7 +305,7 @@ $currentPage = 'alerts.php';
 
 
             <!-- Active Alerts Table Area -->
-            <div class="flex justify-between items-end mb-4 px-2">
+            <div class="flex justify-between items-end mb-4 px-2 flex-wrap gap-3">
                 <div>
                     <h2 class="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                         <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -283,15 +316,14 @@ $currentPage = 'alerts.php';
                     <p class="text-sm text-slate-500 mt-1">Registros automáticos das falhas e resoluções.</p>
                 </div>
 
-
-                <div class="flex items-center gap-4">
+                <div class="flex items-center gap-3">
                     <?php if ($activeCount > 0): ?>
                         <div class="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest animate-pulse">
                             <?= $activeCount ?> Pendentes
                         </div>
                     <?php endif; ?>
 
-                    <form method="POST">
+                    <form method="POST" data-confirm-message="Limpar todos os alertas já resolvidos do histórico?" data-confirm-title="Confirmar limpeza" data-confirm-text="Limpar">
                         <input type="hidden" name="action" value="clear_all">
                         <button type="submit" class="glass-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border-white/5 uppercase tracking-widest text-[10px] font-black">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -303,21 +335,71 @@ $currentPage = 'alerts.php';
                 </div>
             </div>
 
+            <!-- Contagem por tipo (chips clicáveis que aplicam o filtro de type) -->
+            <?php if (!empty($countsByType)): ?>
+                <div class="flex flex-wrap items-center gap-2 mb-4 px-2">
+                    <button type="button" data-type-chip="" class="alert-type-chip alert-type-chip-active glass-btn !py-1 !px-3 text-[9px] uppercase tracking-widest font-black">
+                        Todos (<?= count($alerts ?? []) ?>)
+                    </button>
+                    <?php foreach ($countsByType as $type => $cnt): ?>
+                        <button type="button" data-type-chip="<?= htmlspecialchars($type) ?>" class="alert-type-chip glass-btn !py-1 !px-3 text-[9px] uppercase tracking-widest font-black <?= $cnt['active'] > 0 ? 'border-red-500/30 text-red-500' : 'text-slate-500' ?>">
+                            <?= htmlspecialchars($type) ?>
+                            <?php if ($cnt['active'] > 0): ?>
+                                <span class="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                            <?php endif; ?>
+                            <span class="ml-1 opacity-60"><?= $cnt['active'] ?>/<?= $cnt['total'] ?></span>
+                        </button>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+
+            <!-- Toolbar: busca + filtros -->
+            <div class="glass-panel mb-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Buscar mensagem</label>
+                        <input type="text" id="alerts-filter-search" oninput="filterAlerts()" placeholder="ex: ssh, load average, %" class="glass-input w-full">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Status</label>
+                        <select id="alerts-filter-status" onchange="filterAlerts()" class="glass-input w-full uppercase text-[10px] font-black">
+                            <option value="">TODOS</option>
+                            <option value="active">ATIVOS</option>
+                            <option value="resolved">RESOLVIDOS</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Severidade</label>
+                        <select id="alerts-filter-severity" onchange="filterAlerts()" class="glass-input w-full uppercase text-[10px] font-black">
+                            <option value="">TODAS</option>
+                            <option value="critical">CRITICAL</option>
+                            <option value="warning">WARNING</option>
+                            <option value="info">INFO</option>
+                        </select>
+                    </div>
+                </div>
+                <p class="text-[10px] text-slate-500 mt-3">
+                    Total: <span id="alerts-count-total"><?= count($alerts ?? []) ?></span> · Visíveis: <span id="alerts-count-visible"><?= count($alerts ?? []) ?></span>
+                </p>
+            </div>
+
             <div class="glass-table-container border-slate-200 dark:border-white/5">
-                <table class="glass-table">
+                <table class="glass-table" id="alerts-table">
                     <thead>
                         <tr>
-                            <th class="w-32">Status</th>
-                            <th class="w-48">Timestamp</th>
+                            <th class="w-24">Status</th>
+                            <th class="w-24">Severidade</th>
+                            <th class="w-40">Início</th>
                             <th>Evento / Mensagem</th>
-                            <th class="w-32">Origem</th>
-                            <th class="text-right">Ação</th>
+                            <th class="w-28">Tipo</th>
+                            <th class="w-32">Duração</th>
+                            <th class="text-right w-24">Ação</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($alerts)): ?>
                             <tr>
-                                <td colspan="5" class="px-6 py-20 text-center">
+                                <td colspan="7" class="px-6 py-20 text-center">
                                     <div class="flex flex-col items-center gap-3">
                                         <div class="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
                                             <svg class="w-8 h-8 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -329,9 +411,35 @@ $currentPage = 'alerts.php';
                                 </td>
                             </tr>
                         <?php else: ?>
+                            <?php
+                            // Helper inline pra duração humanizada
+                            $fmtDuration = function ($secs) {
+                                $secs = (int) $secs;
+                                if ($secs <= 0) return '—';
+                                if ($secs < 60) return $secs . 's';
+                                if ($secs < 3600) return floor($secs / 60) . 'min';
+                                if ($secs < 86400) return floor($secs / 3600) . 'h ' . floor(($secs % 3600) / 60) . 'min';
+                                return floor($secs / 86400) . 'd ' . floor(($secs % 86400) / 3600) . 'h';
+                            };
+                            ?>
                             <?php foreach ($alerts as $a): ?>
-                                <?php $status = empty($a['resolved_at']) ? 'active' : 'resolved'; ?>
-                                <tr class="<?= $status === 'active' ? 'bg-red-500/5' : '' ?>">
+                                <?php
+                                $status = empty($a['resolved_at']) ? 'active' : 'resolved';
+                                $severity = $a['severity'] ?? 'warning';
+                                // Mapeamento severity → cor
+                                $sevColor = $severity === 'critical' ? 'red'
+                                          : ($severity === 'warning' ? 'amber' : 'blue');
+                                // Duração: para ativos, calcula a partir de started_at; para resolvidos, usa duration_secs do endpoint
+                                $durationSecs = (int) ($a['duration_secs'] ?? 0);
+                                if ($status === 'active' && !empty($a['started_at'])) {
+                                    $durationSecs = max(0, time() - strtotime($a['started_at']));
+                                }
+                                ?>
+                                <tr class="alert-row <?= $status === 'active' ? 'bg-red-500/5' : '' ?>"
+                                    data-status="<?= $status ?>"
+                                    data-severity="<?= htmlspecialchars($severity) ?>"
+                                    data-type="<?= htmlspecialchars($a['type'] ?? '') ?>"
+                                    data-message="<?= htmlspecialchars(strtolower($a['message'] ?? '')) ?>">
                                     <td class="px-6 py-4">
                                         <?php if ($status === 'active'): ?>
                                             <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black bg-red-500/10 text-red-400 border border-red-500/20 uppercase tracking-widest">
@@ -345,23 +453,30 @@ $currentPage = 'alerts.php';
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <div class="text-[11px] font-mono text-slate-500"><?= date('d/m/Y', strtotime($a['started_at'])) ?></div>
-                                        <div class="text-xs font-bold text-slate-900 dark:text-white"><?= date('H:i:s', strtotime($a['started_at'])) ?></div>
+                                        <span class="inline-block px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-<?= $sevColor ?>-500/10 text-<?= $sevColor ?>-500 border border-<?= $sevColor ?>-500/20">
+                                            <?= htmlspecialchars($severity) ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="text-[11px] font-mono text-slate-500"><?= htmlspecialchars(date('d/m/Y', strtotime($a['started_at']))) ?></div>
+                                        <div class="text-xs font-bold text-slate-900 dark:text-white"><?= htmlspecialchars(date('H:i:s', strtotime($a['started_at']))) ?></div>
                                     </td>
                                     <td class="<?= $status === 'active' ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-400 dark:text-slate-500 line-through' ?>">
                                         <?= htmlspecialchars($a['message']) ?>
                                     </td>
-
                                     <td>
                                         <span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 bg-slate-800 rounded-lg text-slate-400 border border-white/5">
                                             <?= htmlspecialchars($a['type']) ?>
                                         </span>
                                     </td>
+                                    <td class="text-xs font-mono <?= $status === 'active' ? 'text-red-400 font-bold' : 'text-slate-500' ?>">
+                                        <?= htmlspecialchars($fmtDuration($durationSecs)) ?>
+                                    </td>
                                     <td class="text-right">
                                         <?php if ($status === 'active'): ?>
                                             <form method="POST" class="inline">
                                                 <input type="hidden" name="action" value="resolve">
-                                                <input type="hidden" name="alert_id" value="<?= $a['id'] ?>">
+                                                <input type="hidden" name="alert_id" value="<?= (int)$a['id'] ?>">
                                                 <button type="submit" class="glass-btn bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border-emerald-500/20 text-[9px] font-black uppercase tracking-widest">
                                                     Reconhecer
                                                 </button>
@@ -375,7 +490,37 @@ $currentPage = 'alerts.php';
                         <?php endif; ?>
                     </tbody>
                 </table>
+                <p id="alerts-empty-filtered" class="hidden text-center text-slate-500 text-sm py-8 px-4">Nenhum alerta atende aos filtros selecionados.</p>
             </div>
+
+            <script>
+                function filterAlerts() {
+                    const q = (document.getElementById('alerts-filter-search').value || '').trim().toLowerCase();
+                    const status = document.getElementById('alerts-filter-status').value;
+                    const severity = document.getElementById('alerts-filter-severity').value;
+                    const activeChip = document.querySelector('.alert-type-chip-active');
+                    const typeFilter = activeChip ? activeChip.dataset.typeChip : '';
+                    let visible = 0;
+                    document.querySelectorAll('.alert-row').forEach(row => {
+                        const matchQ = !q || row.dataset.message.includes(q) || row.dataset.type.includes(q);
+                        const matchStatus = !status || row.dataset.status === status;
+                        const matchSeverity = !severity || row.dataset.severity === severity;
+                        const matchType = !typeFilter || row.dataset.type === typeFilter;
+                        const show = matchQ && matchStatus && matchSeverity && matchType;
+                        row.style.display = show ? '' : 'none';
+                        if (show) visible++;
+                    });
+                    document.getElementById('alerts-count-visible').textContent = visible;
+                    document.getElementById('alerts-empty-filtered').classList.toggle('hidden', visible !== 0 || document.querySelectorAll('.alert-row').length === 0);
+                }
+                document.querySelectorAll('.alert-type-chip').forEach(chip => {
+                    chip.addEventListener('click', () => {
+                        document.querySelectorAll('.alert-type-chip').forEach(c => c.classList.remove('alert-type-chip-active', 'ring-2', 'ring-blue-500'));
+                        chip.classList.add('alert-type-chip-active', 'ring-2', 'ring-blue-500');
+                        filterAlerts();
+                    });
+                });
+            </script>
 
             <?php include 'includes/footer.php'; ?>
         </div>
