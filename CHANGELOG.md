@@ -1,5 +1,64 @@
 # Changelog
 
+## v2.11.0 — 2026-05-12
+
+### Nova aba "Email / SMTP" — configuração de cliente SMTP integrado
+
+Sistema agora pode enviar emails via servidor SMTP configurado pela UI
+(antes só `mail()` do PHP, que depende de MTA local raramente
+configurado). Usado por: password reset (já integrado em
+v2.10.0) e, no futuro, alertas críticos por email.
+
+**Cliente SMTP puro PHP** em `src/Mailer.php` (sem deps composer):
+
+- Implementação via `stream_socket_client()` + comandos SMTP padrão.
+- Suporta **3 modos de encriptação**:
+  - `tls` — STARTTLS (porta 587, recomendado, Gmail/Outlook/SES)
+  - `ssl` — SMTPS (porta 465, TLS direto)
+  - `none` — porta 25 sem encriptação (relay local)
+- Suporta **AUTH LOGIN** (compatível com qualquer SMTP padrão).
+- Dot-stuffing automático no body (linhas começando com `.` viram `..`).
+- Subject encoded em UTF-8 base64 (RFC 2047) se tiver chars não-ASCII.
+- Timeout de 10s na conexão e leitura.
+- Coleta log completo da conversa SMTP pra debug.
+
+**Nova aba "Email / SMTP"** em `config.php` (admin only):
+
+- Card "Status" com indicador verde/cinza: SMTP habilitado ou usando
+  `mail()` fallback.
+- Form de configuração: host, porta, encriptação, user, senha,
+  from (email + nome).
+  - **Senha mascarada** — campo placeholder "••••••• (deixe vazio
+    pra manter)" pra evitar perda acidental. Backend só atualiza
+    se admin digitar algo novo.
+- Botão **"Enviar Teste"** — envia email pra destinatário arbitrário
+  + mostra o **log SMTP completo** abaixo (conversa cliente↔servidor
+  inteira, útil pra debug de auth/cert/firewall).
+- **Cheat-sheet** com configurações de 6 provedores comuns:
+  Gmail, Outlook 365, AWS SES, Mailgun, SendGrid, Postfix local.
+
+**Settings persistidos no DuckDB** (tabela `settings` existente — sem
+migration):
+
+- `smtp_enabled`, `smtp_host`, `smtp_port`, `smtp_encryption`,
+  `smtp_user`, `smtp_password`, `smtp_from`, `smtp_from_name`.
+- Senha em **plaintext** no DB (escopo interno; use conta dedicada).
+
+**`Auth::requestPasswordReset` integrado** — usa `Mailer::send()`
+em vez de `mail()` direto. Email vai via SMTP configurado (ou
+fallback `mail()` se SMTP off). Log local em
+`src/data/password-recovery.log` mantido com nova coluna
+`via=smtp|php-mail` pra rastreabilidade.
+
+**Estrutura HTML** — `tab-email` posicionada **fora** do
+`mainConfigForm` (forms próprios, mesmo padrão de `tab-ntp` e
+`tab-perfil`). `applyTabSwitch` esconde o "Sincronizar Todas" também
+na aba `email`.
+
+VERSION 2.10.0 → 2.11.0 (minor bump — feature nova com persistência).
+
+---
+
 ## v2.10.0 — 2026-05-12
 
 ### Recuperação de senha funcional + Sessões ativas listáveis/revogáveis

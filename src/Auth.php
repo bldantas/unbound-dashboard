@@ -125,7 +125,8 @@ class Auth
     {
         if (empty(trim($email))) return ['success' => false];
 
-        // FastAPI gera token + grava em DuckDB; PHP entrega via mail() + log file
+        // FastAPI gera token + grava em DuckDB; PHP entrega via Mailer (SMTP ou
+        // mail() fallback) + sempre grava no log file pra debug/recuperação manual.
         $resp  = self::_unauthedPost('/api/v1/auth/password-reset/request', ['email' => $email]);
         $token = is_array($resp) ? ($resp['token'] ?? null) : null;
 
@@ -138,19 +139,23 @@ class Auth
                        "Acesse o link abaixo para criar uma nova senha. Este link expira em 10 minutos:\n" .
                        "$resetLink\n\n" .
                        "Se você não solicitou, ignore este email.";
-            $headers = "From: admin@$domain\r\nReply-To: admin@$domain\r\nX-Mailer: PHP/" . phpversion();
 
-            // 1) Tenta enviar via MTA local
-            $mailSent = @mail($email, $subject, $message, $headers);
+            // 1) Tenta enviar via Mailer (SMTP configurado em /config?tab=email,
+            //    ou fallback pra mail() PHP).
+            require_once __DIR__ . '/Mailer.php';
+            $mailer = new \App\Mailer();
+            $mailResult = $mailer->send($email, $subject, $message);
+            $mailSent = !empty($mailResult['success']);
 
-            // 2) Sempre grava no log local — admin pode recuperar via SSH se mail() falhou.
-            // Path: src/data/password-recovery.log (640 www-data, fora de tmp pra persistir).
+            // 2) SEMPRE grava no log local — admin pode recuperar via SSH se
+            // o envio falhou. Path: src/data/password-recovery.log (640 www-data).
             $logFile = __DIR__ . '/data/password-recovery.log';
             $logLine = sprintf(
-                "[%s] email=%s mail_sent=%s remote_ip=%s\n  link=%s\n",
+                "[%s] email=%s mail_sent=%s via=%s remote_ip=%s\n  link=%s\n",
                 date('Y-m-d H:i:s'),
                 $email,
                 $mailSent ? 'true' : 'false',
+                $mailer->isConfigured() ? 'smtp' : 'php-mail',
                 $_SERVER['REMOTE_ADDR'] ?? '?',
                 $resetLink
             );

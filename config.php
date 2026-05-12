@@ -178,6 +178,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Serviço Unbound: " . strtoupper($op);
             $messageType = $ret === 0 ? 'success' : 'error';
         }
+    } elseif ($action === 'save_email_config' && $isAdmin) {
+        require_once __DIR__ . '/src/Mailer.php';
+        $entries = [
+            'smtp_enabled'    => isset($_POST['smtp_enabled']) ? '1' : '0',
+            'smtp_host'       => trim($_POST['smtp_host'] ?? ''),
+            'smtp_port'       => (int)($_POST['smtp_port'] ?? 587),
+            'smtp_encryption' => in_array($_POST['smtp_encryption'] ?? '', ['none','tls','ssl'], true) ? $_POST['smtp_encryption'] : 'tls',
+            'smtp_user'       => trim($_POST['smtp_user'] ?? ''),
+            'smtp_from'       => trim($_POST['smtp_from'] ?? ''),
+            'smtp_from_name'  => trim($_POST['smtp_from_name'] ?? 'Unbound Dashboard'),
+        ];
+        // Só sobrescreve a senha se o user digitou algo novo (campo vem vazio
+        // se ele não tocou — evita perda acidental).
+        $newPass = $_POST['smtp_password'] ?? '';
+        if ($newPass !== '') {
+            $entries['smtp_password'] = $newPass;
+        }
+        $res = \App\Mailer::saveConfig($entries);
+        $message = $res['message'];
+        $messageType = !empty($res['success']) ? 'success' : 'error';
+    } elseif ($action === 'test_email' && $isAdmin) {
+        require_once __DIR__ . '/src/Mailer.php';
+        $testTo = trim($_POST['test_email_to'] ?? '');
+        if (!filter_var($testTo, FILTER_VALIDATE_EMAIL)) {
+            $message = 'Email de destino inválido.';
+            $messageType = 'error';
+        } else {
+            $mailer = new \App\Mailer();
+            $res = $mailer->send(
+                $testTo,
+                '[Unbound Dashboard] Email de teste',
+                "Este é um email de teste enviado pelo Unbound Dashboard.\n\n"
+              . "Se você recebeu, a configuração SMTP está funcionando.\n\n"
+              . "Data: " . date('Y-m-d H:i:s')
+              . "\nHost: " . gethostname()
+            );
+            $message = $res['message'];
+            $messageType = !empty($res['success']) ? 'success' : 'error';
+            // Salva log do envio pra UI mostrar
+            $_SESSION['smtp_test_log'] = implode("\n", $mailer->getLog());
+        }
     } elseif ($action === 'revoke_session') {
         $hash = trim($_POST['session_hash'] ?? '');
         if ($hash !== '') {
@@ -449,7 +490,7 @@ function field($key, $label, $desc = '', $def = '')
                 <aside class="w-full lg:w-72 flex-shrink-0">
                     <nav class="glass-panel !p-2 rounded-3xl border border-slate-200 dark:border-white/5 space-y-1">
                         <?php $tabs = $isAdmin
-                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'usuarios' => 'Gestão de Usuários', 'perfil' => 'Meu Perfil']
+                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'email' => 'Email / SMTP', 'usuarios' => 'Gestão de Usuários', 'perfil' => 'Meu Perfil']
                             : ['perfil' => 'Meu Perfil'];
                         $activeTab = in_array($requestedTab, array_keys($tabs)) ? $requestedTab : array_key_first($tabs);
                         foreach ($tabs as $id => $label): ?>
@@ -862,6 +903,167 @@ function field($key, $label, $desc = '', $def = '')
                             <?php endif; ?>
                         </div>
                     </div>
+
+                    <!-- tab-email — config SMTP (admin only) — fora do mainConfigForm, igual ao tab-ntp -->
+                    <?php
+                        if ($isAdmin) {
+                            require_once __DIR__ . '/src/Mailer.php';
+                            $smtpConfig = \App\Mailer::loadConfig();
+                            $smtpTestLog = $_SESSION['smtp_test_log'] ?? '';
+                            unset($_SESSION['smtp_test_log']);
+                        }
+                    ?>
+                    <?php if ($isAdmin): ?>
+                    <div id="tab-email" class="tab-content <?= $activeTab === 'email' ? 'active' : '' ?> space-y-6">
+
+                        <!-- Status atual -->
+                        <div class="glass-panel border-l-4 <?= $smtpConfig['smtp_enabled'] ? 'border-emerald-500' : 'border-slate-500' ?>">
+                            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Status</p>
+                            <p class="text-sm font-bold">
+                                <?php if ($smtpConfig['smtp_enabled']): ?>
+                                    <span class="text-emerald-500">● SMTP habilitado</span> —
+                                    enviando via <code class="text-xs"><?= htmlspecialchars($smtpConfig['smtp_host']) ?>:<?= $smtpConfig['smtp_port'] ?></code>
+                                    (<?= htmlspecialchars($smtpConfig['smtp_encryption']) ?>)
+                                <?php else: ?>
+                                    <span class="text-slate-500">○ SMTP desabilitado</span> —
+                                    sistema usa <code class="text-xs">mail()</code> do PHP (depende de MTA local)
+                                <?php endif; ?>
+                            </p>
+                            <p class="text-[11px] text-slate-500 mt-2">
+                                Usado por: recuperação de senha, geração de relatórios por email (futuro). Senhas no DB são em plaintext —
+                                use uma conta dedicada de SMTP, não compartilhe.
+                            </p>
+                        </div>
+
+                        <!-- Config form -->
+                        <div class="glass-panel">
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6 border-b border-slate-900/10 dark:border-white/5 pb-4">Configuração do servidor SMTP</h3>
+
+                            <form method="POST" data-loader="off" class="space-y-4">
+                                <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                <input type="hidden" name="tab" value="email">
+                                <input type="hidden" name="action" value="save_email_config">
+
+                                <label class="flex items-center gap-3 cursor-pointer p-3 bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5">
+                                    <input type="checkbox" name="smtp_enabled" value="1" <?= $smtpConfig['smtp_enabled'] ? 'checked' : '' ?> class="w-5 h-5">
+                                    <div>
+                                        <p class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Habilitar SMTP</p>
+                                        <p class="text-[10px] text-slate-500">Quando desligado, usa mail() do PHP (MTA local).</p>
+                                    </div>
+                                </label>
+
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div class="md:col-span-2">
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Host SMTP</label>
+                                        <input type="text" name="smtp_host" value="<?= htmlspecialchars($smtpConfig['smtp_host']) ?>" placeholder="smtp.gmail.com" class="glass-input w-full font-mono">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Porta</label>
+                                        <input type="number" name="smtp_port" value="<?= (int)$smtpConfig['smtp_port'] ?>" min="1" max="65535" class="glass-input w-full font-mono">
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Encriptação</label>
+                                    <select name="smtp_encryption" class="glass-input w-full uppercase text-[10px] font-black">
+                                        <option value="tls"  <?= $smtpConfig['smtp_encryption'] === 'tls'  ? 'selected' : '' ?>>STARTTLS (porta 587, recomendado)</option>
+                                        <option value="ssl"  <?= $smtpConfig['smtp_encryption'] === 'ssl'  ? 'selected' : '' ?>>SMTPS (porta 465, TLS direto)</option>
+                                        <option value="none" <?= $smtpConfig['smtp_encryption'] === 'none' ? 'selected' : '' ?>>Nenhuma (porta 25, NÃO use em produção)</option>
+                                    </select>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Usuário (auth)</label>
+                                        <input type="text" name="smtp_user" value="<?= htmlspecialchars($smtpConfig['smtp_user']) ?>" placeholder="seu-email@gmail.com" class="glass-input w-full font-mono">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Senha (auth)</label>
+                                        <input type="password" name="smtp_password"
+                                               placeholder="<?= !empty($smtpConfig['smtp_password']) ? '••••••• (deixe vazio pra manter)' : 'app-password ou senha' ?>"
+                                               class="glass-input w-full font-mono"
+                                               autocomplete="new-password">
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">From (endereço)</label>
+                                        <input type="email" name="smtp_from" value="<?= htmlspecialchars($smtpConfig['smtp_from']) ?>" placeholder="dns-noreply@empresa.com" class="glass-input w-full font-mono">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">From (nome)</label>
+                                        <input type="text" name="smtp_from_name" value="<?= htmlspecialchars($smtpConfig['smtp_from_name']) ?>" placeholder="Unbound Dashboard" class="glass-input w-full">
+                                    </div>
+                                </div>
+
+                                <div class="flex justify-end pt-4 border-t border-slate-900/10 dark:border-white/5">
+                                    <button type="submit" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">Salvar Configuração</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Teste de envio -->
+                        <div class="glass-panel">
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3">Teste de envio</h3>
+                            <p class="text-[11px] text-slate-500 mb-4">Envia um email de teste pra validar a configuração SMTP. O log SMTP detalhado aparece abaixo após executar.</p>
+                            <form method="POST" data-loader="off" class="flex gap-3 flex-wrap">
+                                <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                <input type="hidden" name="tab" value="email">
+                                <input type="hidden" name="action" value="test_email">
+                                <input type="email" name="test_email_to" required placeholder="destinatario@exemplo.com" class="glass-input flex-1 font-mono" value="<?= htmlspecialchars($_SESSION['email'] ?? '') ?>">
+                                <button type="submit" class="glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black">Enviar Teste</button>
+                            </form>
+
+                            <?php if (!empty($smtpTestLog)): ?>
+                                <div class="mt-4">
+                                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Log SMTP da última tentativa</p>
+                                    <pre class="text-[10px] font-mono bg-black/60 text-emerald-300 p-4 rounded-xl overflow-x-auto max-h-80"><?= htmlspecialchars($smtpTestLog) ?></pre>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+
+                        <!-- Cheat-sheet -->
+                        <div class="glass-panel">
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3">Provedores comuns</h3>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-[11px]">
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="font-black text-slate-700 dark:text-slate-300 mb-1">Gmail</p>
+                                    <p class="text-slate-500">Host: <code>smtp.gmail.com</code></p>
+                                    <p class="text-slate-500">Porta: <code>587</code> · STARTTLS</p>
+                                    <p class="text-slate-500 text-[10px]">Use <strong>App Password</strong> (não a senha da conta).</p>
+                                </div>
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="font-black text-slate-700 dark:text-slate-300 mb-1">Outlook 365</p>
+                                    <p class="text-slate-500">Host: <code>smtp.office365.com</code></p>
+                                    <p class="text-slate-500">Porta: <code>587</code> · STARTTLS</p>
+                                </div>
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="font-black text-slate-700 dark:text-slate-300 mb-1">AWS SES</p>
+                                    <p class="text-slate-500">Host: <code>email-smtp.region.amazonaws.com</code></p>
+                                    <p class="text-slate-500">Porta: <code>587</code> · STARTTLS</p>
+                                </div>
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="font-black text-slate-700 dark:text-slate-300 mb-1">Mailgun</p>
+                                    <p class="text-slate-500">Host: <code>smtp.mailgun.org</code></p>
+                                    <p class="text-slate-500">Porta: <code>587</code> · STARTTLS</p>
+                                </div>
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="font-black text-slate-700 dark:text-slate-300 mb-1">SendGrid</p>
+                                    <p class="text-slate-500">Host: <code>smtp.sendgrid.net</code></p>
+                                    <p class="text-slate-500">Porta: <code>587</code> · STARTTLS</p>
+                                    <p class="text-slate-500 text-[10px]">User = <code>apikey</code>, pass = sua key.</p>
+                                </div>
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="font-black text-slate-700 dark:text-slate-300 mb-1">Postfix local</p>
+                                    <p class="text-slate-500">Host: <code>localhost</code></p>
+                                    <p class="text-slate-500">Porta: <code>25</code> · Sem encriptação</p>
+                                    <p class="text-slate-500 text-[10px]">Sem auth se relay local.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
 
                     <?php if ($isAdmin): ?>
                     <div id="tab-usuarios" class="tab-content <?= $activeTab === 'usuarios' ? 'active' : '' ?> space-y-6">
@@ -1451,7 +1653,7 @@ function field($key, $label, $desc = '', $def = '')
             document.getElementById('tabField').value = tabId;
 
             // Abas que têm forms próprios (não usam o "Sincronizar Todas") — esconder o botão.
-            const tabsWithOwnForms = ['usuarios', 'ntp', 'perfil'];
+            const tabsWithOwnForms = ['usuarios', 'ntp', 'perfil', 'email'];
             document.getElementById('btnSaveFloating').classList.toggle('hidden', tabsWithOwnForms.includes(tabId));
 
             const actionMap = {
