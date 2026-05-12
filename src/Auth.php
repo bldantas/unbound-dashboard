@@ -31,6 +31,7 @@ class Auth
             $_SESSION['username']   = $user;
             $_SESSION['role']       = $result['role'] ?? 'viewer';
             $_SESSION['api_jwt']    = $result['token'];
+            $_SESSION['jwt_expires_at'] = self::_extractJwtExp($result['token']);
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
             // user_id: descobre via /api/v1/auth/me (precisa pra POSTs de toggle/delete que comparam self)
             $me = ApiClient::get('/api/v1/auth/me', $result['token']);
@@ -240,6 +241,72 @@ class Auth
         if (empty($_SESSION['csrf_token'])) {
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
         }
+
+        // -- Sliding session via /api/v1/auth/refresh --
+        // Se o JWT está prestes a expirar (≤5min), tenta renovar
+        // silenciosamente. Se já expirou (sem grace), força logout
+        // pra evitar sessões "zumbi" onde sessão PHP é válida mas
+        // chamadas FastAPI retornam 401 silenciosamente.
+        $expiresAt = (int) ($_SESSION['jwt_expires_at'] ?? 0);
+        if ($expiresAt > 0) {
+            $remaining = $expiresAt - time();
+            if ($remaining <= 0) {
+                // Já expirou totalmente — tenta refresh (FastAPI aceita até 10min de grace).
+                if (!self::refreshJwt()) {
+                    self::logoutWithReason('jwt_expired');
+                }
+            } elseif ($remaining <= 300) {
+                // Próximo de expirar (≤5min) — refresh silencioso pra estender sessão.
+                self::refreshJwt(); // falha silenciosa — próxima request tenta de novo
+            }
+        }
+    }
+
+    /**
+     * Chama POST /api/v1/auth/refresh com o JWT atual e atualiza a sessão
+     * se sucesso. Retorna true se renovou; false em qualquer falha
+     * (chamador decide o que fazer — geralmente forçar logout se já expirou).
+     */
+    public static function refreshJwt(): bool
+    {
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($jwt === '') return false;
+        $result = ApiClient::post('/api/v1/auth/refresh', $jwt, []);
+        if (!empty($result['ok']) && isset($result['data']['access_token'])) {
+            $_SESSION['api_jwt'] = $result['data']['access_token'];
+            $_SESSION['jwt_expires_at'] = self::_extractJwtExp($result['data']['access_token']);
+            if (!empty($result['data']['role'])) {
+                $_SESSION['role'] = $result['data']['role'];
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Logout forçado com motivo passado pra UI (login.php exibe banner).
+     */
+    public static function logoutWithReason(string $reason): void
+    {
+        $_SESSION = [];
+        session_destroy();
+        header('Location: login.php?reason=' . urlencode($reason));
+        exit;
+    }
+
+    /**
+     * Extrai o claim `exp` (epoch seconds) de um JWT sem validar a
+     * assinatura. Não é segurança — só decodifica base64 do payload
+     * pra saber quando expira. Validação real fica no FastAPI.
+     */
+    private static function _extractJwtExp(string $jwt): int
+    {
+        $parts = explode('.', $jwt);
+        if (count($parts) < 2) return 0;
+        $payload = base64_decode(strtr($parts[1], '-_', '+/'), true);
+        if ($payload === false) return 0;
+        $data = json_decode($payload, true);
+        return (int) ($data['exp'] ?? 0);
     }
 
     public static function isAdmin(): bool

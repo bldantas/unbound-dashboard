@@ -23,6 +23,14 @@ if (isset($_GET['setup']) && $_GET['setup'] === 'success') {
     $success_message = 'Administrador criado com sucesso! Você já pode fazer o login.';
 }
 
+// Mensagens de motivo passadas por logoutWithReason() na Auth.php
+$reasonMessages = [
+    'jwt_expired' => 'Sua sessão expirou. Faça login novamente para continuar.',
+];
+if (isset($_GET['reason']) && isset($reasonMessages[$_GET['reason']])) {
+    $error = $reasonMessages[$_GET['reason']];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'] ?? '';
     $password = $_POST['password'] ?? '';

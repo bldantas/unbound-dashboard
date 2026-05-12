@@ -1,15 +1,18 @@
-"""Endpoints de autenticação — login, me, logout."""
+"""Endpoints de autenticação — login, me, logout, refresh."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from jose import ExpiredSignatureError, JWTError, jwt
 from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.deps import require_auth
 from app.core.rate_limit import limiter
+from app.core.security import create_access_token
 from app.repositories.duckdb import user_repo
 from app.services import auth_service
 
@@ -58,6 +61,77 @@ async def me(payload: Annotated[dict, Depends(require_auth)]) -> dict:
         "email": user.get("email"),
         "is_active": user["is_active"],
     }
+
+
+@router.post("/refresh", response_model=TokenResponse)
+@limiter.limit(settings.rate_limit_auth)
+async def refresh(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> TokenResponse:
+    """
+    Renova o JWT do user. Aceita o JWT atual (ainda válido OU expirado
+    nos últimos `_REFRESH_GRACE_MINUTES`) e retorna um novo com TTL
+    completo. Útil pra sliding session — frontend chama proativamente
+    quando o JWT está prestes a expirar.
+
+    Segurança: como aceita JWT expirado por até N min, atacante que
+    rouba JWT consegue renovar dentro dessa janela. Mantemos grace
+    curto (10min) pra minimizar. Revogação real precisa de denylist
+    em Redis (fora de escopo aqui).
+
+    Validações:
+      - Conta ainda existe + ativa (não-bloqueada). Se admin desativar
+        o user, o JWT velho não consegue renovar mais.
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization header ausente",
+        )
+    token = authorization.split(None, 1)[1].strip()
+
+    # Decode SEM validar exp — queremos aceitar tokens recém-expirados.
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret.get_secret_value(),
+            algorithms=[settings.jwt_algorithm],
+            options={"verify_exp": False},
+        )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido"
+        ) from None
+
+    exp_ts = int(payload.get("exp", 0))
+    now_ts = int(datetime.now(UTC).timestamp())
+    grace_seconds = _REFRESH_GRACE_MINUTES * 60
+    if exp_ts <= 0 or (now_ts - exp_ts) > grace_seconds:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Token expirado há mais de {_REFRESH_GRACE_MINUTES}min — re-login necessário",
+        )
+
+    sub = payload.get("sub")
+    if not sub:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token malformado")
+
+    # Re-valida conta no banco — pode ter sido desativada entre login e refresh.
+    user = await user_repo.find_by_id(int(sub))
+    if user is None or not user.get("is_active"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Conta inativa ou removida",
+        )
+
+    new_token = create_access_token({"sub": str(user["id"]), "role": user["role"]})
+    return TokenResponse(access_token=new_token, token_type="bearer", role=user["role"])
+
+
+# Grace window pra refresh (em minutos). JWT expirado há ≤ N min ainda
+# pode ser renovado; expirado há mais já exige re-login.
+_REFRESH_GRACE_MINUTES = 10
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

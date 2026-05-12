@@ -1,5 +1,70 @@
 # Changelog
 
+## v2.7.0 — 2026-05-12
+
+### Sliding JWT session + auto-logout em expiração
+
+Fecha a UX podre que apareceu em v2.6.0/2.6.1: JWT da sessão expirava
+após 60min e admin ficava com sessão "zumbi" (sessão PHP ainda válida
+mas chamadas FastAPI retornando 401 silencioso). Agora a sessão se
+auto-renova enquanto ativa, e quando realmente expira o admin é
+redirecionado pro login com mensagem clara.
+
+**Backend (`api_service`):**
+
+- Novo endpoint **`POST /api/v1/auth/refresh`** (rate-limited com
+  `rate_limit_auth`, mesmo limit do login):
+  - Aceita Bearer JWT no header. Decodifica **sem validar `exp`** —
+    tokens expirados há ≤10min (grace window) ainda são aceitos pra
+    renovação. Mais que isso, retorna 401 com mensagem explicativa.
+  - Re-valida no banco: se a conta foi desativada entre login e
+    refresh, recusa. Evita que JWT velho dê acesso indefinido a
+    usuário banido.
+  - Retorna novo JWT com TTL completo (60min default).
+
+**Frontend (PHP):**
+
+- **`Auth::login()`**: ao receber o JWT, decodifica o payload base64
+  pra extrair o claim `exp` e salva `$_SESSION['jwt_expires_at']`
+  (epoch seconds). Helper `_extractJwtExp()` faz isso sem validar
+  assinatura — só lê o claim pra saber quando expira.
+- **`Auth::check()`** (chamado em toda page autenticada) agora avalia
+  o tempo restante:
+  - `≤5min` restantes → chama `refreshJwt()` em background (sliding
+    session). Falha silenciosa — próxima request tenta de novo.
+  - `≤0` (já expirou) → tenta um último refresh; se falhar,
+    `logoutWithReason('jwt_expired')` força redirect pro login com
+    motivo na query string.
+- **`Auth::refreshJwt()`** novo: chama `POST /api/v1/auth/refresh`,
+  atualiza `$_SESSION['api_jwt']` + `jwt_expires_at` se OK.
+- **`Auth::logoutWithReason()`** novo: limpa sessão + redirect pra
+  `login.php?reason=jwt_expired`.
+
+**`login.php`:** detecta `?reason=jwt_expired` e exibe no campo de
+erro: _"Sua sessão expirou. Faça login novamente para continuar."_
+(usa o mesmo render `$error` existente — zero JS novo).
+
+**Validação:**
+
+- 58/58 testes pytest passando após restart.
+- Refresh testado em 3 cenários: válido +5min (200), expirado -3min
+  (200, dentro do grace), expirado -20min (401 com msg).
+- Sessões antigas continuam funcionando: páginas que faltam
+  `jwt_expires_at` no session simplesmente pulam o check (assumindo
+  sessão pré-2.7.0 — admin re-loga normalmente quando JWT expirar).
+
+**Não cobre:**
+
+- Revogação imediata (admin desativando conta de outro user que está
+  online). Pra isso precisa denylist Redis com TTL = exp do JWT —
+  fora de escopo aqui. Refresh re-valida conta no banco, então
+  user desativado **não consegue renovar** — fica limitado ao
+  resto da janela atual do JWT (max 60min).
+
+VERSION 2.6.1 → 2.7.0 (minor bump — feature de sessão).
+
+---
+
 ## v2.6.1 — 2026-05-12
 
 ### Fix: aba "Gestão de Usuários" não listava usuários
