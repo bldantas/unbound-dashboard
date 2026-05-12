@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.8.2 — 2026-05-12
+
+### health.php repaginada — versões, uptime, healthz, PHP-FPM, auto-refresh
+
+A página de Saúde tinha 3 cards (Unbound/Load/RAM) + serviços systemd
++ checklist. Versão modernizada com mais sinais e visual consistente:
+
+**Novidades:**
+
+- **PHP-FPM** agora aparece na lista de serviços (auto-detecta versão
+  via `systemctl list-unit-files`).
+- **Card API /healthz**: chama `http://127.0.0.1:8001/api/v1/healthz`,
+  mostra HTTP code + tempo de resposta (ms) + corpo da resposta
+  truncado. Border verde (200/ok) ou vermelha (falha).
+- **Card Disco /**: era oculto, agora visível em destaque com %
+  + livre/total.
+- **Bloco "Sistema"**: uptime humano (`uptime -p`) + boot time +
+  hostname.
+- **Bloco "Versões dos Componentes"** (grid 4 colunas): PHP, Python,
+  Apache, Unbound, Redis, DuckDB (via venv). Em destaque: versão
+  do próprio Unbound Dashboard lida de `VERSION`.
+- **Serviços com uptime**: para cada serviço systemd, mostra também
+  a data/hora do último start (`systemctl show --property=ActiveEnterTimestamp`).
+- **Auto-refresh toggle** (30s): box no header. Recarrega a página
+  inteira pra trazer snapshot novo.
+- **Checklist ganhou contador "OK / total"** no header (X/N OK).
+- **Flag .installed** adicionada aos componentes auditados.
+
+Visual unificado com as outras páginas (`glass-panel`, badges
+coloridos por estado, paleta semáforo). Auto-reparo via
+`unbound-health-fix.sh` mantido.
+
+VERSION 2.8.1 → 2.8.2.
+
+---
+
 ## v2.8.1 — 2026-05-12
 
 ### Fix: install.sh em `curl | bash` sem ADMIN_PASSWORD virava loop infinito
