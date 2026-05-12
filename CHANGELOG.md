@@ -1,5 +1,36 @@
 # Changelog
 
+## v2.6.1 — 2026-05-12
+
+### Fix: aba "Gestão de Usuários" não listava usuários
+
+Dois bugs identificados após v2.6.0:
+
+**1. Tab content sem classe `active` inicial (FOUC):**
+
+A aba `tab-usuarios` (e `tab-perfil`) foram inseridas sem o
+`<?= $activeTab === 'X' ? 'active' : '' ?>` que os outros tabs têm.
+Como o CSS é `.tab-content { display: none }`, a aba só aparecia
+depois que o JS `applyTabSwitch` rodasse no `DOMContentLoaded` — flash
+de "tela vazia" no carregamento. Corrigido.
+
+**2. `getAllUsers()` retornando [] silenciosamente (JWT expirado):**
+
+`Auth::getAllUsers()` faz GET autenticado em `/api/v1/users` usando o
+`$_SESSION['api_jwt']`. Quando o JWT expira (default 60min) mas a
+sessão PHP continua válida (`logged_in=true`), a chamada FastAPI
+retorna 401 e `getAllUsers()` retorna array vazio. Resultado: tabela
+sem usuários, sem mensagem de erro — admin pensava que era bug do
+código.
+
+Agora a aba mostra um **banner amarelo explícito** quando `$allUsers`
+vem vazio: avisa que o JWT provavelmente expirou + link direto pra
+logout. Texto auxiliar sugere checar logs do Apache se persistir.
+
+VERSION 2.6.0 → 2.6.1.
+
+---
+
 ## v2.6.0 — 2026-05-12
 
 ### Consolidação: Gestão de Usuários volta pra dentro de `config.php`

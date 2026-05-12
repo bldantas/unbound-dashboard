@@ -729,7 +729,22 @@ function field($key, $label, $desc = '', $def = '')
                     </form>
 
                     <?php if ($isAdmin): ?>
-                    <div id="tab-usuarios" class="tab-content space-y-6">
+                    <div id="tab-usuarios" class="tab-content <?= $activeTab === 'usuarios' ? 'active' : '' ?> space-y-6">
+
+                        <?php if (empty($allUsers)): ?>
+                            <div class="glass-panel border-l-4 border-amber-500">
+                                <p class="text-[10px] font-black text-amber-700 dark:text-amber-300 uppercase tracking-widest mb-2">Nenhum usuário retornado</p>
+                                <p class="text-sm text-slate-700 dark:text-slate-300 mb-3">
+                                    A FastAPI não retornou usuários — provavelmente seu <strong>JWT da sessão expirou</strong>
+                                    (default 60min). Faça <a href="logout.php" class="text-amber-600 dark:text-amber-400 hover:underline font-bold">logout</a>
+                                    e login novamente pra renovar.
+                                </p>
+                                <p class="text-[10px] text-slate-500">
+                                    Se persistir após re-login, confira <code>/var/log/apache2/error.log</code> por mensagens
+                                    "<code>ApiClient::get falhou</code>" e o status do <code>unbound-dashboard-api.service</code>.
+                                </p>
+                            </div>
+                        <?php endif; ?>
 
                         <?php if ($tempPassword): ?>
                             <div class="glass-panel border-l-4 border-amber-500">
@@ -945,7 +960,7 @@ function field($key, $label, $desc = '', $def = '')
                     </div>
                     <?php endif; /* isAdmin */ ?>
 
-                    <div id="tab-perfil" class="tab-content space-y-8">
+                    <div id="tab-perfil" class="tab-content <?= $activeTab === 'perfil' ? 'active' : '' ?> space-y-8">
                         <div class="glass-panel border-slate-900/10 dark:border-white/5">
                             <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase mb-6">Alterar Minha Senha</h3>
                             <form method="POST" class="space-y-4">
