@@ -1,5 +1,52 @@
 # Changelog
 
+## v2.9.1 — 2026-05-12
+
+### NetworkManager — lock concorrente via flock
+
+Item baixa-prio da auditoria de v2.2.x: dois admins editando rede ao
+mesmo tempo podiam corromper arquivos de config silenciosamente (dois
+rsyncs no mesmo `/etc/network/interfaces` ou `/etc/netplan/...yaml`).
+Sem lock, last-write-wins com possíveis truncamentos.
+
+**Helper novo `_withCategoryLock($category, $work)`:**
+
+- Cria lock file em `src/data/tmp/locks/<category>.lock`.
+- Pega `LOCK_EX | LOCK_NB` (não-bloqueante — fail fast).
+- Se outro admin já está escrevendo na mesma categoria → retorna
+  `{success: false, message: "Outra operação de rede ($category) já
+  está em andamento — aguarde alguns segundos e tente novamente."}`.
+- Categorias granulares: `interfaces`, `dns`, `ntp`, `hostname`.
+  Admins podem editar DNS e hostname ao mesmo tempo (não conflitam).
+- Lock file fica com `pid=X ts=T category=Y` pra debug.
+- Sanitização de path traversal (regex `[^a-z0-9_-]`).
+
+**Aplicado em:**
+
+- `setHostname` — categoria `hostname` (mexe `/etc/hostname` +
+  `/etc/hosts`)
+- `setSystemDNS` — categoria `dns` (mexe `/etc/resolv.conf` ou
+  `/etc/systemd/resolved.conf`)
+- `setNtpServers` — categoria `ntp` (mexe chrony.conf / ntp.conf /
+  timesyncd.conf)
+- `updateInterfaceConfig` — categoria `interfaces` (mexe
+  `/etc/network/interfaces` ou `/etc/netplan/99-*.yaml`).
+  Refatorado em `_doUpdateInterfaceConfig` (corpo original) chamado
+  pelo wrapper de lock.
+- `restoreLastNetplanBackup` — categoria `interfaces` (mesma
+  categoria — bloqueia rollback durante outro save).
+
+**Testado em produção:**
+
+- Lock sem contenção → executa OK
+- Lock com contenção (outro fp segurando LOCK_EX) → retorna msg de
+  contenção clara em ~1ms (não-bloqueante)
+- PHP lint OK
+
+VERSION 2.9.0 → 2.9.1.
+
+---
+
 ## v2.9.0 — 2026-05-12
 
 ### Denylist Redis — revogação imediata de JWT

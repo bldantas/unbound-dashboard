@@ -9,6 +9,46 @@ class NetworkManager {
     const NETPLAN_FILE = '/etc/netplan/99-unbound-dashboard.yaml';
     const NETPLAN_TMP  = '/tmp/unbound-dashboard-netplan.yaml';
     const NETPLAN_BACKUP_DIR = '/var/backups/unbound-dashboard';
+    const LOCK_DIR = __DIR__ . '/data/tmp/locks';
+
+    /**
+     * Executa $work com lock exclusivo (LOCK_EX | LOCK_NB) em
+     * `data/tmp/locks/<category>.lock`. Se outro admin já está
+     * escrevendo na mesma categoria (interfaces / dns / ntp / hostname),
+     * retorna failure imediato com mensagem clara — não bloqueia.
+     *
+     * Categorias previne race entre dois admins editando ao mesmo tempo:
+     * dois rsync simultâneos no mesmo arquivo de config = corrupção
+     * silenciosa.
+     */
+    private function _withCategoryLock(string $category, callable $work): array {
+        // Sanitiza nome do lock pra evitar path traversal
+        $category = preg_replace('/[^a-z0-9_-]/i', '', $category) ?: 'misc';
+        $lockDir = self::LOCK_DIR;
+        @mkdir($lockDir, 0775, true);
+        $lockFile = $lockDir . '/' . $category . '.lock';
+        $fp = @fopen($lockFile, 'c');
+        if ($fp === false) {
+            return ['success' => false, 'message' => "Não foi possível abrir lock file ($lockFile)"];
+        }
+        if (!flock($fp, LOCK_EX | LOCK_NB)) {
+            fclose($fp);
+            return [
+                'success' => false,
+                'message' => "Outra operação de rede ($category) já está em andamento — aguarde alguns segundos e tente novamente.",
+            ];
+        }
+        try {
+            // Registra quem pegou o lock (informativo, debug)
+            ftruncate($fp, 0);
+            fwrite($fp, sprintf("pid=%d ts=%d category=%s\n", getmypid(), time(), $category));
+            fflush($fp);
+            return $work();
+        } finally {
+            flock($fp, LOCK_UN);
+            fclose($fp);
+        }
+    }
 
     /**
      * Detecta o backend de rede em uso.
@@ -141,24 +181,20 @@ class NetworkManager {
         if (empty($newHostname)) {
             return ['success' => false, 'message' => 'Hostname inválido.'];
         }
-
-        $oldHostname = gethostname() ?: '';
-
-        $output = [];
-        $returnVar = 0;
-        \App\ShellHelper::exec('/usr/bin/hostnamectl', ['set-hostname', $newHostname], $output, $returnVar, true);
-        if ($returnVar !== 0) {
-            return ['success' => false, 'message' => 'Erro ao alterar hostname: ' . implode(" ", $output)];
-        }
-
-        // Atualiza /etc/hosts: substitui entradas 127.0.1.1 (Debian/Ubuntu)
-        // que apontam pro hostname antigo. Se não houver, adiciona.
-        $hostsRes = $this->updateEtcHosts($oldHostname, $newHostname);
-        if (!$hostsRes['success']) {
-            // Não trata como falha fatal — hostname já mudou.
-            return ['success' => true, 'message' => 'Hostname alterado para ' . $newHostname . ' (mas /etc/hosts não pôde ser atualizado: ' . $hostsRes['message'] . ')'];
-        }
-        return ['success' => true, 'message' => 'Hostname alterado para ' . $newHostname . ' e /etc/hosts sincronizado.'];
+        return $this->_withCategoryLock('hostname', function() use ($newHostname) {
+            $oldHostname = gethostname() ?: '';
+            $output = [];
+            $returnVar = 0;
+            \App\ShellHelper::exec('/usr/bin/hostnamectl', ['set-hostname', $newHostname], $output, $returnVar, true);
+            if ($returnVar !== 0) {
+                return ['success' => false, 'message' => 'Erro ao alterar hostname: ' . implode(" ", $output)];
+            }
+            $hostsRes = $this->updateEtcHosts($oldHostname, $newHostname);
+            if (!$hostsRes['success']) {
+                return ['success' => true, 'message' => 'Hostname alterado para ' . $newHostname . ' (mas /etc/hosts não pôde ser atualizado: ' . $hostsRes['message'] . ')'];
+            }
+            return ['success' => true, 'message' => 'Hostname alterado para ' . $newHostname . ' e /etc/hosts sincronizado.'];
+        });
     }
 
     /**
@@ -277,11 +313,12 @@ class NetworkManager {
                 $validIps[] = $ip;
             }
         }
-
-        if ($this->detectDnsBackend() === 'systemd-resolved') {
-            return $this->setSystemDNSResolved($validIps);
-        }
-        return $this->setSystemDNSFile($validIps);
+        return $this->_withCategoryLock('dns', function() use ($validIps) {
+            if ($this->detectDnsBackend() === 'systemd-resolved') {
+                return $this->setSystemDNSResolved($validIps);
+            }
+            return $this->setSystemDNSFile($validIps);
+        });
     }
 
     /**
@@ -685,21 +722,23 @@ class NetworkManager {
         if ($this->detectBackend() !== 'netplan') {
             return ['success' => false, 'message' => 'Backend ativo não é netplan — rollback indisponível.'];
         }
-        $last = $this->getLastNetplanBackup();
-        if ($last === null) {
-            return ['success' => false, 'message' => 'Nenhum backup encontrado em ' . self::NETPLAN_BACKUP_DIR];
-        }
-        $out = []; $ret = 0;
-        \App\ShellHelper::exec('/usr/bin/cp', [$last, self::NETPLAN_FILE], $out, $ret, true);
-        if ($ret !== 0) {
-            return ['success' => false, 'message' => 'cp falhou: ' . implode(' ', $out)];
-        }
-        $outA = []; $retA = 0;
-        \App\ShellHelper::exec('/usr/sbin/netplan', ['apply'], $outA, $retA, true);
-        if ($retA !== 0) {
-            return ['success' => false, 'message' => 'netplan apply pós-restore falhou: ' . implode(' ', $outA)];
-        }
-        return ['success' => true, 'message' => 'Rollback aplicado a partir de ' . basename($last)];
+        return $this->_withCategoryLock('interfaces', function() {
+            $last = $this->getLastNetplanBackup();
+            if ($last === null) {
+                return ['success' => false, 'message' => 'Nenhum backup encontrado em ' . self::NETPLAN_BACKUP_DIR];
+            }
+            $out = []; $ret = 0;
+            \App\ShellHelper::exec('/usr/bin/cp', [$last, self::NETPLAN_FILE], $out, $ret, true);
+            if ($ret !== 0) {
+                return ['success' => false, 'message' => 'cp falhou: ' . implode(' ', $out)];
+            }
+            $outA = []; $retA = 0;
+            \App\ShellHelper::exec('/usr/sbin/netplan', ['apply'], $outA, $retA, true);
+            if ($retA !== 0) {
+                return ['success' => false, 'message' => 'netplan apply pós-restore falhou: ' . implode(' ', $outA)];
+            }
+            return ['success' => true, 'message' => 'Rollback aplicado a partir de ' . basename($last)];
+        });
     }
 
     /**
@@ -822,6 +861,16 @@ class NetworkManager {
         if (!$this->interfaceExists($iface)) {
             return ['success' => false, 'message' => "Interface $iface não encontrada no sistema."];
         }
+        return $this->_withCategoryLock('interfaces', function() use ($iface, $mode, $address, $gateway, $netmask, $v6_enabled, $v6_mode, $v6_address, $v6_gateway, $v6_netmask) {
+            return $this->_doUpdateInterfaceConfig($iface, $mode, $address, $gateway, $netmask, $v6_enabled, $v6_mode, $v6_address, $v6_gateway, $v6_netmask);
+        });
+    }
+
+    /**
+     * Implementação interna do updateInterfaceConfig — chamada dentro do
+     * lock. Mantém todo o código original do método público.
+     */
+    private function _doUpdateInterfaceConfig(string $iface, string $mode, string $address, string $gateway, string $netmask, bool $v6_enabled, string $v6_mode, string $v6_address, string $v6_gateway, string $v6_netmask): array {
 
         // Validações comuns aos dois backends
         if ($mode === 'static') {
@@ -1153,14 +1202,16 @@ class NetworkManager {
 
     public function setNtpServers($servers): array {
         $servers = $this->normalizeNtpServers($servers);
-        switch ($this->detectNtpBackend()) {
-            case 'chrony':    return $this->setNtpServersChrony($servers);
-            case 'ntpd':      return $this->setNtpServersNtpd($servers);
-            case 'timesyncd': return $this->setNtpServersTimesyncd($servers);
-            case 'none':
-            default:
-                return ['success' => false, 'message' => 'Nenhum daemon NTP ativo (chrony / ntpd / systemd-timesyncd). Instale e habilite um deles antes.'];
-        }
+        return $this->_withCategoryLock('ntp', function() use ($servers) {
+            switch ($this->detectNtpBackend()) {
+                case 'chrony':    return $this->setNtpServersChrony($servers);
+                case 'ntpd':      return $this->setNtpServersNtpd($servers);
+                case 'timesyncd': return $this->setNtpServersTimesyncd($servers);
+                case 'none':
+                default:
+                    return ['success' => false, 'message' => 'Nenhum daemon NTP ativo (chrony / ntpd / systemd-timesyncd). Instale e habilite um deles antes.'];
+            }
+        });
     }
 
     private function setNtpServersTimesyncd(string $servers): array {
