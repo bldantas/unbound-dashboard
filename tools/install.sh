@@ -366,6 +366,23 @@ log "Permissões aplicadas"
 systemctl reload apache2 2>/dev/null || systemctl restart apache2
 systemctl is-active --quiet apache2 && log "Apache ativo" || warn "Apache não está ativo"
 
+# Smoke test: Apache realmente está interpretando .php via PHP-FPM?
+# Sem isso, .php sai cru no browser e o admin descobre só na primeira visita.
+SMOKE_PHP_FILE="/var/www/html/.smoke-php-$$.php"
+SMOKE_TOKEN="UDASH_SMOKE_$$_$(date +%s)"
+echo "<?php echo '${SMOKE_TOKEN}'; ?>" > "$SMOKE_PHP_FILE"
+SMOKE_BODY=$(curl -sf "http://127.0.0.1/.smoke-php-$$.php" 2>/dev/null || echo "FAIL")
+rm -f "$SMOKE_PHP_FILE"
+if [ "$SMOKE_BODY" = "$SMOKE_TOKEN" ]; then
+    log "Apache+PHP-FPM smoke test OK (interpretador ativo)"
+else
+    warn "Apache está servindo .php CRU em vez de interpretar — verifique:"
+    warn "  - systemctl is-active $PHP_FPM_SVC"
+    warn "  - a2query -c $PHP_FPM_CONF"
+    warn "  - ls /etc/apache2/conf-enabled/${PHP_FPM_CONF}.conf"
+    warn "Pra forçar fix: sudo a2enconf $PHP_FPM_CONF && sudo systemctl reload apache2"
+fi
+
 # Redis
 systemctl enable --now redis-server >/dev/null 2>&1 || warn "Não foi possível habilitar redis-server"
 systemctl is-active --quiet redis-server && log "Redis ativo" || warn "Redis não está ativo"

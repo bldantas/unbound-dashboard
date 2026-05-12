@@ -301,6 +301,39 @@ apply_system() {
         fi
     fi
 
+    # --- PHP-FPM (idempotente) — corrige instalações pré-2.2.10 que usavam
+    # mod_php. Sem isso, `.php` sai cru no browser.
+    if [ "$DRY_RUN" != "true" ]; then
+        local php_fpm_svc
+        php_fpm_svc=$(systemctl list-unit-files --type=service --no-legend 2>/dev/null \
+            | awk '{print $1}' | grep -E '^php[0-9.]+-fpm\.service$' | sort -V | tail -1)
+        if [ -z "$php_fpm_svc" ]; then
+            info "php-fpm não instalado — instalando agora (necessário desde v2.2.10)"
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq php-fpm \
+                || warn "Falha ao instalar php-fpm — .php pode não ser interpretado"
+            php_fpm_svc=$(systemctl list-unit-files --type=service --no-legend 2>/dev/null \
+                | awk '{print $1}' | grep -E '^php[0-9.]+-fpm\.service$' | sort -V | tail -1)
+        fi
+        if [ -n "$php_fpm_svc" ]; then
+            local php_fpm_conf="${php_fpm_svc%.service}"
+            a2enmod proxy_fcgi setenvif proxy proxy_http >/dev/null 2>&1 || true
+            # Desabilita mod_php legado se presente
+            local legacy_mod_php
+            legacy_mod_php=$(a2query -m 2>/dev/null | awk '{print $1}' | grep -E '^php[0-9.]+$' || true)
+            if [ -n "$legacy_mod_php" ]; then
+                for m in $legacy_mod_php; do
+                    a2dismod "$m" >/dev/null 2>&1 || true
+                    info "mod_php '$m' desabilitado (substituído por PHP-FPM)"
+                done
+            fi
+            a2enconf "$php_fpm_conf" >/dev/null 2>&1 || warn "a2enconf $php_fpm_conf falhou"
+            systemctl enable --now "$php_fpm_svc" >/dev/null 2>&1 || warn "Falha ao habilitar $php_fpm_svc"
+            log "PHP-FPM verificado: $php_fpm_conf ativo"
+        else
+            warn "php-fpm ainda ausente após install — Apache pode servir .php cru"
+        fi
+    fi
+
     # --- Env example (NÃO sobrescreve api-v1.env real, só o exemplo)
     if [ -f "$sys/etc/api-v1.env.example" ]; then
         if [ "$DRY_RUN" = "true" ]; then

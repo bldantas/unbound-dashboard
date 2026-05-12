@@ -1,5 +1,49 @@
 # Changelog
 
+## v2.7.1 — 2026-05-12
+
+### Fix: update.sh deixava Apache servindo .php cru
+
+Servidor de teste atualizado mostrou o PHP literal no browser em vez do
+HTML renderizado. Causa: `update.sh` só copiava arquivos — **não fazia
+setup de PHP-FPM**. Em servidor com instalação pré-2.2.10 (que usava
+`libapache2-mod-php`), o update não habilitava o novo handler nem
+desabilitava o legado.
+
+**Fix em `tools/update.sh`:**
+
+Bloco novo de setup PHP-FPM idempotente:
+
+- Detecta `phpX.Y-fpm.service` via `systemctl list-unit-files`. Se
+  ausente, instala `php-fpm` via apt.
+- Habilita módulos `proxy_fcgi setenvif proxy proxy_http`.
+- Desabilita `mod_php` legado (`a2dismod phpX.Y`) se ainda ativo.
+- Roda `a2enconf phpX.Y-fpm` + `systemctl enable --now` do serviço.
+- Tudo silencioso quando já configurado (sem ruído em updates futuros).
+
+**Fix em `tools/install.sh`: smoke test pós-setup**
+
+Mesmo o install.sh já fazendo todo o setup, falhas silenciosas no
+`a2enconf` ou `apt install` (cobertas com `\|\| warn`) deixavam servidor
+quebrado sem aviso. Agora o install termina com smoke test real:
+
+1. Escreve `/var/www/html/.smoke-php-$$.php` com `<?php echo TOKEN; ?>`
+2. Curl localhost
+3. Se body == TOKEN → log OK
+4. Se body != TOKEN → warn explícito com 4 comandos pra debug e o
+   `a2enconf` manual pra forçar fix
+
+Sem isso, admin descobria só ao acessar a página pela primeira vez.
+
+**Pra corrigir agora um servidor já quebrado**, comandos no histórico
+da sessão (basicamente `apt install php-fpm + a2enmod proxy_fcgi
+setenvif + a2dismod phpX.Y + a2enconf phpX.Y-fpm + systemctl reload
+apache2`).
+
+VERSION 2.7.0 → 2.7.1.
+
+---
+
 ## v2.7.0 — 2026-05-12
 
 ### Sliding JWT session + auto-logout em expiração
