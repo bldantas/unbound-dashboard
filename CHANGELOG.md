@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.8.3 — 2026-05-12
+
+### index.php — barra de status + controle do auto-refresh
+
+Dashboard principal era forte em métricas mas faltava sinal rápido de
+"sistema OK?" — admin tinha que ir em /health pra ver status dos
+serviços. E o polling de 5s não tinha como pausar (atrapalha quando
+você quer analisar um número específico).
+
+**Adições no topo da página:**
+
+- **Barra de status do sistema** (border-left verde/âmbar):
+  - "● Sistema saudável" / "⚠ Atenção" como header (verde se todos
+    os 4 serviços críticos OK).
+  - Bolinhas pulsantes por serviço: `unbound`, `api`, `redis-server`,
+    `apache2`. Vermelha + pulse se algum down.
+  - Uptime humano do sistema (uptime -p).
+  - "Última atualização: HH:MM:SS" + botão **⏸ Pause** do
+    auto-refresh.
+
+**Pause/Resume do polling:**
+
+- Botão atualiza label entre "⏸ Pause" e "▶ Resume" + cor âmbar quando
+  pausado.
+- Quando pausado, `clearInterval` impede que o setInterval recarregue.
+- Útil pra inspecionar um valor específico sem ele mudar embaixo do
+  cursor.
+
+Timestamp da última atualização agora reflete o último poll bem-sucedido,
+não o page load. Quando o auto-refresh roda, atualiza tanto os dados
+quanto esse timestamp em sincronia.
+
+VERSION 2.8.2 → 2.8.3.
+
+---
+
 ## v2.8.2 — 2026-05-12
 
 ### health.php repaginada — versões, uptime, healthz, PHP-FPM, auto-refresh

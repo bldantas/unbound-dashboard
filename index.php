@@ -99,7 +99,44 @@ $currentPage = 'index.php';
 
 
         <div class="p-8 space-y-8 max-w-[1600px] mx-auto animate-fade-in">
-            
+
+            <!-- BARRA DE STATUS DO SISTEMA -->
+            <?php
+                // Status dos 4 serviços críticos + uptime do Unbound (snapshot leve)
+                $statusServices = [];
+                foreach (['unbound.service', 'unbound-dashboard-api.service', 'redis-server.service', 'apache2.service'] as $svc) {
+                    $sOut = [];
+                    \App\ShellHelper::exec('/usr/bin/systemctl', ['is-active', $svc], $sOut, $r, false);
+                    $statusServices[$svc] = trim($sOut[0] ?? 'unknown') === 'active';
+                }
+                $upOut = [];
+                \App\ShellHelper::exec('/usr/bin/uptime', ['-p'], $upOut, $r, false);
+                $systemUptime = trim($upOut[0] ?? '?');
+                $allOk = !in_array(false, $statusServices, true);
+            ?>
+            <div class="glass-panel border-l-4 <?= $allOk ? 'border-emerald-500' : 'border-amber-500' ?> flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-widest font-black">
+                <span class="<?= $allOk ? 'text-emerald-500' : 'text-amber-500' ?>">
+                    <?= $allOk ? '● Sistema saudável' : '⚠ Atenção' ?>
+                </span>
+                <span class="text-slate-500 font-bold normal-case tracking-normal">·</span>
+                <?php foreach ($statusServices as $svc => $active):
+                    $shortName = preg_replace('/\.service$/', '', $svc);
+                    $shortName = preg_replace('/^unbound-dashboard-/', '', $shortName);
+                    ?>
+                    <span class="flex items-center gap-1 <?= $active ? 'text-emerald-500' : 'text-red-500' ?>">
+                        <span class="w-1.5 h-1.5 rounded-full <?= $active ? 'bg-emerald-500' : 'bg-red-500 animate-pulse' ?>"></span>
+                        <?= htmlspecialchars($shortName) ?>
+                    </span>
+                <?php endforeach; ?>
+                <span class="text-slate-500 font-bold normal-case tracking-normal">·</span>
+                <span class="text-slate-500">Uptime: <span class="font-mono text-slate-900 dark:text-white"><?= htmlspecialchars($systemUptime) ?></span></span>
+                <span class="ml-auto flex items-center gap-2 text-slate-500">
+                    <span>Última atualização:</span>
+                    <span id="lastPollTime" class="font-mono text-emerald-500"><?= date('H:i:s') ?></span>
+                    <button type="button" id="pauseAutoUpdate" class="ml-2 glass-btn !py-1 !px-2 text-[9px] uppercase font-black" title="Pausar atualização automática a cada 5s">⏸ Pause</button>
+                </span>
+            </div>
+
             <!-- GRID DE METRICAS PRINCIPAIS -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <!-- QPS -->
@@ -696,7 +733,42 @@ $currentPage = 'index.php';
             } catch(e) { console.error("Poll error", e); }
         }
 
-        setInterval(updateDashboard, 5000);
+        // Atualiza timestamp + permite pausar
+        let __updateIntervalId = setInterval(() => {
+            updateDashboard();
+            const ts = document.getElementById('lastPollTime');
+            if (ts) {
+                const d = new Date();
+                ts.textContent = String(d.getHours()).padStart(2, '0') + ':' +
+                                 String(d.getMinutes()).padStart(2, '0') + ':' +
+                                 String(d.getSeconds()).padStart(2, '0');
+            }
+        }, 5000);
+
+        const pauseBtn = document.getElementById('pauseAutoUpdate');
+        if (pauseBtn) {
+            pauseBtn.addEventListener('click', () => {
+                if (__updateIntervalId) {
+                    clearInterval(__updateIntervalId);
+                    __updateIntervalId = null;
+                    pauseBtn.textContent = '▶ Resume';
+                    pauseBtn.classList.add('!text-amber-500');
+                } else {
+                    __updateIntervalId = setInterval(() => {
+                        updateDashboard();
+                        const ts = document.getElementById('lastPollTime');
+                        if (ts) {
+                            const d = new Date();
+                            ts.textContent = String(d.getHours()).padStart(2, '0') + ':' +
+                                             String(d.getMinutes()).padStart(2, '0') + ':' +
+                                             String(d.getSeconds()).padStart(2, '0');
+                        }
+                    }, 5000);
+                    pauseBtn.textContent = '⏸ Pause';
+                    pauseBtn.classList.remove('!text-amber-500');
+                }
+            });
+        }
 
         // [MELHORIA 4] Counters Numéricos Animados — incremento suave de 0 ao valor real
         function animateCounters() {
