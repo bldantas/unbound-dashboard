@@ -89,15 +89,25 @@ $isAdmin = Auth::isAdmin();
 
             <!-- Toolbar -->
             <div class="glass-panel mb-4 border-slate-200 dark:border-white/5">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div class="md:col-span-2">
                         <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Buscar (nome ou rdata)</label>
-                        <input type="text" id="cacheSearch" oninput="renderCacheTable()" placeholder="ex: google, .net, 1.1.1.1" class="glass-input w-full font-mono">
+                        <input type="text" id="cacheSearch" oninput="onCacheFilterChange()" placeholder="ex: google, .net, 1.1.1.1" class="glass-input w-full font-mono">
                     </div>
                     <div>
                         <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tipo</label>
-                        <select id="cacheTypeFilter" onchange="renderCacheTable()" class="glass-input w-full uppercase text-[10px] font-black">
+                        <select id="cacheTypeFilter" onchange="onCacheFilterChange()" class="glass-input w-full uppercase text-[10px] font-black">
                             <option value="">TODOS</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Por página</label>
+                        <select id="cachePerPage" onchange="onCachePerPageChange()" class="glass-input w-full uppercase text-[10px] font-black">
+                            <option value="25">25</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                            <option value="250">250</option>
+                            <option value="500">500</option>
                         </select>
                     </div>
                 </div>
@@ -118,6 +128,14 @@ $isAdmin = Auth::isAdmin();
                     </table>
                 </div>
                 <p id="cacheEmpty" class="hidden text-center text-slate-500 text-sm py-8 px-4">Nenhuma entrada atende aos filtros.</p>
+
+                <!-- Paginação -->
+                <div id="cachePagination" class="hidden px-6 py-4 border-t border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div class="text-[10px] font-black text-slate-500 uppercase tracking-widest" id="cachePaginationInfo">—</div>
+                    <div class="flex items-center gap-2" id="cachePaginationControls">
+                        <!-- Preenchido via JS -->
+                    </div>
+                </div>
             </div>
 
             <?php include 'includes/footer.php'; ?>
@@ -131,6 +149,10 @@ $isAdmin = Auth::isAdmin();
         let cacheData = { rrset: [], msg: [], stats: null };
         let currentTab = 'rrset';
         let ttlChartInstance = null;
+
+        // Paginação client-side
+        let cachePage = 1;
+        let cachePerPage = 50;
 
         const TTL_BUCKETS_META = [
             { key: 'expired',   label: 'expirado',   color: '#ef4444' },
@@ -248,6 +270,32 @@ $isAdmin = Auth::isAdmin();
             ).join('');
         }
 
+        // -- Handlers: filtros/busca/per-page resetam pra página 1 --
+        function onCacheFilterChange() {
+            cachePage = 1;
+            renderCacheTable();
+        }
+        function onCachePerPageChange() {
+            cachePerPage = parseInt(document.getElementById('cachePerPage').value, 10) || 50;
+            cachePage = 1;
+            renderCacheTable();
+        }
+
+        function getFilteredEntries() {
+            const tab = currentTab;
+            const q = (document.getElementById('cacheSearch').value || '').trim().toLowerCase();
+            const typeFilter = document.getElementById('cacheTypeFilter').value;
+            const entries = tab === 'rrset' ? (cacheData.rrset || []) : (cacheData.msg || []);
+            return entries.filter(e => {
+                const name = (tab === 'rrset' ? e.owner : e.qname).toLowerCase();
+                const t = (tab === 'rrset' ? e.type : e.qtype);
+                const rdata = (tab === 'rrset' ? (e.rdata || '') : '').toLowerCase();
+                const matchQ = !q || name.includes(q) || rdata.includes(q);
+                const matchT = !typeFilter || t === typeFilter;
+                return matchQ && matchT;
+            });
+        }
+
         function renderCacheTable() {
             const tab = currentTab;
             const head = document.getElementById('cacheTableHead');
@@ -276,29 +324,23 @@ $isAdmin = Auth::isAdmin();
                 truncFlag.classList.toggle('hidden', !stats.msg_truncated);
             }
 
-            const q = (document.getElementById('cacheSearch').value || '').trim().toLowerCase();
-            const typeFilter = document.getElementById('cacheTypeFilter').value;
             const entries = tab === 'rrset' ? (cacheData.rrset || []) : (cacheData.msg || []);
-
-            const filtered = entries.filter(e => {
-                const name = (tab === 'rrset' ? e.owner : e.qname).toLowerCase();
-                const t = (tab === 'rrset' ? e.type : e.qtype);
-                const rdata = (tab === 'rrset' ? (e.rdata || '') : '').toLowerCase();
-                const matchQ = !q || name.includes(q) || rdata.includes(q);
-                const matchT = !typeFilter || t === typeFilter;
-                return matchQ && matchT;
-            });
+            const filtered = getFilteredEntries();
 
             document.getElementById('cacheCountTotal').textContent = entries.length.toLocaleString('pt-BR');
             document.getElementById('cacheCountVisible').textContent = filtered.length.toLocaleString('pt-BR');
             document.getElementById('cacheEmpty').classList.toggle('hidden', filtered.length !== 0 || entries.length === 0);
 
-            // Limita render visual a 1000 (evita travar DOM)
-            const RENDER_LIMIT = 1000;
-            const slice = filtered.slice(0, RENDER_LIMIT);
+            // Paginação: clampa página atual ao range válido
+            const totalPages = Math.max(1, Math.ceil(filtered.length / cachePerPage));
+            if (cachePage > totalPages) cachePage = totalPages;
+            if (cachePage < 1) cachePage = 1;
+            const startIdx = (cachePage - 1) * cachePerPage;
+            const slice = filtered.slice(startIdx, startIdx + cachePerPage);
 
             if (slice.length === 0) {
                 body.innerHTML = '<tr><td colspan="' + (IS_ADMIN ? 5 : 4) + '" class="px-6 py-12 text-center text-slate-500 text-xs italic">Nenhum resultado.</td></tr>';
+                renderCachePagination(filtered.length, totalPages, startIdx, 0);
                 return;
             }
 
@@ -327,13 +369,9 @@ $isAdmin = Auth::isAdmin();
                         + '</tr>';
                 }
             }).join('');
+            body.innerHTML = html;
 
-            let footer = '';
-            if (filtered.length > RENDER_LIMIT) {
-                const skipped = filtered.length - RENDER_LIMIT;
-                footer = '<tr><td colspan="' + (IS_ADMIN ? 5 : 4) + '" class="px-6 py-4 text-center text-[10px] uppercase tracking-widest text-amber-500 font-black">⚠ Exibindo ' + RENDER_LIMIT.toLocaleString('pt-BR') + ' de ' + filtered.length.toLocaleString('pt-BR') + ' (refine os filtros — ' + skipped.toLocaleString('pt-BR') + ' linhas ocultas)</td></tr>';
-            }
-            body.innerHTML = html + footer;
+            renderCachePagination(filtered.length, totalPages, startIdx, slice.length);
 
             // Anexa handlers de flush
             if (IS_ADMIN) {
@@ -366,10 +404,65 @@ $isAdmin = Auth::isAdmin();
             }
         }
 
+        function renderCachePagination(totalFiltered, totalPages, startIdx, sliceLen) {
+            const wrapper = document.getElementById('cachePagination');
+            const info = document.getElementById('cachePaginationInfo');
+            const controls = document.getElementById('cachePaginationControls');
+
+            if (totalFiltered === 0) {
+                wrapper.classList.add('hidden');
+                return;
+            }
+            wrapper.classList.remove('hidden');
+
+            const from = sliceLen > 0 ? (startIdx + 1) : 0;
+            const to = startIdx + sliceLen;
+            info.textContent = `${from.toLocaleString('pt-BR')}–${to.toLocaleString('pt-BR')} de ${totalFiltered.toLocaleString('pt-BR')} · Página ${cachePage} de ${totalPages}`;
+
+            // Botões: primeira | anterior | [janela de 5 números] | próximo | última
+            const btn = (label, page, disabled, active) => {
+                const cls = active
+                    ? 'glass-btn !py-1 !px-3 text-[10px] font-black bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border-cyan-500/30'
+                    : 'glass-btn !py-1 !px-3 text-[10px] font-black' + (disabled ? ' opacity-30 cursor-not-allowed' : '');
+                return `<button type="button" class="${cls}" ${disabled ? 'disabled' : ''} data-page="${page}">${label}</button>`;
+            };
+
+            const pages = [];
+            // Janela de até 5 números centrada na página atual
+            const windowSize = 5;
+            let start = Math.max(1, cachePage - Math.floor(windowSize / 2));
+            let end = Math.min(totalPages, start + windowSize - 1);
+            if (end - start + 1 < windowSize) {
+                start = Math.max(1, end - windowSize + 1);
+            }
+            for (let p = start; p <= end; p++) pages.push(p);
+
+            const html =
+                btn('« primeiro', 1, cachePage === 1, false) +
+                btn('‹ anterior', cachePage - 1, cachePage === 1, false) +
+                pages.map(p => btn(String(p), p, false, p === cachePage)).join('') +
+                btn('próximo ›', cachePage + 1, cachePage === totalPages, false) +
+                btn('último »', totalPages, cachePage === totalPages, false);
+            controls.innerHTML = html;
+
+            controls.querySelectorAll('button').forEach(b => {
+                b.addEventListener('click', () => {
+                    const p = parseInt(b.dataset.page, 10);
+                    if (!isNaN(p) && p !== cachePage) {
+                        cachePage = p;
+                        renderCacheTable();
+                        // Rola pro topo da tabela quando trocar de página
+                        document.querySelector('.glass-table-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                });
+            });
+        }
+
         // Tabs
         document.querySelectorAll('.cache-tab-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 currentTab = btn.dataset.tab;
+                cachePage = 1; // reseta paginação ao trocar de tab
                 document.querySelectorAll('.cache-tab-btn').forEach(b => {
                     b.classList.remove('cache-tab-active', 'border-cyan-500', 'text-cyan-600', 'dark:text-cyan-400');
                     b.classList.add('border-transparent', 'text-slate-500');

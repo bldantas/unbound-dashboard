@@ -1,5 +1,38 @@
 # Changelog
 
+## v2.5.1 — 2026-05-12
+
+### cache.php — paginação real + seletor "por página"
+
+A página de Cache DNS já tinha busca + filtro de tipo, mas a tabela
+renderizava até 1000 linhas de uma vez (com footer "ocultas X") —
+sem navegação real. Agora alinhada com o padrão de blocklist/threats:
+seletor de quantidade por página e barra de paginação navegável.
+
+**Mudanças em `cache.php`:**
+
+- **Seletor "Por página"** na toolbar (25 / 50 / 100 / 250 / 500,
+  default 50).
+- **Paginação client-side**: estado `cachePage` + `cachePerPage`,
+  slice de `(page-1)*perPage` até `+perPage`.
+- **Barra de paginação** abaixo da tabela:
+  - Info "X–Y de Z · Página N de M" à esquerda.
+  - Controles "« primeiro · ‹ anterior · [janela de 5 números] ·
+    próximo › · último »" à direita.
+  - Botões disabled nos extremos, página atual destacada em ciano.
+  - Clicar em qualquer botão de página rola pro topo da tabela.
+- **Reset automático pra página 1** ao mudar: busca, filtro de tipo,
+  per-page selector, ou tab (RRset ↔ Msg).
+- Removido o footer "⚠ Exibindo 1000 de N" (substituído pela barra
+  de paginação que cobre todos os casos).
+
+Backend intocado — `api/cache_dump.php` continua retornando até 5000
+entries por seção.
+
+VERSION 2.5.0 → 2.5.1.
+
+---
+
 ## v2.5.0 — 2026-05-12
 
 ### Nova página Cache DNS (cache.php)
