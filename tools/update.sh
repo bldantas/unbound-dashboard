@@ -316,6 +316,10 @@ apply_system() {
         fi
         if [ -n "$php_fpm_svc" ]; then
             local php_fpm_conf="${php_fpm_svc%.service}"
+            local php_fpm_conf_file="/etc/apache2/conf-available/${php_fpm_conf}.conf"
+            local php_fpm_version="${php_fpm_conf#php}"
+            php_fpm_version="${php_fpm_version%-fpm}"
+            local php_fpm_socket="/run/php/php${php_fpm_version}-fpm.sock"
             a2enmod proxy_fcgi setenvif proxy proxy_http >/dev/null 2>&1 || true
             # Desabilita mod_php legado se presente
             local legacy_mod_php
@@ -325,6 +329,25 @@ apply_system() {
                     a2dismod "$m" >/dev/null 2>&1 || true
                     info "mod_php '$m' desabilitado (substituído por PHP-FPM)"
                 done
+            fi
+            # Debian 13/PHP 8.4: o pacote php-fpm não cria conf-available/phpX.Y-fpm.conf.
+            # Gera manualmente com handler proxy:unix:.../sock.
+            if [ ! -f "$php_fpm_conf_file" ]; then
+                info "Gerando $php_fpm_conf_file (não vem no pacote php-fpm do Debian 13)"
+                cat > "$php_fpm_conf_file" <<APACHE_PHP_FPM
+# Gerado pelo Unbound Dashboard update.sh — handler de .php via PHP-FPM ${php_fpm_version}
+<FilesMatch ".+\.ph(ar|p|tml)\$">
+    SetHandler "proxy:unix:${php_fpm_socket}|fcgi://localhost"
+</FilesMatch>
+<FilesMatch ".+\.phps\$">
+    SetHandler application/x-httpd-php-source
+    Require all denied
+</FilesMatch>
+<FilesMatch "^\.ph(ar|p|ps|tml)\$">
+    Require all denied
+</FilesMatch>
+DirectoryIndex index.php
+APACHE_PHP_FPM
             fi
             a2enconf "$php_fpm_conf" >/dev/null 2>&1 || warn "a2enconf $php_fpm_conf falhou"
             systemctl enable --now "$php_fpm_svc" >/dev/null 2>&1 || warn "Falha ao habilitar $php_fpm_svc"

@@ -1,5 +1,53 @@
 # Changelog
 
+## v2.7.2 — 2026-05-12
+
+### Fix: Debian 13/PHP 8.4 — gera phpX.Y-fpm.conf quando ausente
+
+v2.7.1 detectou o problema via smoke test, mas o fix anterior assumia
+que `a2enconf phpX.Y-fpm` ia funcionar. **No Debian 13 com PHP 8.4 o
+pacote `php-fpm` NÃO instala `/etc/apache2/conf-available/phpX.Y-fpm.conf`**
+— só vem o `phpX.Y-cgi.conf` (do pacote `libapache2-mod-php`, que é
+mod_php, não FPM). Então `a2enconf phpX.Y-fpm` falha com "file does
+not exist".
+
+Comportamento confirmado em produção (Debian 13.4):
+- `php-fpm` instalado → serviço ativo ✓
+- `/etc/apache2/conf-available/php8.4-fpm.conf` → **ausente** ✗
+- `a2enconf php8.4-fpm` → falha silenciosa
+- Smoke test v2.7.1 → detectou e avisou (funcionou como pretendido)
+
+**Fix em `install.sh` e `update.sh`:**
+
+Quando o arquivo `/etc/apache2/conf-available/phpX.Y-fpm.conf` não
+existe, **geramos manualmente** com o template padrão Debian/Ubuntu:
+
+```apache
+<FilesMatch ".+\.ph(ar|p|tml)$">
+    SetHandler "proxy:unix:/run/php/phpX.Y-fpm.sock|fcgi://localhost"
+</FilesMatch>
+<FilesMatch ".+\.phps$">
+    SetHandler application/x-httpd-php-source
+    Require all denied
+</FilesMatch>
+<FilesMatch "^\.ph(ar|p|ps|tml)$">
+    Require all denied
+</FilesMatch>
+DirectoryIndex index.php
+```
+
+- Versão e socket path derivados de `$PHP_FPM_CONF`
+  (`php8.4-fpm` → versão `8.4`, socket `/run/php/php8.4-fpm.sock`).
+- Idempotente: só cria se ausente, não sobrescreve um manual.
+- Depois disso o `a2enconf` funciona normalmente.
+
+Em Debian 12 / Ubuntu 22+ onde o conf já vem do pacote, este bloco
+é no-op (early return no `if [ ! -f ... ]`).
+
+VERSION 2.7.1 → 2.7.2.
+
+---
+
 ## v2.7.1 — 2026-05-12
 
 ### Fix: update.sh deixava Apache servindo .php cru

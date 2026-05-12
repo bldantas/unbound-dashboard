@@ -188,11 +188,37 @@ if [ -n "$LEGACY_MOD_PHP" ]; then
     done
 fi
 
+# Em Debian 13/PHP 8.4 o pacote `php-fpm` NÃO instala
+# /etc/apache2/conf-available/phpX.Y-fpm.conf (só `phpX.Y-cgi.conf` do
+# pacote libapache2-mod-php). Sem o conf, a2enconf falha e Apache serve
+# .php cru. Geramos o conf manualmente se não existir.
+PHP_FPM_CONF_FILE="/etc/apache2/conf-available/${PHP_FPM_CONF}.conf"
+PHP_FPM_VERSION="${PHP_FPM_CONF#php}"      # ex: 8.4-fpm
+PHP_FPM_VERSION="${PHP_FPM_VERSION%-fpm}"  # ex: 8.4
+PHP_FPM_SOCKET="/run/php/php${PHP_FPM_VERSION}-fpm.sock"
+if [ ! -f "$PHP_FPM_CONF_FILE" ]; then
+    info "Gerando $PHP_FPM_CONF_FILE (não vem no pacote php-fpm do Debian 13)"
+    cat > "$PHP_FPM_CONF_FILE" <<APACHE_PHP_FPM
+# Gerado pelo Unbound Dashboard install.sh — handler de .php via PHP-FPM ${PHP_FPM_VERSION}
+<FilesMatch ".+\.ph(ar|p|tml)\$">
+    SetHandler "proxy:unix:${PHP_FPM_SOCKET}|fcgi://localhost"
+</FilesMatch>
+<FilesMatch ".+\.phps\$">
+    SetHandler application/x-httpd-php-source
+    Require all denied
+</FilesMatch>
+<FilesMatch "^\.ph(ar|p|ps|tml)\$">
+    Require all denied
+</FilesMatch>
+DirectoryIndex index.php
+APACHE_PHP_FPM
+fi
+
 # Habilita o conf do php-fpm (drop-in que registra SetHandler proxy:unix:...)
 if a2enconf "$PHP_FPM_CONF" >/dev/null 2>&1; then
     log "Apache conf habilitado: $PHP_FPM_CONF (handler .php → PHP-FPM via fcgi)"
 else
-    warn "a2enconf $PHP_FPM_CONF falhou — verifique /etc/apache2/conf-available/"
+    warn "a2enconf $PHP_FPM_CONF falhou — verifique $PHP_FPM_CONF_FILE"
 fi
 
 # Garante php-fpm ativo + boot
