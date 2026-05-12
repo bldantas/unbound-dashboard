@@ -27,8 +27,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($tool === 'whois') {
             \App\ShellHelper::exec('/usr/bin/whois', [$target], $outLines, $tmpRet, false);
         } elseif ($tool === 'dns') {
-            \App\ShellHelper::exec('/usr/bin/dig', [$target, '+short'], $outLines, $tmpRet, false);
-            if(empty($outLines)) $outLines[] = "Nenhum registro encontrado.";
+            // Tipo de record (A/AAAA/MX/TXT/NS/CNAME) — validado contra allowlist.
+            $rrType = strtoupper(trim($_POST['rrtype'] ?? 'A'));
+            $allowedTypes = ['A', 'AAAA', 'MX', 'TXT', 'NS', 'CNAME', 'SOA', 'PTR'];
+            if (!in_array($rrType, $allowedTypes, true)) $rrType = 'A';
+            \App\ShellHelper::exec('/usr/bin/dig', [$target, $rrType, '+short'], $outLines, $tmpRet, false);
+            if(empty($outLines)) $outLines[] = "Nenhum registro $rrType encontrado para $target.";
+            $tool = "DNS Lookup ($rrType)";
         }
         $output = implode("\n", $outLines);
     }
@@ -94,7 +99,7 @@ $currentPage = 'diagnostics.php';
                         </div>
                         <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">ICMP Ping</h3>
                     </div>
-                    <form class="diag-form space-y-4">
+                    <form class="diag-form space-y-4" data-tool-id="ping">
                         <input type="hidden" name="action" value="run_tool">
                         <input type="hidden" name="tool" value="ping">
                         <input type="text" name="target" placeholder="google.com" required class="glass-input w-full">
@@ -110,7 +115,7 @@ $currentPage = 'diagnostics.php';
                         </div>
                         <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Traceroute</h3>
                     </div>
-                    <form class="diag-form space-y-4">
+                    <form class="diag-form space-y-4" data-tool-id="traceroute">
                         <input type="hidden" name="action" value="run_tool">
                         <input type="hidden" name="tool" value="traceroute">
                         <input type="text" name="target" placeholder="8.8.8.8" required class="glass-input w-full border-purple-500/20">
@@ -126,10 +131,20 @@ $currentPage = 'diagnostics.php';
                         </div>
                         <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">DNS Lookup</h3>
                     </div>
-                    <form class="diag-form space-y-4">
+                    <form class="diag-form space-y-3" data-tool-id="dns">
                         <input type="hidden" name="action" value="run_tool">
                         <input type="hidden" name="tool" value="dns">
                         <input type="text" name="target" placeholder="uol.com.br" required class="glass-input w-full border-emerald-500/20">
+                        <select name="rrtype" class="glass-input w-full uppercase text-[10px] font-black border-emerald-500/20">
+                            <option value="A">A (IPv4)</option>
+                            <option value="AAAA">AAAA (IPv6)</option>
+                            <option value="MX">MX (Mail)</option>
+                            <option value="TXT">TXT</option>
+                            <option value="NS">NS (Nameservers)</option>
+                            <option value="CNAME">CNAME (Alias)</option>
+                            <option value="SOA">SOA</option>
+                            <option value="PTR">PTR (Reverso)</option>
+                        </select>
                         <button type="submit" class="glass-btn bg-emerald-600/20 hover:bg-emerald-600 text-emerald-500 dark:text-emerald-400 hover:text-white border-emerald-500/30 w-full justify-center text-[10px] uppercase tracking-widest btn-submit">Resolver DNS</button>
                     </form>
                 </div>
@@ -144,7 +159,7 @@ $currentPage = 'diagnostics.php';
                     </div>
                     <div class="space-y-4">
                         <p class="text-[10px] text-slate-500 font-medium leading-relaxed">Verifica rotas de saída IPv4/IPv6, gateway padrão e resolução externa.</p>
-                        <form class="diag-form">
+                        <form class="diag-form" data-tool-id="internet">
                             <input type="hidden" name="action" value="internet_test">
                             <button type="submit" class="glass-btn bg-orange-600/20 hover:bg-orange-600 text-orange-500 dark:text-orange-400 hover:text-white border-orange-500/30 w-full justify-center text-[10px] uppercase tracking-widest btn-submit">Check Internet</button>
                         </form>
@@ -157,7 +172,11 @@ $currentPage = 'diagnostics.php';
             <div id="outputContainer" class="hidden glass-panel !p-0 overflow-hidden animate-fade-in relative border-slate-200 dark:border-white/5">
                 <div class="bg-slate-900/5 dark:bg-white/5 px-6 py-4 border-b border-slate-900/10 dark:border-white/5 flex items-center justify-between">
                     <h3 class="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-widest" id="outputHeader">Output</h3>
-                    <button onclick="document.getElementById('outputContainer').classList.add('hidden')" class="text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+                    <div class="flex items-center gap-2">
+                        <button type="button" id="btnCopyOutput" class="glass-btn !py-1 !px-2 text-[9px] uppercase tracking-widest" title="Copiar saída pra clipboard">📋 Copiar</button>
+                        <button type="button" id="btnDownloadOutput" class="glass-btn !py-1 !px-2 text-[9px] uppercase tracking-widest" title="Baixar como .txt">⬇ Baixar</button>
+                        <button onclick="document.getElementById('outputContainer').classList.add('hidden')" class="text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+                    </div>
                 </div>
                 <div class="bg-black/40 p-6 font-mono text-[11px] leading-relaxed text-blue-500 dark:text-blue-400/90 whitespace-pre-wrap max-h-[500px] overflow-auto" id="outputPre">
                     <!-- Injected by JS -->
@@ -170,10 +189,36 @@ $currentPage = 'diagnostics.php';
     </main>
     
     <script>
+        // -- Auto-fill: lembra último target/tipo por ferramenta via localStorage --
+        const DIAG_STORAGE_KEY = 'unbound_diag_lastinputs_v1';
+        function loadDiagInputs() {
+            try { return JSON.parse(localStorage.getItem(DIAG_STORAGE_KEY) || '{}'); } catch { return {}; }
+        }
+        function saveDiagInputs(toolId, fields) {
+            try {
+                const data = loadDiagInputs();
+                data[toolId] = fields;
+                localStorage.setItem(DIAG_STORAGE_KEY, JSON.stringify(data));
+            } catch {}
+        }
+        // Restaura ao carregar
+        (function restoreDiagInputs() {
+            const data = loadDiagInputs();
+            document.querySelectorAll('.diag-form[data-tool-id]').forEach(form => {
+                const toolId = form.dataset.toolId;
+                const saved = data[toolId];
+                if (!saved) return;
+                const targetEl = form.querySelector('input[name="target"]');
+                if (targetEl && saved.target) targetEl.value = saved.target;
+                const rrEl = form.querySelector('select[name="rrtype"]');
+                if (rrEl && saved.rrtype) rrEl.value = saved.rrtype;
+            });
+        })();
+
         document.querySelectorAll('.diag-form').forEach(form => {
             form.addEventListener('submit', async function(e) {
                 e.preventDefault();
-                
+
                 const btn = this.querySelector('.btn-submit');
                 const overlay = document.getElementById('loadingOverlay');
                 const outputContainer = document.getElementById('outputContainer');
@@ -181,6 +226,17 @@ $currentPage = 'diagnostics.php';
                 const outputHeader = document.getElementById('outputHeader');
                 const action = this.querySelector('input[name="action"]').value;
                 const toolTarget = this.querySelector('input[name="target"]')?.value || 'Local Host';
+
+                // Salva inputs antes de submeter
+                const toolId = this.dataset.toolId;
+                if (toolId) {
+                    const fields = {};
+                    const t = this.querySelector('input[name="target"]');
+                    if (t) fields.target = t.value;
+                    const rr = this.querySelector('select[name="rrtype"]');
+                    if (rr) fields.rrtype = rr.value;
+                    saveDiagInputs(toolId, fields);
+                }
                 
                 // Set loading texts based on action
                 if(action === 'internet_test') {
@@ -229,6 +285,39 @@ $currentPage = 'diagnostics.php';
                 }
             });
         });
+
+        // -- Copiar / Baixar saída --
+        const btnCopy = document.getElementById('btnCopyOutput');
+        const btnDownload = document.getElementById('btnDownloadOutput');
+        if (btnCopy) {
+            btnCopy.addEventListener('click', async () => {
+                const text = document.getElementById('outputPre').innerText || '';
+                try {
+                    await navigator.clipboard.writeText(text);
+                    btnCopy.textContent = '✓ Copiado';
+                    setTimeout(() => { btnCopy.innerHTML = '📋 Copiar'; }, 1500);
+                } catch {
+                    window.AppUI && window.AppUI.toast && window.AppUI.toast('Falha ao copiar.', 'error');
+                }
+            });
+        }
+        if (btnDownload) {
+            btnDownload.addEventListener('click', () => {
+                const text = document.getElementById('outputPre').innerText || '';
+                const header = document.getElementById('outputHeader').innerText || 'output';
+                const safe = header.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+                const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+                const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `unbound-diag-${safe}-${stamp}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        }
     </script>
 </body>
 </html>

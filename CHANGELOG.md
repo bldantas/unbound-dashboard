@@ -1,5 +1,40 @@
 # Changelog
 
+## v2.3.5 — 2026-05-12
+
+### diagnostics.php + dns_benchmark.php — auto-fill, copiar/baixar, tipo DNS, domínio editável
+
+**`diagnostics.php`:**
+
+- **DNS Lookup com tipo de record** selecionável (A/AAAA/MX/TXT/NS/CNAME/
+  SOA/PTR). Antes era só A (`+short`). Validado contra allowlist no
+  backend antes de passar pro `dig`.
+- **Auto-fill de últimos inputs** via `localStorage` por ferramenta
+  (ping / traceroute / dns / internet). Recarregar a página mantém
+  o que você digitou da última vez. Cada `.diag-form` ganhou
+  `data-tool-id` e o submit handler salva os campos automaticamente.
+- **Botões "📋 Copiar" e "⬇ Baixar"** no header do output:
+  - Copiar → `navigator.clipboard.writeText` com confirmação visual.
+  - Baixar → gera `.txt` com nome `unbound-diag-<tool>-<timestamp>.txt`
+    via Blob + ObjectURL.
+
+**`dns_benchmark.php`:**
+
+- **Domínio de teste agora editável** (era hardcoded em `google.com`).
+  Input com `pattern="[a-zA-Z0-9._-]+"`, maxlength 253. Validação
+  duplicada no PHP server-side (`preg_match` antes de passar pro
+  `dig`, fallback pro default se inválido).
+- **Queries por servidor agora editável** (era 5 hardcoded). Input
+  numérico 1-20 com validação PHP (fora do range = default 5).
+- Form reorganizado em painel com grid (domínio col-6, queries col-3,
+  botão col-3). Texto auxiliar explicando os limites.
+- FormData(this) do submit JS já pega ambos os campos — zero mudança
+  no fluxo de 3 rounds e agregação.
+
+Sem mudança de schema/endpoint. Tudo cirúrgico nas duas páginas.
+
+---
+
 ## v2.3.4 — 2026-05-12
 
 ### history.php — busca + filtros + pie chart clicável

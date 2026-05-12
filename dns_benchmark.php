@@ -6,8 +6,17 @@ require_once 'src/ShellHelper.php';
 if (!\App\Auth::isAdmin()) { header('Location: index.php'); exit; }
 
 $results = [];
-$benchmark_domain = 'google.com';
-$num_queries = 5;
+
+// Inputs configuráveis pela UI (com defaults seguros).
+$defaultDomain = 'google.com';
+$defaultQueries = 5;
+$benchmark_domain = trim($_POST['benchmark_domain'] ?? $defaultDomain);
+// Hostname-like validation: a-z0-9.-_ — bloqueia injection no shell
+if (!preg_match('/^[a-zA-Z0-9._-]+$/', $benchmark_domain) || strlen($benchmark_domain) > 253) {
+    $benchmark_domain = $defaultDomain;
+}
+$num_queries = (int) ($_POST['num_queries'] ?? $defaultQueries);
+if ($num_queries < 1 || $num_queries > 20) $num_queries = $defaultQueries;
 
 $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest';
 
@@ -226,14 +235,31 @@ $currentPage = 'dns_benchmark.php';
                 </div>
             </div>
 
-            <div class="flex justify-between items-center mb-8">
-                <div></div>
-                <form id="benchmarkForm" data-loader="off">
+            <!-- Parâmetros do benchmark -->
+            <div class="glass-panel mb-6 border-slate-200 dark:border-white/5">
+                <form id="benchmarkForm" data-loader="off" class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                     <input type="hidden" name="action" value="run_benchmark">
-                    <button type="submit" id="btnStart" class="glass-btn bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 px-8 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        <span>Iniciar Diagnóstico</span>
-                    </button>
+                    <div class="md:col-span-6">
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Domínio de teste</label>
+                        <input type="text" name="benchmark_domain" id="benchmark_domain" value="<?= htmlspecialchars($benchmark_domain) ?>"
+                               pattern="[a-zA-Z0-9._-]+" maxlength="253"
+                               placeholder="google.com" required
+                               class="glass-input w-full font-mono">
+                        <p class="text-[9px] text-slate-500 mt-1">Cada servidor resolverá este nome. Validação: a-z 0-9 . - _</p>
+                    </div>
+                    <div class="md:col-span-3">
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Queries por servidor</label>
+                        <input type="number" name="num_queries" id="num_queries" value="<?= (int)$num_queries ?>"
+                               min="1" max="20" required
+                               class="glass-input w-full font-mono">
+                        <p class="text-[9px] text-slate-500 mt-1">Entre 1 e 20 (default 5).</p>
+                    </div>
+                    <div class="md:col-span-3 flex justify-end">
+                        <button type="submit" id="btnStart" class="glass-btn bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 px-8 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            <span>Iniciar Diagnóstico</span>
+                        </button>
+                    </div>
                 </form>
             </div>
 
