@@ -36,6 +36,7 @@ import structlog
 
 from app.core.metrics import worker_errors
 from app.infrastructure import system_health
+from app.repositories.duckdb import settings_repo
 from app.repositories.duckdb.connection import db_execute, db_fetchone
 
 log = structlog.get_logger(__name__)
@@ -44,24 +45,43 @@ CHECK_INTERVAL = 60  # segundos
 QUERY_STALL_WINDOW = 600  # 10 minutos sem query DNS = alerta
 NO_QUERIES_COOLDOWN_HOURS = 6
 
-# Thresholds — alinhados com src/AlertManager.php constantes
-THRESHOLD_CPU_LOAD1 = 4.0
-THRESHOLD_MEM_PERCENT = 90.0
-THRESHOLD_SWAP_PERCENT = 50.0
-THRESHOLD_DISK_PERCENT = 90.0
-THRESHOLD_NETWORK_ERRORS = 100
-THRESHOLD_SSH_FAILED_LOGINS = 50
+# Defaults — usados como fallback se a chave não existir em settings.
+# Editáveis via UI (alerts.php → modal "Editar limiares") que faz
+# PUT /api/v1/alerts/thresholds → settings_repo.bulk_upsert.
+THRESHOLD_DEFAULTS = {
+    "alert_threshold_cpu_load1":        4.0,
+    "alert_threshold_mem_percent":      90.0,
+    "alert_threshold_swap_percent":     50.0,
+    "alert_threshold_disk_percent":     90.0,
+    "alert_threshold_network_counters": 100.0,
+    "alert_threshold_ssh_failed_day":   50.0,
+}
 
 WEBSERVER_UNIT = "apache2.service"
+
+
+async def load_thresholds() -> dict[str, float]:
+    """Lê os 6 thresholds de settings, com fallback nos defaults."""
+    out = {}
+    for key, default in THRESHOLD_DEFAULTS.items():
+        out[key] = await settings_repo.get_float(key, default)
+    return out
 
 
 class AlertChecker:
     def __init__(self) -> None:
         self._running = False
+        # Thresholds carregados a cada tick (re-ler é barato — 6 selects)
+        self._thresholds: dict[str, float] = dict(THRESHOLD_DEFAULTS)
 
     async def start(self) -> None:
         self._running = True
         while self._running:
+            try:
+                self._thresholds = await load_thresholds()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("alert_checker.thresholds_load_failed", error=str(exc))
+                # Mantém o último válido (ou defaults)
             await self._run_all_checks()
             await asyncio.sleep(CHECK_INTERVAL)
 
@@ -178,7 +198,8 @@ class AlertChecker:
 
     async def _check_cpu(self) -> None:
         load1 = system_health.cpu_load1()
-        if load1 > THRESHOLD_CPU_LOAD1:
+        threshold = self._thresholds["alert_threshold_cpu_load1"]
+        if load1 > threshold:
             await self._raise_alert(
                 "cpu", "warning", f"Sobrecarga de CPU: Load Average {load1:.2f}"
             )
@@ -187,21 +208,24 @@ class AlertChecker:
 
     async def _check_memory(self) -> None:
         percent = system_health.memory_percent()
-        if percent > THRESHOLD_MEM_PERCENT:
+        threshold = self._thresholds["alert_threshold_mem_percent"]
+        if percent > threshold:
             await self._raise_alert("memory", "critical", f"Falta de RAM: {percent:.1f}% em uso")
         else:
             await self._resolve_alert("memory")
 
     async def _check_swap(self) -> None:
         percent = system_health.swap_percent()
-        if percent > THRESHOLD_SWAP_PERCENT:
+        threshold = self._thresholds["alert_threshold_swap_percent"]
+        if percent > threshold:
             await self._raise_alert("swap", "warning", f"Uso excessivo de Swap: {percent:.1f}%")
         else:
             await self._resolve_alert("swap")
 
     async def _check_disk(self) -> None:
         percent = system_health.disk_percent_root()
-        if percent > THRESHOLD_DISK_PERCENT:
+        threshold = self._thresholds["alert_threshold_disk_percent"]
+        if percent > threshold:
             await self._raise_alert(
                 "disk", "critical", f"Armazenamento Crítico: {percent:.1f}% cheio"
             )
@@ -210,7 +234,8 @@ class AlertChecker:
 
     async def _check_network(self) -> None:
         net = system_health.network_errors_drops()
-        if net["errors"] > THRESHOLD_NETWORK_ERRORS or net["drops"] > THRESHOLD_NETWORK_ERRORS:
+        threshold = self._thresholds["alert_threshold_network_counters"]
+        if net["errors"] > threshold or net["drops"] > threshold:
             await self._raise_alert(
                 "network",
                 "warning",
@@ -221,7 +246,8 @@ class AlertChecker:
 
     async def _check_security(self) -> None:
         failed = await system_health.ssh_failed_logins_today()
-        if failed > THRESHOLD_SSH_FAILED_LOGINS:
+        threshold = self._thresholds["alert_threshold_ssh_failed_day"]
+        if failed > threshold:
             await self._raise_alert(
                 "security", "critical", f"Alto nível de falhas SSH hoje: {failed} tentativas."
             )

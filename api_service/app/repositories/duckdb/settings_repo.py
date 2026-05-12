@@ -23,6 +23,16 @@ async def get_int(key: str, default: int = 0) -> int:
         return default
 
 
+async def get_float(key: str, default: float = 0.0) -> float:
+    value = await get(key)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
 async def get_bool(key: str, default: bool = False) -> bool:
     value = await get(key)
     if value is None:

@@ -1,5 +1,57 @@
 # Changelog
 
+## v2.4.0 — 2026-05-12
+
+### Limiares de alerta editáveis pela UI
+
+Os 6 thresholds que disparam alertas (CPU load1, RAM%, Swap%, Disk%,
+Network counters, SSH falhas/dia) eram hardcoded como constantes
+Python em `alert_checker.py`. Pra mudar precisava editar código,
+commitar, reinstalar, restart do `unbound-dashboard-api`. Agora são
+settings persistidos no DuckDB e editáveis pela UI em ~60s.
+
+**Backend (`api_service`):**
+
+- `settings_repo.get_float(key, default)` — novo helper.
+- `alert_checker.THRESHOLD_DEFAULTS` — dict com as 6 keys de settings
+  (`alert_threshold_cpu_load1`, `_mem_percent`, `_swap_percent`,
+  `_disk_percent`, `_network_counters`, `_ssh_failed_day`).
+- `alert_checker.load_thresholds()` — lê de settings com fallback nos
+  defaults. Chamado no início de cada tick (60s). Falha de leitura mantém
+  os últimos valores válidos (não trava o worker).
+- Os 5 `_check_*` agora leem de `self._thresholds[...]` em vez de constante.
+
+**Endpoints (`routers/alerts.py`):**
+
+- `GET /api/v1/alerts/thresholds` (require_auth) — retorna
+  `{current: {...}, defaults: {...}}`. Aberto a viewer pra que a página
+  alerts mostre os números nos cards de hardware.
+- `PUT /api/v1/alerts/thresholds` (require_admin) — UPSERT parcial.
+  Body com qualquer subset dos 6 campos (`alert_threshold_*`). Pydantic
+  valida: `ge=0` em todos, `le=100` nos percentuais. Returna o estado
+  final.
+
+**UI (`alerts.php`):**
+
+- Cards de hardware no topo agora exibem o valor **dinâmico** vindo de
+  `/api/v1/alerts/thresholds` (era hardcoded).
+- Novo botão **"⚙ Editar Limiares"** no page-header.
+- Modal full-screen com 6 inputs numéricos (grid 2×3), defaults
+  documentados em cada label, validação `min`/`max`/`step` HTML.
+- Submit faz `PUT /api/v1/alerts/thresholds` com Bearer JWT do meta tag;
+  toast de sucesso/erro; page reload em 1.5s.
+
+Como aplica:
+1. Admin edita → `PUT` → `settings_repo.bulk_upsert`.
+2. Próximo tick do `alert_checker` (≤ 60s) carrega novos valores.
+3. Cards refletem o novo valor após o reload (lê via GET).
+
+Sem migration nova — usa a tabela `settings` existente (V1).
+
+VERSION 2.3.5 → 2.4.0 (minor bump — feature backend nova + UI nova).
+
+---
+
 ## v2.3.5 — 2026-05-12
 
 ### diagnostics.php + dns_benchmark.php — auto-fill, copiar/baixar, tipo DNS, domínio editável

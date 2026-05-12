@@ -131,16 +131,32 @@ if (!$loadedFromApi) {
 
 $currentPage = 'alerts.php';
 
-// Thresholds que disparam alertas — espelhar com
-// api_service/app/workers/alert_checker.py:48-53. Mostrar na UI dá contexto
-// pro admin entre "métrica atual" e "alerta histórico".
+// Thresholds — agora dinâmicos. Lê de /api/v1/alerts/thresholds (settings
+// DuckDB com fallback nos defaults do alert_checker). Editáveis via modal
+// no header da página (PUT /api/v1/alerts/thresholds, require_admin).
+require_once __DIR__ . '/src/ApiClient.php';
+$thresholdDefaults = [
+    'alert_threshold_cpu_load1'        => 4.0,
+    'alert_threshold_mem_percent'      => 90.0,
+    'alert_threshold_swap_percent'     => 50.0,
+    'alert_threshold_disk_percent'     => 90.0,
+    'alert_threshold_network_counters' => 100.0,
+    'alert_threshold_ssh_failed_day'   => 50.0,
+];
+$thresholdsResp = !empty($_SESSION['api_jwt'])
+    ? \App\ApiClient::get('/api/v1/alerts/thresholds', $_SESSION['api_jwt'])
+    : ['ok' => false];
+$thresholdsCurrent = ($thresholdsResp['ok'] ?? false) && isset($thresholdsResp['data']['current'])
+    ? $thresholdsResp['data']['current']
+    : $thresholdDefaults;
+// Alias compacto pros usos abaixo (mantém compatibilidade com os cards).
 $thresholds = [
-    'cpu_load1'        => 4.0,
-    'mem_percent'      => 90.0,
-    'swap_percent'     => 50.0,
-    'disk_percent'     => 90.0,
-    'network_counters' => 100,
-    'ssh_failed_day'   => 50,
+    'cpu_load1'        => (float) ($thresholdsCurrent['alert_threshold_cpu_load1']        ?? 4.0),
+    'mem_percent'      => (float) ($thresholdsCurrent['alert_threshold_mem_percent']      ?? 90.0),
+    'swap_percent'     => (float) ($thresholdsCurrent['alert_threshold_swap_percent']     ?? 50.0),
+    'disk_percent'     => (float) ($thresholdsCurrent['alert_threshold_disk_percent']     ?? 90.0),
+    'network_counters' => (float) ($thresholdsCurrent['alert_threshold_network_counters'] ?? 100.0),
+    'ssh_failed_day'   => (float) ($thresholdsCurrent['alert_threshold_ssh_failed_day']   ?? 50.0),
 ];
 
 // Tipos conhecidos pra contagem agregada — usar no header da tabela
@@ -163,7 +179,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
 
     <main class="flex-1 overflow-y-auto bg-slate-950">
         <div class="page-container">
-            <header class="page-header mb-8">
+            <header class="page-header mb-8 flex items-start justify-between gap-4 flex-wrap">
                 <div>
                     <h1 class="page-title flex items-center gap-3">
                         <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -173,6 +189,12 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
                     </h1>
                     <p class="page-subtitle">Monitoramento em tempo real de hardware, segurança e conectividade.</p>
                 </div>
+                <button type="button" id="btnEditThresholds"
+                        class="glass-btn text-[10px] uppercase font-black flex items-center gap-2"
+                        title="Editar limiares que disparam alertas">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    Editar Limiares
+                </button>
             </header>
 
             <!-- Seção de Hardware -->
@@ -525,6 +547,121 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
             <?php include 'includes/footer.php'; ?>
         </div>
     </main>
+
+    <!-- Modal: Editar Limiares -->
+    <?php if (\App\Auth::isAdmin()): ?>
+    <div id="modalThresholds" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+         onclick="if (event.target === this) this.classList.add('hidden')">
+        <div class="glass-panel max-w-lg w-full">
+            <h3 class="text-sm font-black uppercase tracking-widest mb-2 text-slate-900 dark:text-white">Editar Limiares de Alerta</h3>
+            <p class="text-[11px] text-slate-500 mb-4">
+                Valores acima do limiar disparam alertas. As alterações são aplicadas no próximo ciclo do
+                <code class="text-[10px]">alert_checker</code> (até 60s). Campos vazios mantêm o valor atual.
+            </p>
+            <form id="formThresholds" class="space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">CPU load1</label>
+                        <input type="number" step="0.1" min="0" name="alert_threshold_cpu_load1"
+                               value="<?= htmlspecialchars((string) $thresholds['cpu_load1']) ?>"
+                               class="glass-input w-full font-mono text-xs">
+                        <p class="text-[9px] text-slate-500 mt-0.5">Default 4.0</p>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">RAM %</label>
+                        <input type="number" step="0.1" min="0" max="100" name="alert_threshold_mem_percent"
+                               value="<?= htmlspecialchars((string) $thresholds['mem_percent']) ?>"
+                               class="glass-input w-full font-mono text-xs">
+                        <p class="text-[9px] text-slate-500 mt-0.5">Default 90.0</p>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Swap %</label>
+                        <input type="number" step="0.1" min="0" max="100" name="alert_threshold_swap_percent"
+                               value="<?= htmlspecialchars((string) $thresholds['swap_percent']) ?>"
+                               class="glass-input w-full font-mono text-xs">
+                        <p class="text-[9px] text-slate-500 mt-0.5">Default 50.0</p>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Disco %</label>
+                        <input type="number" step="0.1" min="0" max="100" name="alert_threshold_disk_percent"
+                               value="<?= htmlspecialchars((string) $thresholds['disk_percent']) ?>"
+                               class="glass-input w-full font-mono text-xs">
+                        <p class="text-[9px] text-slate-500 mt-0.5">Default 90.0</p>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Network errors/drops</label>
+                        <input type="number" step="1" min="0" name="alert_threshold_network_counters"
+                               value="<?= htmlspecialchars((string) $thresholds['network_counters']) ?>"
+                               class="glass-input w-full font-mono text-xs">
+                        <p class="text-[9px] text-slate-500 mt-0.5">Default 100</p>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">SSH falhas/dia</label>
+                        <input type="number" step="1" min="0" name="alert_threshold_ssh_failed_day"
+                               value="<?= htmlspecialchars((string) $thresholds['ssh_failed_day']) ?>"
+                               class="glass-input w-full font-mono text-xs">
+                        <p class="text-[9px] text-slate-500 mt-0.5">Default 50</p>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-2 pt-4 border-t border-slate-900/10 dark:border-white/5">
+                    <button type="button" onclick="document.getElementById('modalThresholds').classList.add('hidden')"
+                            class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
+                    <button type="submit"
+                            class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script>
+        // Modal de edição de limiares
+        (function () {
+            const btn = document.getElementById('btnEditThresholds');
+            const modal = document.getElementById('modalThresholds');
+            const form = document.getElementById('formThresholds');
+            if (!btn || !modal || !form) return;
+
+            btn.addEventListener('click', () => modal.classList.remove('hidden'));
+
+            form.addEventListener('submit', async function (ev) {
+                ev.preventDefault();
+                const meta = document.querySelector('meta[name="api-jwt"]');
+                const jwt = meta ? meta.content : '';
+                if (!jwt) {
+                    window.AppUI && window.AppUI.toast && window.AppUI.toast('Sessão sem JWT — faça login novamente.', 'error');
+                    return;
+                }
+                const payload = {};
+                new FormData(form).forEach((v, k) => {
+                    const num = parseFloat(v);
+                    if (!isNaN(num)) payload[k] = num;
+                });
+                const submitBtn = form.querySelector('button[type="submit"]');
+                submitBtn.disabled = true;
+                const originalLabel = submitBtn.textContent;
+                submitBtn.textContent = 'Salvando...';
+                try {
+                    const res = await fetch('/api/v1/alerts/thresholds', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+                        body: JSON.stringify(payload),
+                    });
+                    if (!res.ok) {
+                        const err = await res.text();
+                        throw new Error('HTTP ' + res.status + ': ' + err);
+                    }
+                    modal.classList.add('hidden');
+                    window.AppUI && window.AppUI.toast && window.AppUI.toast('Limiares atualizados. Aplicação em até 60s.', 'success');
+                    setTimeout(() => location.reload(), 1500);
+                } catch (err) {
+                    window.AppUI && window.AppUI.toast && window.AppUI.toast('Falha ao salvar: ' + err.message, 'error');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalLabel;
+                }
+            });
+        })();
+    </script>
+    <?php endif; ?>
     <script>
         async function loadAlertsMetrics() {
             try {
