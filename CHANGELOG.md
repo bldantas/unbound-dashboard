@@ -1,5 +1,46 @@
 # Changelog
 
+## v2.8.1 — 2026-05-12
+
+### Fix: install.sh em `curl | bash` sem ADMIN_PASSWORD virava loop infinito
+
+Quando `install-from-git.sh` rodava num servidor onde o admin precisa
+ser criado (DuckDB vazio ou flag forçada) **e** o usuário esqueceu de
+passar `ADMIN_PASSWORD` no comando, o install.sh entrava num `while`
+infinito tentando `read -rsp` num stdin esgotado:
+
+```
+[!] Senhas não conferem ou < 6 chars. Tente novamente.
+[!] Senhas não conferem ou < 6 chars. Tente novamente.
+[!] Senhas não conferem ou < 6 chars. Tente novamente.
+...
+```
+
+Causa: `curl | sudo bash` consome todo o stdin pra ler o script. Quando
+`read` é chamado depois, lê 0 bytes e retorna falha — vars ficam vazias,
+comparação `[ "" = "" ] && [ 0 -ge 6 ]` é falsa, loop nunca quebra.
+
+**Fix em `tools/install.sh`:**
+
+- Detecta stdin não-interativo com `[ -t 0 ]`.
+- Se **stdin é pipe E ADMIN_PASSWORD vazia** → `err()` com mensagem
+  detalhada listando os 3 caminhos pra resolver:
+  1. Re-rodar `curl | bash` passando `ADMIN_PASSWORD='...'`.
+  2. Baixar o tarball localmente e rodar `sudo bash install.sh`.
+  3. Criar admin manualmente via `tools/create_admin.py` após o install.
+- Default automático `ADMIN_USERNAME=admin` se não passado em modo
+  não-interativo.
+- Skip do prompt de email se sem TTY (campo opcional).
+- Hard limit de **5 tentativas** no prompt interativo de senha
+  (`TRIES > 5 → err`) — defesa adicional caso o `-t 0` retorne true
+  em algum corner case mas o stdin ainda fique tipo `/dev/null`.
+- Validação final do tamanho da senha após coleta: se vier via env var
+  com menos de 6 chars, `err` claro em vez de prosseguir.
+
+VERSION 2.8.0 → 2.8.1.
+
+---
+
 ## v2.8.0 — 2026-05-12
 
 ### logs.php — fontes novas, busca/filtro/highlighting/auto-refresh

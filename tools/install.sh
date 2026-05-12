@@ -466,30 +466,78 @@ else
     ADMIN_EMAIL="${ADMIN_EMAIL:-}"
     ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
 
+    # Detecta se há terminal interativo. Em pipes (curl | bash), `read`
+    # falha instantaneamente e geraria loop infinito.
+    HAS_TTY="false"
+    [ -t 0 ] && HAS_TTY="true"
+
+    if [ "$HAS_TTY" != "true" ] && [ -z "$ADMIN_PASSWORD" ]; then
+        echo ""
+        err "Instalação não-interativa detectada (stdin não é terminal) e ADMIN_PASSWORD não foi passado.
+
+Quando rodando via 'curl | sudo bash', você PRECISA exportar as
+credenciais antes:
+
+  curl -fsSL .../install-from-git.sh | sudo \\
+    ADMIN_USERNAME=admin \\
+    ADMIN_EMAIL=a@b.c \\
+    ADMIN_PASSWORD='senhaSegura' \\
+    bash
+
+Ou rode o pacote .tar.gz baixado localmente:
+
+  tar xzf unbound-dashboard-vX.Y.Z.tar.gz
+  cd unbound-dashboard-vX.Y.Z && sudo bash install.sh
+
+Ou crie o admin manualmente após o install:
+
+  sudo systemctl stop unbound-dashboard-api
+  sudo -u www-data env ADMIN_USERNAME=admin ADMIN_PASSWORD='senha' \\
+    PYTHONPATH=$APISERVICE_DIR \\
+    $APISERVICE_DIR/.venv/bin/python \\
+    $APISERVICE_DIR/tools/create_admin.py
+  sudo systemctl start unbound-dashboard-api"
+    fi
+
     if [ -z "$ADMIN_USERNAME" ]; then
-        while :; do
-            read -rp "Username do admin (apenas a-z, 0-9, _ ou .) [admin]: " ADMIN_USERNAME
-            ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
-            if [[ "$ADMIN_USERNAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-                break
-            fi
-            warn "Username inválido — não pode ter espaços ou caracteres especiais. Tente novamente."
-        done
+        if [ "$HAS_TTY" != "true" ]; then
+            ADMIN_USERNAME="admin"
+            info "ADMIN_USERNAME não passado — usando default 'admin'"
+        else
+            while :; do
+                read -rp "Username do admin (apenas a-z, 0-9, _ ou .) [admin]: " ADMIN_USERNAME
+                ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+                if [[ "$ADMIN_USERNAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+                    break
+                fi
+                warn "Username inválido — não pode ter espaços ou caracteres especiais. Tente novamente."
+            done
+        fi
     else
         if [[ ! "$ADMIN_USERNAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then
             err "ADMIN_USERNAME inválido: '$ADMIN_USERNAME' — use apenas letras, números, _ . -"
         fi
     fi
-    if [ -z "$ADMIN_EMAIL" ]; then
+    if [ -z "$ADMIN_EMAIL" ] && [ "$HAS_TTY" = "true" ]; then
         read -rp "Email do admin (opcional): " ADMIN_EMAIL
     fi
     if [ -z "$ADMIN_PASSWORD" ]; then
+        # Aqui já está garantido que HAS_TTY=true (senão err acima)
+        TRIES=0
         while :; do
+            TRIES=$((TRIES + 1))
+            if [ "$TRIES" -gt 5 ]; then
+                err "5 tentativas falhas de senha — abortando install (verifique stdin)."
+            fi
             read -rsp "Senha (mín. 6 chars): " ADMIN_PASSWORD; echo
             read -rsp "Confirme: " ADMIN_PASSWORD2; echo
             [ "$ADMIN_PASSWORD" = "$ADMIN_PASSWORD2" ] && [ ${#ADMIN_PASSWORD} -ge 6 ] && break
             warn "Senhas não conferem ou < 6 chars. Tente novamente."
         done
+    fi
+    # Validação final — pode chegar aqui com ADMIN_PASSWORD curta (env)
+    if [ "${#ADMIN_PASSWORD}" -lt 6 ]; then
+        err "ADMIN_PASSWORD muito curta (${#ADMIN_PASSWORD} chars). Mínimo 6 caracteres."
     fi
 
     # DuckDB não permite múltiplos writers — paramos o api_service pra liberar
