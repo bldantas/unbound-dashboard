@@ -268,3 +268,53 @@ async def test_apply_blocks_when_locked(monkeypatch):
 
     with pytest.raises(updater.UpdateLocked):
         await updater.apply_update("2.17.0")
+
+
+# ============================================================
+# SSE log endpoint — validação de job_id
+# ============================================================
+
+
+def test_sse_format():
+    """Cada linha do data vira `data: <line>\\n`, termina com \\n\\n."""
+    from app.routers.updates import _sse
+
+    out = _sse("hello\nworld", event="msg")
+    text = out.decode()
+    assert text.startswith("event: msg\n")
+    assert "data: hello\n" in text
+    assert "data: world\n" in text
+    assert text.endswith("\n\n")
+
+
+def test_sse_single_line_no_event():
+    from app.routers.updates import _sse
+
+    out = _sse("ok").decode()
+    assert "event:" not in out
+    assert out == "data: ok\n\n"
+
+
+def test_validate_job_id():
+    """Aceita 12 chars hex, rejeita resto (anti path-traversal)."""
+    from fastapi import HTTPException
+
+    from app.routers.updates import _validate_job_id
+
+    # Valid
+    _validate_job_id("abc123def456")
+    _validate_job_id("0123456789ab")
+
+    # Invalid
+    with pytest.raises(HTTPException) as exc:
+        _validate_job_id("short")
+    assert exc.value.status_code == 400
+
+    with pytest.raises(HTTPException):
+        _validate_job_id("../../etc/pa")  # 12 chars mas com / e .
+
+    with pytest.raises(HTTPException):
+        _validate_job_id("UPPER_NOT_OK")
+
+    with pytest.raises(HTTPException):
+        _validate_job_id("0123456789abcdef")  # 16 chars
