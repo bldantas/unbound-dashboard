@@ -1,5 +1,45 @@
 # Changelog
 
+## v2.17.5 — 2026-05-13
+
+### fix(updates): expandir ReadWritePaths em vez de systemd-run
+
+A v2.17.3 tentou rodar `update.sh` numa transient unit do systemd via
+`systemd-run --unit=...` pra escapar do namespace mount do api_service.
+Não funcionou: `update.sh` chama `systemctl daemon-reload` ao instalar
+a nova unit file, e isso REMOVE a transient unit (que vive em
+`/run/systemd/transient/`), matando o processo.
+
+**Fix pragmático**: voltar a spawnar `sudo bash update.sh` direto, mas
+expandir `ReadWritePaths` no `unbound-dashboard-api.service` pra cobrir
+todos os paths que update.sh toca:
+
+```
+/var/lib/unbound-dashboard
+/var/log/unbound-dashboard
+/var/www/html/unbound-dashboard
+/var/backups/unbound-dashboard
+/etc/sudoers.d
+/etc/systemd/system
+/etc/apache2
+/etc/php
+/etc/unbound-dashboard
+/usr/local/bin
+/tmp
+```
+
+`ProtectSystem=strict` continua protegendo o resto do `/`. Trade-off:
+o subprocess do update herda esses paths como writable, mas como ele é
+spawnado com `sudo` rodando como root, qualquer um desses paths já
+estaria acessível mesmo sem ReadWritePaths.
+
+Mantido `tools/run-update.sh` no repo como histórico — não é mais
+chamado pelo updater.py.
+
+VERSION 2.17.4 → 2.17.5.
+
+---
+
 ## v2.17.4 — 2026-05-13
 
 ### fix(updates): redirect via shell em vez de systemd StandardOutput

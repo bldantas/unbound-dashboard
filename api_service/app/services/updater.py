@@ -406,26 +406,27 @@ _EXIT_TO_STATUS = {
 
 def _spawn_update_process(tarball_path: Path, job_id: str, log_path: Path) -> int:
     """
-    Spawna `sudo bash tools/run-update.sh <job_id> <tarball>`.
+    Spawna `sudo bash tools/update.sh <tarball>` detachado, com stdout/
+    stderr redirecionados pro log_path.
 
-    O wrapper invoca `update.sh` via `systemd-run --unit=... --collect`,
-    o que coloca o update numa unit transient SEM herdar o namespace
-    mount restrito do api_service (ProtectSystem=strict + ReadWritePaths
-    limitado bloqueia /var/backups, /etc, etc).
+    Tentativa anterior usava `systemd-run --unit=... --collect` pra
+    escapar do namespace mount do api_service (ProtectSystem=strict +
+    ReadWritePaths limitado). Mas update.sh chama `systemctl daemon-reload`
+    ao instalar a nova unit file, e isso removia a transient unit de
+    `/run/systemd/transient/`, matando o processo do update.
 
-    O wrapper redireciona stdout/stderr direto pro arquivo de log via
-    `--property=StandardOutput=append:...`, então o Popen aqui só
-    captura o output do PRÓPRIO systemd-run (geralmente vazio).
+    Solução pragmática: expandir ReadWritePaths no api_service.service
+    pra cobrir todos os paths que update.sh toca (/var/backups, /etc/...,
+    /usr/local/bin, /tmp, etc) e spawnar direto via sudo. Mantém zero
+    deps extras e funciona com `start_new_session=True`.
 
-    Retorna o PID do systemd-run. Quando ele exit, a unit transient
-    continua rodando (até o update.sh terminar) — monitor olha o log
-    pra detectar fim.
+    `job_id` é usado só pra nomear o log; não vai pro update.sh.
     """
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_fd = log_path.open("ab", buffering=0)
     try:
         proc = subprocess.Popen(  # noqa: S603
-            ["sudo", "-n", "/usr/bin/bash", RUN_UPDATE_WRAPPER, job_id, str(tarball_path)],
+            ["sudo", "-n", "/usr/bin/bash", UPDATE_SCRIPT, str(tarball_path)],
             stdout=log_fd,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,

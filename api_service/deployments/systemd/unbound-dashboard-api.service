@@ -36,9 +36,23 @@ RestrictRealtime=yes
 LockPersonality=yes
 
 # Caminhos onde o serviço pode escrever.
-# /var/log/unbound-dashboard — service updater grava update-<job_id>.log lá
-# durante o pipeline de self-update via UI (Fase 4: SSE streama desse arquivo).
-ReadWritePaths=/var/lib/unbound-dashboard /var/log/unbound-dashboard /var/www/html/unbound-dashboard/data /var/www/html/unbound-dashboard/src/data
+#
+# Self-update via UI: o api_service spawna `sudo bash update.sh ...` que
+# escreve em vários paths do sistema. O subprocess herda o namespace
+# mount do api_service (ProtectSystem=strict), então todos esses paths
+# precisam estar listados — caso contrário update.sh falha silenciosamente
+# em rm/cp/tar.
+ReadWritePaths=/var/lib/unbound-dashboard
+ReadWritePaths=/var/log/unbound-dashboard
+ReadWritePaths=/var/www/html/unbound-dashboard
+ReadWritePaths=/var/backups/unbound-dashboard
+ReadWritePaths=/etc/sudoers.d
+ReadWritePaths=/etc/systemd/system
+ReadWritePaths=/etc/apache2
+ReadWritePaths=/etc/php
+ReadWritePaths=/etc/unbound-dashboard
+ReadWritePaths=/usr/local/bin
+ReadWritePaths=/tmp
 
 [Install]
 WantedBy=multi-user.target
