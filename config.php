@@ -542,7 +542,7 @@ function field($key, $label, $desc = '', $def = '')
                 <aside class="w-full lg:w-72 flex-shrink-0">
                     <nav class="glass-panel !p-2 rounded-3xl border border-slate-200 dark:border-white/5 space-y-1">
                         <?php $tabs = $isAdmin
-                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'email' => 'Email / SMTP', 'webhooks' => 'Webhooks de Alertas', 'usuarios' => 'Gestão de Usuários', 'perfil' => 'Meu Perfil']
+                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'email' => 'Email / SMTP', 'webhooks' => 'Webhooks de Alertas', 'updates' => 'Sistema / Atualizações', 'usuarios' => 'Gestão de Usuários', 'perfil' => 'Meu Perfil']
                             : ['perfil' => 'Meu Perfil'];
                         $activeTab = in_array($requestedTab, array_keys($tabs)) ? $requestedTab : array_key_first($tabs);
                         foreach ($tabs as $id => $label): ?>
@@ -1252,6 +1252,71 @@ function field($key, $label, $desc = '', $def = '')
                                     <p class="text-slate-500">Qualquer endpoint que aceite POST JSON. Body: <code>{type, severity, message, timestamp, source}</code>.</p>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- tab-updates — self-update via UI (admin only, capability config.write) -->
+                    <?php if ($isAdmin): ?>
+                    <div id="tab-updates" class="tab-content <?= $activeTab === 'updates' ? 'active' : '' ?> space-y-6">
+
+                        <!-- Status card (populado pelo JS) -->
+                        <div class="glass-panel border-l-4 border-slate-500" id="updates-status-card">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <h2 class="text-lg font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                                        <svg class="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                        Atualizações do Sistema
+                                    </h2>
+                                    <p class="text-sm text-slate-500 mt-1">Aplica updates direto do GitHub Releases com verificação SHA256 e rollback automático em caso de falha.</p>
+                                </div>
+                                <button type="button" id="updates-refresh-btn" class="glass-btn text-[10px] uppercase font-black" title="Verificar agora">
+                                    <span id="updates-refresh-icon">⟳</span> Verificar
+                                </button>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Versão atual</p>
+                                    <p class="text-lg font-black text-slate-900 dark:text-white mt-1 font-mono" id="updates-current">…</p>
+                                </div>
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Última no GitHub</p>
+                                    <p class="text-lg font-black mt-1 font-mono" id="updates-latest">…</p>
+                                    <p class="text-[10px] text-slate-500" id="updates-published"></p>
+                                </div>
+                            </div>
+
+                            <!-- Banner contextual: up-to-date | update available | major bump warning | github off -->
+                            <div id="updates-banner" class="mt-4 hidden"></div>
+
+                            <!-- Botão Atualizar (oculto até /check confirmar update disponível) -->
+                            <div id="updates-action" class="mt-4 hidden">
+                                <label id="updates-ack-wrapper" class="flex items-center gap-2 text-xs font-bold mb-3 hidden">
+                                    <input type="checkbox" id="updates-ack-checkbox" class="w-4 h-4 accent-amber-500">
+                                    <span>Estou ciente de que esta é uma <strong>major version</strong> e pode trazer breaking changes. Li o CHANGELOG.</span>
+                                </label>
+                                <button type="button" id="updates-apply-btn" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black" disabled>
+                                    Atualizar agora
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Notas da release -->
+                        <div class="glass-panel hidden" id="updates-notes-panel">
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3">Notas da release</h3>
+                            <pre id="updates-notes" class="text-xs leading-relaxed text-slate-700 dark:text-slate-300 font-mono whitespace-pre-wrap"></pre>
+                            <p class="mt-3"><a id="updates-release-url" href="#" target="_blank" rel="noopener" class="text-cyan-600 dark:text-cyan-400 underline text-xs">Ver no GitHub</a></p>
+                        </div>
+
+                        <!-- Console live (aparece após clicar Atualizar) -->
+                        <div class="glass-panel hidden" id="updates-console-panel">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">⏳ Aplicando update — <span id="updates-job-version" class="text-cyan-600 dark:text-cyan-400">…</span></h3>
+                                <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest" id="updates-job-id"></span>
+                            </div>
+                            <pre id="updates-console" class="bg-slate-900/95 text-slate-100 rounded-xl border border-slate-700/60 p-4 overflow-auto text-[11px] leading-relaxed font-mono max-h-[400px]"></pre>
+                            <div id="updates-final-banner" class="mt-3 hidden"></div>
                         </div>
                     </div>
                     <?php endif; ?>
@@ -1977,7 +2042,7 @@ function field($key, $label, $desc = '', $def = '')
             document.getElementById('tabField').value = tabId;
 
             // Abas que têm forms próprios (não usam o "Sincronizar Todas") — esconder o botão.
-            const tabsWithOwnForms = ['usuarios', 'ntp', 'perfil', 'email', 'webhooks'];
+            const tabsWithOwnForms = ['usuarios', 'ntp', 'perfil', 'email', 'webhooks', 'updates'];
             document.getElementById('btnSaveFloating').classList.toggle('hidden', tabsWithOwnForms.includes(tabId));
 
             const actionMap = {
@@ -2197,6 +2262,269 @@ function field($key, $label, $desc = '', $def = '')
                 });
             <?php endif; ?>
         });
+
+        // ============================================================
+        // Aba "Sistema / Atualizações" — self-update via /api/v1/updates/*
+        // ============================================================
+        (function () {
+            const jwtMeta = document.querySelector('meta[name="api-jwt"]');
+            const JWT = jwtMeta ? jwtMeta.content : '';
+            const HEADERS = JWT ? { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+
+            const el = {
+                current:        document.getElementById('updates-current'),
+                latest:         document.getElementById('updates-latest'),
+                published:      document.getElementById('updates-published'),
+                banner:         document.getElementById('updates-banner'),
+                action:         document.getElementById('updates-action'),
+                ackWrapper:     document.getElementById('updates-ack-wrapper'),
+                ackCheckbox:    document.getElementById('updates-ack-checkbox'),
+                applyBtn:       document.getElementById('updates-apply-btn'),
+                refreshBtn:     document.getElementById('updates-refresh-btn'),
+                refreshIcon:    document.getElementById('updates-refresh-icon'),
+                notesPanel:     document.getElementById('updates-notes-panel'),
+                notes:          document.getElementById('updates-notes'),
+                releaseUrl:     document.getElementById('updates-release-url'),
+                consolePanel:   document.getElementById('updates-console-panel'),
+                consoleEl:      document.getElementById('updates-console'),
+                jobVersion:     document.getElementById('updates-job-version'),
+                jobId:          document.getElementById('updates-job-id'),
+                finalBanner:    document.getElementById('updates-final-banner'),
+            };
+            if (!el.current) return;  // aba não renderizada (não-admin)
+
+            let lastCheck = null;
+
+            function setBanner(html, color) {
+                el.banner.className = `mt-4 p-4 rounded-xl border ${color}`;
+                el.banner.innerHTML = html;
+                el.banner.classList.remove('hidden');
+            }
+
+            function clearBanner() {
+                el.banner.classList.add('hidden');
+            }
+
+            async function checkUpdates() {
+                el.refreshIcon.textContent = '⟳';
+                el.refreshBtn.disabled = true;
+                el.refreshIcon.style.animation = 'spin 1s linear infinite';
+                try {
+                    const resp = await fetch('/api/v1/updates/check', { headers: HEADERS });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    lastCheck = data;
+                    renderState(data);
+                } catch (err) {
+                    setBanner(
+                        `<p class="text-sm text-red-700 dark:text-red-300"><strong>Erro:</strong> ${err.message}</p>`,
+                        'bg-red-500/10 border-red-500/30'
+                    );
+                } finally {
+                    el.refreshIcon.style.animation = '';
+                    el.refreshBtn.disabled = false;
+                }
+            }
+
+            function renderState(d) {
+                el.current.textContent = 'v' + (d.current || '?');
+
+                if (d.error) {
+                    el.latest.textContent = '—';
+                    el.latest.className = 'text-lg font-black mt-1 font-mono text-slate-500';
+                    el.published.textContent = '';
+                    setBanner(
+                        `<p class="text-xs text-amber-700 dark:text-amber-300"><strong>GitHub indisponível:</strong> ${d.error}</p>`,
+                        'bg-amber-500/10 border-amber-500/30'
+                    );
+                    el.action.classList.add('hidden');
+                    el.notesPanel.classList.add('hidden');
+                    return;
+                }
+
+                el.latest.textContent = 'v' + (d.latest || '?');
+                el.published.textContent = d.published_at ? ('publicada ' + formatDate(d.published_at)) : '';
+
+                if (!d.has_update) {
+                    el.latest.className = 'text-lg font-black mt-1 font-mono text-emerald-600 dark:text-emerald-400';
+                    setBanner(
+                        `<p class="text-sm text-emerald-700 dark:text-emerald-300"><strong>✓ Sistema atualizado</strong> — você está na última versão.</p>`,
+                        'bg-emerald-500/10 border-emerald-500/30'
+                    );
+                    el.action.classList.add('hidden');
+                    showNotes(d);
+                    return;
+                }
+
+                // Update disponível
+                el.latest.className = 'text-lg font-black mt-1 font-mono text-cyan-600 dark:text-cyan-400';
+                if (d.is_major_bump) {
+                    setBanner(
+                        `<p class="text-sm text-red-700 dark:text-red-300"><strong>⚠ Major version bump (v${d.current} → v${d.latest})</strong> — pode incluir <em>breaking changes</em>. Leia o CHANGELOG antes de aplicar.</p>`,
+                        'bg-red-500/10 border-red-500/30'
+                    );
+                    el.ackWrapper.classList.remove('hidden');
+                    el.applyBtn.disabled = !el.ackCheckbox.checked;
+                } else {
+                    setBanner(
+                        `<p class="text-sm text-blue-700 dark:text-blue-300"><strong>↑ Update disponível</strong> — v${d.current} → v${d.latest}</p>`,
+                        'bg-blue-500/10 border-blue-500/30'
+                    );
+                    el.ackWrapper.classList.add('hidden');
+                    el.applyBtn.disabled = false;
+                }
+                el.applyBtn.textContent = `Atualizar pra v${d.latest}`;
+                el.action.classList.remove('hidden');
+                showNotes(d);
+            }
+
+            function showNotes(d) {
+                if (!d.body || !d.body.trim()) {
+                    el.notesPanel.classList.add('hidden');
+                    return;
+                }
+                el.notes.textContent = d.body;
+                el.releaseUrl.href = d.release_url || '#';
+                el.notesPanel.classList.remove('hidden');
+            }
+
+            function formatDate(iso) {
+                try {
+                    const d = new Date(iso);
+                    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                } catch (_) { return iso; }
+            }
+
+            el.ackCheckbox.addEventListener('change', () => {
+                if (lastCheck && lastCheck.is_major_bump) {
+                    el.applyBtn.disabled = !el.ackCheckbox.checked;
+                }
+            });
+
+            el.refreshBtn.addEventListener('click', checkUpdates);
+
+            el.applyBtn.addEventListener('click', async () => {
+                if (!lastCheck || !lastCheck.has_update) return;
+                if (!confirm(`Aplicar update v${lastCheck.current} → v${lastCheck.latest}?\n\nO sistema será reiniciado e há rollback automático se o health check falhar.`)) return;
+
+                el.applyBtn.disabled = true;
+                el.refreshBtn.disabled = true;
+                try {
+                    const resp = await fetch('/api/v1/updates/apply', {
+                        method: 'POST',
+                        headers: HEADERS,
+                        body: JSON.stringify({
+                            version: lastCheck.latest,
+                            acknowledge_breaking: lastCheck.is_major_bump && el.ackCheckbox.checked,
+                        }),
+                    });
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+
+                    el.jobId.textContent = `job ${data.job_id}`;
+                    el.jobVersion.textContent = `v${lastCheck.current} → v${lastCheck.latest}`;
+                    el.consoleEl.textContent = '';
+                    el.finalBanner.classList.add('hidden');
+                    el.consolePanel.classList.remove('hidden');
+                    el.action.classList.add('hidden');
+                    streamLog(data.job_id);
+                } catch (err) {
+                    setBanner(
+                        `<p class="text-sm text-red-700 dark:text-red-300"><strong>Erro ao iniciar update:</strong> ${err.message}</p>`,
+                        'bg-red-500/10 border-red-500/30'
+                    );
+                    el.applyBtn.disabled = false;
+                    el.refreshBtn.disabled = false;
+                }
+            });
+
+            function streamLog(jobId) {
+                // Apache proxy não passa Authorization em EventSource por default.
+                // Alternativa: ?jwt=... como query param. Mas como o endpoint já está
+                // protegido por require_capability e é admin, posso passar o JWT
+                // via query (vai no log do Apache mas não é mais sensível que o cookie).
+                // Solução robusta: usar fetch() + ReadableStream (mantém Authorization
+                // header funcionando).
+                fetch('/api/v1/updates/log/' + jobId, {
+                    headers: { 'Authorization': 'Bearer ' + JWT, 'Accept': 'text/event-stream' },
+                }).then(async (resp) => {
+                    if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
+                    const reader = resp.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buf = '';
+                    while (true) {
+                        const { value, done } = await reader.read();
+                        if (done) break;
+                        buf += decoder.decode(value, { stream: true });
+                        // Processa eventos SSE (separados por \n\n)
+                        let idx;
+                        while ((idx = buf.indexOf('\n\n')) >= 0) {
+                            const raw = buf.slice(0, idx);
+                            buf = buf.slice(idx + 2);
+                            handleSseEvent(raw);
+                        }
+                    }
+                }).catch((err) => {
+                    appendLine(`\n[!] Erro no stream do log: ${err.message}\n`);
+                });
+            }
+
+            function handleSseEvent(raw) {
+                let event = null;
+                const dataLines = [];
+                for (const line of raw.split('\n')) {
+                    if (line.startsWith(':')) continue;  // comment (heartbeat)
+                    if (line.startsWith('event: ')) event = line.slice(7).trim();
+                    else if (line.startsWith('data: ')) dataLines.push(line.slice(6));
+                }
+                const data = dataLines.join('\n');
+                if (event === 'done') {
+                    try {
+                        const final = JSON.parse(data);
+                        renderFinal(final);
+                    } catch (_) { /* ignore */ }
+                } else if (event === 'error') {
+                    appendLine(`\n[!] Erro: ${data}\n`);
+                } else if (data) {
+                    appendLine(data);
+                }
+            }
+
+            function appendLine(text) {
+                el.consoleEl.textContent += text;
+                el.consoleEl.scrollTop = el.consoleEl.scrollHeight;
+            }
+
+            function renderFinal(state) {
+                const status = state.status || 'unknown';
+                const messages = {
+                    succeeded:       { html: '<p class="text-sm text-emerald-700 dark:text-emerald-300"><strong>✓ Update aplicado com sucesso</strong> — sistema agora está em v' + (state.to_version || '?') + '.</p>', color: 'bg-emerald-500/10 border-emerald-500/30' },
+                    rolled_back:     { html: '<p class="text-sm text-amber-700 dark:text-amber-300"><strong>⚠ Rollback executado</strong> — o health check falhou, sistema voltou pra v' + (state.from_version || '?') + '. Veja o log acima.</p>', color: 'bg-amber-500/10 border-amber-500/30' },
+                    rollback_failed: { html: '<p class="text-sm text-red-700 dark:text-red-300"><strong>✗ ROLLBACK FALHOU</strong> — estado inconsistente. Intervenção manual necessária via SSH. Veja o log acima.</p>', color: 'bg-red-500/10 border-red-500/30' },
+                    failed:          { html: '<p class="text-sm text-red-700 dark:text-red-300"><strong>✗ Update falhou</strong> — veja o log acima pra detalhes.</p>', color: 'bg-red-500/10 border-red-500/30' },
+                };
+                const m = messages[status] || { html: `<p>Status final: ${status}</p>`, color: 'bg-slate-500/10 border-slate-500/30' };
+                el.finalBanner.className = 'mt-3 p-4 rounded-xl border ' + m.color;
+                el.finalBanner.innerHTML = m.html + '<button type="button" onclick="location.reload()" class="mt-3 glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">Recarregar página</button>';
+                el.finalBanner.classList.remove('hidden');
+            }
+
+            // Check inicial quando a aba abre (lazy — só quando user clica na aba)
+            let firstCheckDone = false;
+            const tabUpdates = document.getElementById('tab-updates');
+            const observer = new MutationObserver(() => {
+                if (!firstCheckDone && tabUpdates.classList.contains('active')) {
+                    firstCheckDone = true;
+                    checkUpdates();
+                }
+            });
+            observer.observe(tabUpdates, { attributes: true, attributeFilter: ['class'] });
+            // Se a aba já é a ativa no load (via ?tab=updates), check imediato
+            if (tabUpdates.classList.contains('active')) {
+                firstCheckDone = true;
+                checkUpdates();
+            }
+        })();
 
         // --- Aba Gestão de Usuários: filtros client-side ---
         function filterUsers() {
