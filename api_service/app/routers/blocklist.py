@@ -6,14 +6,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from app.core.deps import require_admin
+from app.core.deps import require_capability
 from app.repositories.duckdb import threats_repo
 
 router = APIRouter(prefix="/api/v1/blocklist", tags=["blocklist"])
 
 
 @router.get("/counts")
-async def counts(_: Annotated[dict, Depends(require_admin)]) -> dict[str, int]:
+async def counts(_: Annotated[dict, Depends(require_capability("blocklist.read"))]) -> dict[str, int]:
     """Retorna count por categoria (Malware/Adware, Phishing, Judicial)."""
     counts = await threats_repo.counts_by_category()
     return {
@@ -25,7 +25,7 @@ async def counts(_: Annotated[dict, Depends(require_admin)]) -> dict[str, int]:
 
 @router.post("/clear-category", status_code=status.HTTP_200_OK)
 async def clear_category(
-    _: Annotated[dict, Depends(require_admin)],
+    _: Annotated[dict, Depends(require_capability("blocklist.write"))],
     body: dict,
 ) -> dict:
     """DELETE FROM blocklist_domains WHERE category = ?. Body: {category: str}."""
@@ -38,7 +38,7 @@ async def clear_category(
 
 @router.post("/bulk-insert", status_code=status.HTTP_200_OK)
 async def bulk_insert(
-    _: Annotated[dict, Depends(require_admin)],
+    _: Annotated[dict, Depends(require_capability("blocklist.write"))],
     entries: list[dict],
 ) -> dict:
     """Bulk UPSERT. Body: [{domain, category, severity}]."""

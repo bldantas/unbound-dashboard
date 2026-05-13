@@ -1,5 +1,81 @@
 # Changelog
 
+## v2.15.0 — 2026-05-13
+
+### Custom roles — RBAC granular com 4 papéis
+
+Antes só havia `admin` (acesso total) e `viewer` (read-only). Times de
+NOC e auditoria precisavam de granularidade — agora há 4 roles + RBAC
+por capability.
+
+**Roles:**
+
+| Role            | Quem usa                  | O que pode |
+|-----------------|---------------------------|------------|
+| `admin`         | Sysadmin                  | Acesso total (writes + reads sensíveis + gestão de users + SMTP/webhooks) |
+| `readonly_admin`| Auditoria, supervisão     | Lê tudo (inclui SMTP/webhooks/users) mas NÃO modifica nada |
+| `operator`      | NOC, suporte L1/L2        | Resolve alertas + mantém blocklist. Lê alertas/threats. NÃO vê SMTP/webhooks/users |
+| `viewer`        | Visualização              | Read-only básico: dashboard, history, threats |
+
+**Novo módulo `core/rbac.py`** — mapeia capabilities ↔ roles em um único
+dict. 11 capabilities granulares:
+
+```
+config.write          → admin
+users.manage          → admin
+webhooks.manage       → admin
+smtp.manage           → admin
+alerts.resolve        → admin, operator
+blocklist.write       → admin, operator
+alerts.read           → admin, readonly_admin, operator
+blocklist.read        → admin, readonly_admin, operator
+users.read            → admin, readonly_admin
+config.read_sensitive → admin, readonly_admin
+dashboard.read        → admin, readonly_admin, operator, viewer
+```
+
+**`require_capability(cap)`** — nova dependency no `core/deps.py`. Factory
+que valida payload JWT contra capability:
+
+```python
+@router.put("/foo", dependencies=[Depends(require_capability("config.write"))])
+```
+
+Substituído `require_admin` por `require_capability` nos endpoints
+operacionais sensíveis: `/api/v1/alerts/list` (alerts.read), `/resolve`
+(alerts.resolve), `/clear-resolved` (alerts.resolve), `/blocklist/counts`
+(blocklist.read), `/clear-category` e `/bulk-insert` (blocklist.write).
+Webhooks/SMTP/users continuam com `require_admin` (mapeamento implícito
+admin-only via `*.manage`).
+
+**`Auth::can($capability)` no PHP** — espelha o mapeamento Python pra
+checagem na UI. `Auth::rolesCatalog()` retorna metadata humano (label +
+descrição) pra alimentar dropdowns.
+
+**`VALID_ROLES` agora importa de `rbac.VALID_ROLES`** (mantém Python e
+PHP sincronizados — uma única fonte de verdade).
+
+**UI:**
+
+- Filtro de role + modal "Novo Usuário" + select inline de role na tabela
+  agora populados via `Auth::rolesCatalog()` (4 opções).
+- Cada `<option>` traz `title=` com a descrição (tooltip ao passar mouse).
+- Roles novos aceitos no backend automaticamente — sem migration.
+
+**9 testes novos** (`tests/test_rbac.py`):
+
+- admin tem todas capabilities
+- readonly_admin lê tudo mas não modifica
+- operator opera (alerts.resolve + blocklist.write) mas não vê sensíveis
+- viewer só dashboard.read
+- role/capability inexistentes → deny by default
+
+72/72 testes verdes (era 63).
+
+VERSION 2.14.0 → 2.15.0.
+
+---
+
 ## v2.14.0 — 2026-05-13
 
 ### Webhooks de alertas — Slack / Discord / Teams / Genérico

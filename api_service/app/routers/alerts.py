@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
-from app.core.deps import require_admin, require_auth
+from app.core.deps import require_admin, require_auth, require_capability
 from app.repositories.duckdb import alert_repo, settings_repo
 from app.workers.alert_checker import THRESHOLD_DEFAULTS
 
@@ -48,7 +48,7 @@ def _format_alert_row(row: dict) -> dict:
 
 
 @router.get("/list")
-async def list_alerts(_: Annotated[dict, Depends(require_admin)]) -> dict:
+async def list_alerts(_: Annotated[dict, Depends(require_capability("alerts.read"))]) -> dict:
     history = await alert_repo.list_history(limit=100)
     active = await alert_repo.count_active()
     return {
@@ -59,14 +59,14 @@ async def list_alerts(_: Annotated[dict, Depends(require_admin)]) -> dict:
 
 @router.post("/{alert_id}/resolve", status_code=204)
 async def resolve_alert(
-    _: Annotated[dict, Depends(require_admin)],
+    _: Annotated[dict, Depends(require_capability("alerts.resolve"))],
     alert_id: Annotated[int, Path(ge=1)],
 ) -> None:
     await alert_repo.resolve_by_id(alert_id)
 
 
 @router.post("/clear-resolved")
-async def clear_resolved(_: Annotated[dict, Depends(require_admin)]) -> dict:
+async def clear_resolved(_: Annotated[dict, Depends(require_capability("alerts.resolve"))]) -> dict:
     deleted = await alert_repo.clear_resolved()
     return {"deleted": deleted}
 

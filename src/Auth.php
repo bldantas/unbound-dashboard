@@ -403,6 +403,44 @@ class Auth
         return isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
     }
 
+    /**
+     * RBAC granular — verifica se o role atual tem a capability.
+     * Espelha api_service/app/core/rbac.py — manter sincronizado.
+     */
+    public static function can(string $capability): bool
+    {
+        $role = $_SESSION['role'] ?? null;
+        if (!$role) return false;
+        static $caps = [
+            'config.write'           => ['admin'],
+            'users.manage'           => ['admin'],
+            'webhooks.manage'        => ['admin'],
+            'smtp.manage'            => ['admin'],
+            'alerts.resolve'         => ['admin', 'operator'],
+            'blocklist.write'        => ['admin', 'operator'],
+            'alerts.read'            => ['admin', 'readonly_admin', 'operator'],
+            'blocklist.read'         => ['admin', 'readonly_admin', 'operator'],
+            'users.read'             => ['admin', 'readonly_admin'],
+            'config.read_sensitive'  => ['admin', 'readonly_admin'],
+            'dashboard.read'         => ['admin', 'readonly_admin', 'operator', 'viewer'],
+        ];
+        return isset($caps[$capability]) && in_array($role, $caps[$capability], true);
+    }
+
+    /**
+     * Roles válidos no sistema. Espelha rbac.py VALID_ROLES.
+     * Label = texto humano (pt-BR) usado em dropdowns.
+     */
+    public static function rolesCatalog(): array
+    {
+        return [
+            'admin'          => ['label' => 'Admin',          'desc' => 'Acesso total: configuração, usuários, alertas, SMTP/webhooks.'],
+            'readonly_admin' => ['label' => 'Admin somente-leitura', 'desc' => 'Vê tudo (inclui SMTP/webhooks/users) mas não modifica.'],
+            'operator'       => ['label' => 'Operador (NOC)', 'desc' => 'Resolve alertas, mantém blocklist. Não vê SMTP/webhooks/users.'],
+            'viewer'         => ['label' => 'Viewer',         'desc' => 'Read-only: dashboard, histórico, ameaças.'],
+        ];
+    }
+
     public static function logout(): void
     {
         $_SESSION = [];

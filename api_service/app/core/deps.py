@@ -83,3 +83,29 @@ async def require_admin(payload: Annotated[dict, Depends(require_auth)]) -> dict
             detail="Acesso negado: requer privilégios de administrador",
         )
     return payload
+
+
+def require_capability(capability: str):
+    """
+    Factory de dependency que valida uma capability RBAC.
+
+    Uso em endpoints:
+        @router.put("/foo", dependencies=[Depends(require_capability("config.write"))])
+
+    Ou injetando payload:
+        async def foo(payload: dict = Depends(require_capability("alerts.resolve"))):
+
+    Capability inexistente = 403 (deny by default).
+    """
+    from app.core.rbac import can
+
+    async def _dep(payload: Annotated[dict, Depends(require_auth)]) -> dict:
+        role = payload.get("role")
+        if not can(role, capability):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Acesso negado: requer permissão '{capability}'",
+            )
+        return payload
+
+    return _dep

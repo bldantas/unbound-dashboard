@@ -1291,8 +1291,9 @@ function field($key, $label, $desc = '', $def = '')
                                     <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Role</label>
                                     <select id="filter-role" onchange="filterUsers()" class="glass-input w-full uppercase text-[10px] font-black">
                                         <option value="">TODOS</option>
-                                        <option value="admin">ADMIN</option>
-                                        <option value="viewer">VIEWER</option>
+                                        <?php foreach (\App\Auth::rolesCatalog() as $rk => $rmeta): ?>
+                                            <option value="<?= htmlspecialchars($rk) ?>"><?= strtoupper(htmlspecialchars($rmeta['label'])) ?></option>
+                                        <?php endforeach; ?>
                                     </select>
                                 </div>
                                 <div>
@@ -1371,9 +1372,12 @@ function field($key, $label, $desc = '', $def = '')
                                                         <input type="hidden" name="tab" value="usuarios">
                                                         <input type="hidden" name="action" value="update_role">
                                                         <input type="hidden" name="user_id" value="<?= (int)$u['id'] ?>">
-                                                        <select name="new_role_value" onchange="this.form.submit()" class="glass-input !py-1 !px-2 text-xs uppercase font-black">
-                                                            <option value="admin" <?= ($u['role'] ?? '') === 'admin' ? 'selected' : '' ?>>ADMIN</option>
-                                                            <option value="viewer" <?= ($u['role'] ?? '') === 'viewer' ? 'selected' : '' ?>>VIEWER</option>
+                                                        <select name="new_role_value" onchange="this.form.submit()" class="glass-input !py-1 !px-2 text-xs uppercase font-black" title="<?= htmlspecialchars(\App\Auth::rolesCatalog()[$u['role']]['desc'] ?? '') ?>">
+                                                            <?php foreach (\App\Auth::rolesCatalog() as $rk => $rmeta): ?>
+                                                                <option value="<?= htmlspecialchars($rk) ?>" <?= ($u['role'] ?? '') === $rk ? 'selected' : '' ?> title="<?= htmlspecialchars($rmeta['desc']) ?>">
+                                                                    <?= strtoupper(htmlspecialchars($rmeta['label'])) ?>
+                                                                </option>
+                                                            <?php endforeach; ?>
                                                         </select>
                                                     </form>
                                                 <?php endif; ?>
@@ -1452,9 +1456,12 @@ function field($key, $label, $desc = '', $def = '')
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Role</label>
-                                    <select name="new_role" class="glass-input w-full uppercase text-[10px] font-black">
-                                        <option value="viewer">VIEWER (somente leitura)</option>
-                                        <option value="admin">ADMIN (acesso total)</option>
+                                    <select name="new_role" class="glass-input w-full text-[10px] font-black">
+                                        <?php foreach (\App\Auth::rolesCatalog() as $rk => $rmeta): ?>
+                                            <option value="<?= htmlspecialchars($rk) ?>" <?= $rk === 'viewer' ? 'selected' : '' ?> title="<?= htmlspecialchars($rmeta['desc']) ?>">
+                                                <?= htmlspecialchars(strtoupper($rmeta['label']) . ' — ' . $rmeta['desc']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
                                     </select>
                                 </div>
                                 <div class="flex justify-end gap-2 pt-4 border-t border-slate-900/10 dark:border-white/5">

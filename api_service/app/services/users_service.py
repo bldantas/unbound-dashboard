@@ -49,7 +49,10 @@ def _utc_naive_in(minutes: int) -> datetime:
     return (datetime.now(UTC) + timedelta(minutes=minutes)).replace(tzinfo=None)
 
 
-VALID_ROLES = {"admin", "viewer"}
+# Mantemos sincronizado com app.core.rbac.VALID_ROLES (centralizado lá).
+# Aqui só pra validação local de input antes de hit no banco.
+from app.core.rbac import VALID_ROLES as _RBAC_VALID_ROLES
+VALID_ROLES = set(_RBAC_VALID_ROLES)
 
 
 async def list_all() -> list[dict]:
