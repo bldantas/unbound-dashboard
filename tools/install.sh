@@ -292,6 +292,13 @@ mkdir -p /var/backups/unbound-dashboard
 chown root:root /var/backups/unbound-dashboard
 chmod 750 /var/backups/unbound-dashboard
 
+# Updates dir — pacotes baixados via UI ficam aqui antes do update.sh aplicar.
+# www-data precisa de write (baixa o tarball) + read pra sudoers (rodar update.sh).
+mkdir -p /var/lib/unbound-dashboard/updates
+chown www-data:www-data /var/lib/unbound-dashboard/updates
+chmod 750 /var/lib/unbound-dashboard/updates
+log "Updates dir: /var/lib/unbound-dashboard/updates (www-data, 750)"
+
 # www-data precisa do grupo `adm` pra ler /var/log/{syslog,auth.log,unbound.log}
 # que o worker log_watcher tail-a continuamente. Idempotente — usermod -aG é no-op
 # se o user já está no grupo.

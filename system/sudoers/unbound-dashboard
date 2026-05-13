@@ -46,4 +46,5 @@ www-data ALL=(ALL) NOPASSWD: \
     /usr/bin/systemctl restart chronyd, \
     /usr/bin/systemctl restart ntp, \
     /usr/bin/systemctl restart ntpd, \
-    /usr/bin/systemctl restart ntpsec
+    /usr/bin/systemctl restart ntpsec, \
+    /usr/bin/bash /var/www/html/unbound-dashboard/tools/update.sh /var/lib/unbound-dashboard/updates/unbound-dashboard-update-v[0-9]*.tar.gz

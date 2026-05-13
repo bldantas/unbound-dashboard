@@ -152,6 +152,14 @@ create_backup() {
 
     mkdir -p "$BACKUP_DIR"
 
+    # Garante dir de updates pro pipeline UI (idempotente — install.sh já cria,
+    # mas updates aplicados manualmente também precisam dele depois)
+    if [ ! -d /var/lib/unbound-dashboard/updates ]; then
+        mkdir -p /var/lib/unbound-dashboard/updates
+        chown www-data:www-data /var/lib/unbound-dashboard/updates
+        chmod 750 /var/lib/unbound-dashboard/updates
+    fi
+
     # Código (exclui lixo voláteis e .venv pra ficar pequeno e rápido)
     local code_backup="$BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz"
     tar czf "$code_backup" \
@@ -438,21 +446,108 @@ restart_and_smoke() {
 
     info "Reiniciando api_service..."
     systemctl restart unbound-dashboard-api
-    sleep 3
 
-    if systemctl is-active --quiet unbound-dashboard-api; then
-        log "api_service ativo"
-    else
-        error "api_service não subiu — veja logs:"
-        journalctl -u unbound-dashboard-api -n 30 --no-pager
-        return 1
+    # Health check resiliente: até 30s pra api_service iniciar e responder
+    local max_wait=30
+    local waited=0
+    local healthy=0
+    info "Aguardando api_service ficar saudável (timeout ${max_wait}s)..."
+    while [ $waited -lt $max_wait ]; do
+        sleep 2
+        waited=$((waited + 2))
+        if systemctl is-active --quiet unbound-dashboard-api \
+           && curl -sf --max-time 3 http://127.0.0.1:8001/api/v1/healthz >/dev/null 2>&1; then
+            healthy=1
+            log "api_service saudável após ${waited}s"
+            break
+        fi
+    done
+
+    if [ $healthy -eq 0 ]; then
+        error "Health check falhou após ${max_wait}s — disparando rollback automático"
+        journalctl -u unbound-dashboard-api -n 30 --no-pager || true
+        rollback_from_backup
+        # rollback_from_backup faz exit; se voltar é porque algo foi bypassed
+        return 2
+    fi
+}
+
+# ============================================================
+# ROLLBACK AUTOMÁTICO
+# ============================================================
+# Restaura backups gravados em create_backup() e reinicia serviços.
+# Chamado SOMENTE se restart_and_smoke detectar falha no health check.
+#
+# Exit codes:
+#   2 = rollback executado com sucesso (estado anterior restaurado)
+#   3 = ROLLBACK FAILED (estado inconsistente — intervenção manual obrigatória)
+rollback_from_backup() {
+    local code_backup="$BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz"
+    local db_backup="$BACKUP_DIR/duckdb-$TIMESTAMP.duckdb"
+    local env_backup="$BACKUP_DIR/api-v1.env-$TIMESTAMP"
+    local rollback_ok=1
+
+    warn "════════════════════════════════════════════════════"
+    warn "  ROLLBACK AUTOMÁTICO em andamento"
+    warn "════════════════════════════════════════════════════"
+
+    if [ ! -f "$code_backup" ]; then
+        error "Backup de código não encontrado: $code_backup"
+        error "ROLLBACK FAILED — intervenção manual necessária"
+        exit 3
     fi
 
-    info "Smoke /api/v1/healthz..."
-    if curl -sf http://127.0.0.1:8001/api/v1/healthz >/dev/null; then
-        log "/api/v1/healthz OK"
+    # Para o api_service antes de mexer no código
+    info "Parando unbound-dashboard-api..."
+    systemctl stop unbound-dashboard-api 2>/dev/null || true
+
+    info "Restaurando código a partir de $code_backup..."
+    if tar xzf "$code_backup" -C /; then
+        log "Código restaurado"
     else
-        warn "/api/v1/healthz não respondeu — verifique manualmente"
+        error "Falha ao restaurar código"
+        rollback_ok=0
+    fi
+
+    if [ -f "$db_backup" ]; then
+        info "Restaurando DuckDB a partir de $db_backup..."
+        if cp -a "$db_backup" "$DUCKDB_PATH"; then
+            log "DuckDB restaurado"
+        else
+            error "Falha ao restaurar DuckDB"
+            rollback_ok=0
+        fi
+    fi
+
+    if [ -f "$env_backup" ]; then
+        info "Restaurando $ENV_FILE..."
+        cp -a "$env_backup" "$ENV_FILE" || warn "Falha ao restaurar env"
+    fi
+
+    info "Reiniciando api_service após rollback..."
+    systemctl start unbound-dashboard-api
+
+    sleep 5
+    if systemctl is-active --quiet unbound-dashboard-api \
+       && curl -sf --max-time 5 http://127.0.0.1:8001/api/v1/healthz >/dev/null 2>&1; then
+        log "api_service saudável após rollback"
+    else
+        error "api_service AINDA falha após rollback"
+        rollback_ok=0
+    fi
+
+    if [ $rollback_ok -eq 1 ]; then
+        warn "════════════════════════════════════════════════════"
+        warn "  ROLLBACK CONCLUÍDO — sistema voltou à versão anterior"
+        warn "════════════════════════════════════════════════════"
+        exit 2
+    else
+        error "════════════════════════════════════════════════════"
+        error "  ROLLBACK FAILED — estado inconsistente"
+        error "  Backup íntegro em: $BACKUP_DIR/*-$TIMESTAMP*"
+        error "  Intervenção manual necessária (SSH + restore manual)"
+        error "════════════════════════════════════════════════════"
+        exit 3
     fi
 }
 
