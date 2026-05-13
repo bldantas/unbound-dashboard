@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.16.3 — 2026-05-13
+
+### fix(deps): httpx promovido pra dependência de produção
+
+`services/webhook_notifier.py` (introduzido em v2.14.0) usa `httpx`
+pra POST nos webhooks, mas `httpx` estava em `[dependency-groups].dev`.
+No dev local funciona porque `uv sync` instala dev por padrão. No
+test/prod, `uv sync --no-dev` no `update.sh` removia o httpx — e o
+import-time no boot do api_service quebrava com:
+
+```
+ModuleNotFoundError: No module named 'httpx'
+```
+
+Movido pra `[project].dependencies` com comentário explicativo (mesmo
+padrão do `pandas` que já tinha o mesmo cuidado).
+
+VERSION 2.16.2 → 2.16.3.
+
+---
+
 ## v2.16.2 — 2026-05-13
 
 ### fix(sessions): tracking captura User-Agent e IP do navegador
