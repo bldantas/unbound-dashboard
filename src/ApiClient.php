@@ -26,6 +26,34 @@ class ApiClient
     private const TIMEOUT_SECONDS = 3;
 
     /**
+     * Propaga User-Agent e IP real do navegador pras chamadas internas.
+     * Sem isso, o tracking de sessões no FastAPI veria sempre "curl/?" e
+     * "127.0.0.1" porque o request HTTP é feito pelo backend PHP (não pelo
+     * navegador). Espelha o que o Apache faria via mod_proxy.
+     *
+     * Headers retornados são apenas os que devem ir além de Content-Type/
+     * Accept/Authorization — caller concatena no CURLOPT_HTTPHEADER existente.
+     */
+    private static function _clientPassthroughHeaders(): array
+    {
+        $headers = [];
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        if ($ua !== '') {
+            // Trunca em 250 — backend limita em 200 e header gigante é desperdício
+            $headers[] = 'User-Agent: ' . substr($ua, 0, 250);
+        }
+        // X-Forwarded-For: usa o que já veio (proxy upstream encadeado) +
+        // appenda o REMOTE_ADDR atual. Se nada veio, usa só o REMOTE_ADDR.
+        $existingXff = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+        $remote = $_SERVER['REMOTE_ADDR'] ?? '';
+        $xff = trim(($existingXff !== '' ? $existingXff . ', ' : '') . $remote, ', ');
+        if ($xff !== '') {
+            $headers[] = 'X-Forwarded-For: ' . $xff;
+        }
+        return $headers;
+    }
+
+    /**
      * Chama POST /api/v1/auth/login. Retorna ['ok' => true, 'token' => ...]
      * em sucesso ou ['ok' => false, 'reason' => ...] em qualquer falha.
      * Nunca lança — chamador decide se ignora ou propaga.
@@ -45,7 +73,10 @@ class ApiClient
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $payload,
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Accept: application/json'],
+            CURLOPT_HTTPHEADER     => array_merge(
+                ['Content-Type: application/json', 'Accept: application/json'],
+                self::_clientPassthroughHeaders()
+            ),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => self::TIMEOUT_SECONDS,
             CURLOPT_TIMEOUT        => self::TIMEOUT_SECONDS,
@@ -111,7 +142,10 @@ class ApiClient
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $payload,
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Accept: application/json'],
+            CURLOPT_HTTPHEADER     => array_merge(
+                ['Content-Type: application/json', 'Accept: application/json'],
+                self::_clientPassthroughHeaders()
+            ),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => self::TIMEOUT_SECONDS,
             CURLOPT_TIMEOUT        => self::TIMEOUT_SECONDS,
@@ -162,11 +196,11 @@ class ApiClient
         curl_setopt_array($ch, [
             CURLOPT_CUSTOMREQUEST  => 'PUT',
             CURLOPT_POSTFIELDS     => $payload,
-            CURLOPT_HTTPHEADER     => [
+            CURLOPT_HTTPHEADER     => array_merge([
                 'Content-Type: application/json',
                 'Accept: application/json',
                 'Authorization: Bearer ' . $jwt,
-            ],
+            ], self::_clientPassthroughHeaders()),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => self::TIMEOUT_SECONDS,
             CURLOPT_TIMEOUT        => self::TIMEOUT_SECONDS,
@@ -200,10 +234,10 @@ class ApiClient
         }
 
         curl_setopt_array($ch, [
-            CURLOPT_HTTPHEADER     => [
+            CURLOPT_HTTPHEADER     => array_merge([
                 'Accept: application/json',
                 'Authorization: Bearer ' . $jwt,
-            ],
+            ], self::_clientPassthroughHeaders()),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => self::TIMEOUT_SECONDS,
             CURLOPT_TIMEOUT        => self::TIMEOUT_SECONDS,
@@ -247,11 +281,11 @@ class ApiClient
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $body,
-            CURLOPT_HTTPHEADER     => [
+            CURLOPT_HTTPHEADER     => array_merge([
                 'Content-Type: application/json',
                 'Accept: application/json',
                 'Authorization: Bearer ' . $jwt,
-            ],
+            ], self::_clientPassthroughHeaders()),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => self::TIMEOUT_SECONDS,
             CURLOPT_TIMEOUT        => self::TIMEOUT_SECONDS,
@@ -297,11 +331,11 @@ class ApiClient
         }
         $opts = [
             CURLOPT_CUSTOMREQUEST  => $method,
-            CURLOPT_HTTPHEADER     => [
+            CURLOPT_HTTPHEADER     => array_merge([
                 'Content-Type: application/json',
                 'Accept: application/json',
                 'Authorization: Bearer ' . $jwt,
-            ],
+            ], self::_clientPassthroughHeaders()),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => self::TIMEOUT_SECONDS,
             CURLOPT_TIMEOUT        => self::TIMEOUT_SECONDS,

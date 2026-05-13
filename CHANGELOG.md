@@ -1,5 +1,30 @@
 # Changelog
 
+## v2.16.2 — 2026-05-13
+
+### fix(sessions): tracking captura User-Agent e IP do navegador
+
+A tabela "Sessões Ativas" mostrava sempre `?` no User-Agent e
+`127.0.0.1` no IP. Causa: tracking (`require_auth` no FastAPI) lia
+os headers do request, mas o request HTTP chega via curl interno do
+PHP — então o UA era vazio e o IP era sempre o localhost da
+máquina-host.
+
+Fix: `ApiClient::_clientPassthroughHeaders()` extrai
+`$_SERVER['HTTP_USER_AGENT']` e `$_SERVER['REMOTE_ADDR']`/
+`$_SERVER['HTTP_X_FORWARDED_FOR']` e propaga via headers
+`User-Agent:` + `X-Forwarded-For:` em **todas as chamadas internas**
+(`login`, `login2faVerify`, `changePassword`, `get`, `post`, `put`,
+`delete`). FastAPI já lia `X-Forwarded-For` corretamente em
+`deps.py` (linha 71) — bastava o backend PHP propagar.
+
+Sessões antigas com `?`/`127.0.0.1` são sobrescritas no próximo
+request autenticado (UPSERT por token_hash).
+
+VERSION 2.16.1 → 2.16.2.
+
+---
+
 ## v2.16.1 — 2026-05-13
 
 ### Sessões ativas — filtro de linhas (10/50/100/Todas)
