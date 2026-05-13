@@ -180,6 +180,10 @@ async def fetch_latest_release(force_refresh: bool = False) -> dict[str, Any]:
         assets.append({
             "name": a.get("name", ""),
             "browser_download_url": a.get("browser_download_url", ""),
+            # `url` = API URL (api.github.com/.../assets/<id>). Funciona com
+            # repo privado quando combinada com `Accept: application/octet-stream`.
+            # browser_download_url redireciona pra S3 e descarta Authorization.
+            "api_url": a.get("url", ""),
             "size": a.get("size", 0),
         })
 
@@ -249,14 +253,17 @@ def _find_assets(release: dict[str, Any]) -> tuple[dict, dict] | tuple[None, Non
 
 
 async def _download(url: str, dest: Path) -> None:
-    """Baixa URL pra dest. Atômico via .part + rename. Auth se repo privado."""
+    """
+    Baixa URL pra dest. Atômico via .part + rename.
+
+    Repo privado: `url` deve ser a API URL (api.github.com/.../assets/<id>),
+    NÃO o browser_download_url (que redireciona pra S3 descartando o
+    Authorization header).
+    """
     part = dest.with_suffix(dest.suffix + ".part")
     headers = {}
     token = settings.github_token.get_secret_value() if settings.github_token else ""
-    if token and "github.com" in url:
-        # Pra asset privado, precisa pedir application/octet-stream NA API URL,
-        # não no browser_download_url. Mas browser_download_url também funciona
-        # com Bearer token se o repo for privado. Mantemos simples.
+    if token and "api.github.com" in url:
         headers["Authorization"] = f"Bearer {token}"
         headers["Accept"] = "application/octet-stream"
     try:
@@ -294,6 +301,10 @@ async def download_and_verify(release: dict[str, Any]) -> Path:
     """
     Baixa tarball + .sha256 pra UPDATES_DIR, valida checksum.
     Retorna path do tarball. Raise ChecksumMismatch se falhar.
+
+    Em repo privado, usa `api_url` (api.github.com/.../assets/<id>) que
+    funciona com Bearer token. `browser_download_url` redireciona pra S3
+    descartando o header de Authorization.
     """
     tarball_asset, sha_asset = _find_assets(release)
     if tarball_asset is None or sha_asset is None:
@@ -305,9 +316,15 @@ async def download_and_verify(release: dict[str, Any]) -> Path:
     tarball_path = UPDATES_DIR / tarball_asset["name"]
     sha_path = UPDATES_DIR / sha_asset["name"]
 
+    has_token = bool(
+        settings.github_token and settings.github_token.get_secret_value()
+    )
+    tarball_url = tarball_asset["api_url"] if has_token else tarball_asset["browser_download_url"]
+    sha_url = sha_asset["api_url"] if has_token else sha_asset["browser_download_url"]
+
     log.info("updater.downloading", tarball=tarball_asset["name"], size=tarball_asset.get("size"))
-    await _download(tarball_asset["browser_download_url"], tarball_path)
-    await _download(sha_asset["browser_download_url"], sha_path)
+    await _download(tarball_url, tarball_path)
+    await _download(sha_url, sha_path)
 
     if not _verify_sha256(tarball_path, sha_path):
         # Limpa arquivos suspeitos pra evitar reuso acidental

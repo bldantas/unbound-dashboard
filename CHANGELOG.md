@@ -1,5 +1,40 @@
 # Changelog
 
+## v2.17.2 — 2026-05-13
+
+### fix(updates): correções descobertas em teste end-to-end
+
+Bugs detectados ao testar o pipeline de self-update completo em ambiente
+de repo privado:
+
+1. **`browser_download_url` descarta `Authorization` em repo privado** —
+   GitHub redireciona pra S3 com query-string e o curl/httpx não passa
+   o Bearer no follow_redirects. Resultado: 404 ao baixar asset.
+   **Fix**: usa a API URL (`api.github.com/.../assets/<id>`) com
+   `Accept: application/octet-stream` quando há `GITHUB_TOKEN`
+   configurado. `_find_assets` agora preserva tanto `api_url` quanto
+   `browser_download_url` no payload.
+
+2. **`/var/log/unbound-dashboard/` não estava no `ReadWritePaths`** do
+   systemd unit — `services/updater.py` falhava com `OSError: Read-only
+   file system` ao tentar criar o `update-<job_id>.log`. **Fix**:
+   adicionado ao `ReadWritePaths` no unit file + `install.sh` cria o dir
+   com perms `750 www-data`.
+
+3. **`NoNewPrivileges=yes` bloqueava `sudo`** — sudo precisa do bit
+   setuid root pra escalar privilege, e essa flag impede. update.sh
+   abria com erro `"The 'no new privileges' flag is set"` antes mesmo
+   de tentar rodar. **Fix**: `NoNewPrivileges=no` no unit, com comentário
+   explicando o trade-off (perde-se um pouco de hardening, ganha-se a
+   feature de self-update). Sudoers já é granular (path + glob restrito).
+
+Após esses 3 fixes, o pipeline aplica end-to-end: download → SHA256 →
+spawn update.sh com sudo → backup → extract → health check → ok.
+
+VERSION 2.17.1 → 2.17.2.
+
+---
+
 ## v2.17.1 — 2026-05-13
 
 ### chore: release de validação do pipeline self-update

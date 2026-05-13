@@ -18,7 +18,13 @@ StandardOutput=journal
 StandardError=journal
 
 # Hardening
-NoNewPrivileges=yes
+# NoNewPrivileges=no — o pipeline de self-update via UI spawna `sudo bash
+# tools/update.sh ...` (sudoers permite www-data NOPASSWD, ver
+# system/sudoers/unbound-dashboard). NoNewPrivileges=yes bloqueia sudo
+# porque sudo precisa do bit setuid root pra escalar privilege. Sem
+# self-update, voltar pra yes ganha um pouco de hardening (mas perde
+# a feature).
+NoNewPrivileges=no
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
@@ -29,8 +35,10 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictRealtime=yes
 LockPersonality=yes
 
-# Caminhos onde o serviço pode escrever
-ReadWritePaths=/var/lib/unbound-dashboard /var/www/html/unbound-dashboard/data /var/www/html/unbound-dashboard/src/data
+# Caminhos onde o serviço pode escrever.
+# /var/log/unbound-dashboard — service updater grava update-<job_id>.log lá
+# durante o pipeline de self-update via UI (Fase 4: SSE streama desse arquivo).
+ReadWritePaths=/var/lib/unbound-dashboard /var/log/unbound-dashboard /var/www/html/unbound-dashboard/data /var/www/html/unbound-dashboard/src/data
 
 [Install]
 WantedBy=multi-user.target

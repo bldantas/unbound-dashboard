@@ -299,6 +299,14 @@ chown www-data:www-data /var/lib/unbound-dashboard/updates
 chmod 750 /var/lib/unbound-dashboard/updates
 log "Updates dir: /var/lib/unbound-dashboard/updates (www-data, 750)"
 
+# Log dir pro pipeline de self-update — services/updater.py grava
+# update-<job_id>.log que o SSE consome. systemd unit precisa do path
+# em ReadWritePaths (já configurado em unbound-dashboard-api.service).
+mkdir -p /var/log/unbound-dashboard
+chown www-data:www-data /var/log/unbound-dashboard
+chmod 750 /var/log/unbound-dashboard
+log "Updates log dir: /var/log/unbound-dashboard (www-data, 750)"
+
 # www-data precisa do grupo `adm` pra ler /var/log/{syslog,auth.log,unbound.log}
 # que o worker log_watcher tail-a continuamente. Idempotente — usermod -aG é no-op
 # se o user já está no grupo.
