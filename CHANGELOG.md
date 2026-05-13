@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.17.1 — 2026-05-13
+
+### chore: release de validação do pipeline self-update
+
+Sem mudanças de código — release publicada pra testar o botão "Atualizar
+agora" end-to-end. Após essa release, /api/v1/updates/check retorna
+`has_update: true` em qualquer instalação rodando v2.17.0, e o botão
+dispara o pipeline completo (download → SHA256 → spawn update.sh →
+SSE live log → health check → rollback se falhar).
+
+VERSION 2.17.0 → 2.17.1.
+
+---
+
 ## v2.17.0 — 2026-05-13
 
 ### Self-update via UI — clica e atualiza, com rollback automático
