@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.17.7 — 2026-05-13
+
+### UI: botão "Verificar atualizações" repaginado
+
+Antes era um glass-btn discreto com `⟳` unicode, fácil de não notar. Agora:
+
+- Botão com **gradient cyan→blue**, shadow + leve halo no hover, transform
+  `translateY(-1px)` em hover (microinteração visível)
+- Texto completo "Verificar atualizações" (era só "Verificar")
+- Ícone SVG (Heroicons arrow-path) com animação `rotate` 360° quando
+  verificando, via classe CSS `.is-checking`
+- Label abaixo: **"Última verificação há Xs · auto-check 6h"** — admin
+  enxerga frescor do dado sem precisar adivinhar
+- Tick a cada 30s atualiza o "há Xs" client-side
+
+VERSION 2.17.6 → 2.17.7.
+
+---
+
 ## v2.17.6 — 2026-05-13
 
 ### fix(update.sh): remover `--delete-excluded` que apagava .venv

@@ -445,6 +445,21 @@ function field($key, $label, $desc = '', $def = '')
     <style>
         .tab-content { display: none; }
         .tab-content.active { display: block; animation: tabFadeIn 0.4s ease-out; }
+        /* Botão "Verificar atualizações" — destaque visual + pulse sutil em idle */
+        .updates-check-btn::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: inherit;
+            background: linear-gradient(45deg, rgba(34, 211, 238, 0.4), rgba(59, 130, 246, 0.4));
+            filter: blur(8px);
+            opacity: 0;
+            z-index: -1;
+            transition: opacity 0.3s ease;
+        }
+        .updates-check-btn:hover::before { opacity: 1; }
+        .updates-check-btn.is-checking #updates-refresh-icon { animation: updates-spin 0.8s linear infinite; }
+        @keyframes updates-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes tabFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .v-tab.active { background: rgba(59, 130, 246, 0.1); color: #3b82f6; border-left: 3px solid #3b82f6; border-radius: 0 16px 16px 0; }
         .v-tab:not(.active) { color: #94a3b8; }
@@ -1262,17 +1277,25 @@ function field($key, $label, $desc = '', $def = '')
 
                         <!-- Status card (populado pelo JS) -->
                         <div class="glass-panel border-l-4 border-slate-500" id="updates-status-card">
-                            <div class="flex items-start justify-between gap-3">
-                                <div>
+                            <div class="flex items-start justify-between gap-4 flex-wrap">
+                                <div class="flex-1 min-w-[260px]">
                                     <h2 class="text-lg font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
                                         <svg class="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                                         Atualizações do Sistema
                                     </h2>
                                     <p class="text-sm text-slate-500 mt-1">Aplica updates direto do GitHub Releases com verificação SHA256 e rollback automático em caso de falha.</p>
                                 </div>
-                                <button type="button" id="updates-refresh-btn" class="glass-btn text-[10px] uppercase font-black" title="Verificar agora">
-                                    <span id="updates-refresh-icon">⟳</span> Verificar
-                                </button>
+                                <div class="flex flex-col items-end gap-1">
+                                    <button type="button" id="updates-refresh-btn"
+                                            class="updates-check-btn group relative flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:transform-none"
+                                            title="Consultar GitHub Releases por nova versão">
+                                        <svg id="updates-refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+                                        </svg>
+                                        <span>Verificar atualizações</span>
+                                    </button>
+                                    <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest" id="updates-last-check">Auto-check 6h · clique pra verificar agora</p>
+                                </div>
                             </div>
 
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
@@ -2282,6 +2305,7 @@ function field($key, $label, $desc = '', $def = '')
                 applyBtn:       document.getElementById('updates-apply-btn'),
                 refreshBtn:     document.getElementById('updates-refresh-btn'),
                 refreshIcon:    document.getElementById('updates-refresh-icon'),
+                lastCheck:      document.getElementById('updates-last-check'),
                 notesPanel:     document.getElementById('updates-notes-panel'),
                 notes:          document.getElementById('updates-notes'),
                 releaseUrl:     document.getElementById('updates-release-url'),
@@ -2292,6 +2316,8 @@ function field($key, $label, $desc = '', $def = '')
                 finalBanner:    document.getElementById('updates-final-banner'),
             };
             if (!el.current) return;  // aba não renderizada (não-admin)
+
+            let lastCheckAt = null;  // Date do último /check bem-sucedido
 
             let lastCheck = null;
 
@@ -2306,25 +2332,41 @@ function field($key, $label, $desc = '', $def = '')
             }
 
             async function checkUpdates() {
-                el.refreshIcon.textContent = '⟳';
                 el.refreshBtn.disabled = true;
-                el.refreshIcon.style.animation = 'spin 1s linear infinite';
+                el.refreshBtn.classList.add('is-checking');
+                if (el.lastCheck) el.lastCheck.textContent = 'Verificando…';
                 try {
                     const resp = await fetch('/api/v1/updates/check', { headers: HEADERS });
                     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                     const data = await resp.json();
                     lastCheck = data;
+                    lastCheckAt = new Date();
                     renderState(data);
+                    updateLastCheckLabel();
                 } catch (err) {
                     setBanner(
                         `<p class="text-sm text-red-700 dark:text-red-300"><strong>Erro:</strong> ${err.message}</p>`,
                         'bg-red-500/10 border-red-500/30'
                     );
+                    if (el.lastCheck) el.lastCheck.textContent = 'Falha na verificação';
                 } finally {
-                    el.refreshIcon.style.animation = '';
+                    el.refreshBtn.classList.remove('is-checking');
                     el.refreshBtn.disabled = false;
                 }
             }
+
+            function updateLastCheckLabel() {
+                if (!el.lastCheck || !lastCheckAt) return;
+                const diff = Math.round((Date.now() - lastCheckAt.getTime()) / 1000);
+                let when;
+                if (diff < 5)        when = 'agora';
+                else if (diff < 60)  when = `há ${diff}s`;
+                else if (diff < 3600) when = `há ${Math.floor(diff/60)} min`;
+                else                  when = `há ${Math.floor(diff/3600)}h`;
+                el.lastCheck.textContent = `Última verificação ${when} · auto-check 6h`;
+            }
+            // Refresca o label a cada 30s pra ficar coerente sem polling do backend
+            setInterval(updateLastCheckLabel, 30000);
 
             function renderState(d) {
                 el.current.textContent = 'v' + (d.current || '?');
