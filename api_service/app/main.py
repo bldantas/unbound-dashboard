@@ -75,6 +75,13 @@ async def lifespan(app: FastAPI):
     # Migrations DuckDB idempotentes
     run_migrations()
 
+    # Rehidrata Redis com sessões persistidas no DuckDB (sobreviver restart Redis)
+    try:
+        from app.services.sessions import bootstrap_from_duckdb
+        await bootstrap_from_duckdb()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("sessions.bootstrap_failed", error=str(exc))
+
     # Workers em background — supervisionados (restart on crash, backoff exponencial)
     log_watcher = LogWatcher()
     stats_aggregator = StatsAggregator()

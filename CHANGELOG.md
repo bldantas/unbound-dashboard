@@ -1,5 +1,61 @@
 # Changelog
 
+## v2.13.0 — 2026-05-13
+
+### Persistência de sessões em DuckDB — sobreviver restart Redis
+
+Antes, sessões ativas viviam **só no Redis** (`udash:session:<user>:<hash>`).
+Restart do Redis (manutenção, OOM-killer, falha) limpava todo o histórico
+de "Sessões Ativas" — admin perdia visibilidade até users fazerem novos
+requests. Agora há **dual-write Redis + DuckDB** com bootstrap.
+
+**Migration V3** (`migrations/duckdb/V3__auth_sessions.sql`):
+
+Nova tabela `auth_sessions`:
+- `token_hash` PK (SHA256 truncado, igual ao Redis)
+- `user_id`, `ip`, `user_agent`
+- `iat`, `exp`, `login_at`, `last_seen` (todos unix epoch)
+- `revoked_at` (NULL = ativa)
+
+**`services/sessions.py` dual-write:**
+
+- `track()` agora escreve **sempre no Redis** (fast path, in-memory) e
+  **escreve no DuckDB com throttle de 30s** — evita pressão no executor
+  do DuckDB pra sessões ativas que chamam track() a cada request.
+  Throttle controlado por campo `last_persisted_duckdb` no payload Redis.
+- Se Redis cair, DuckDB recebe a escrita direto (best-effort, sem throttle).
+- UPSERT via `ON CONFLICT (token_hash) DO UPDATE` — atualiza só ip/ua/last_seen.
+
+**`list_for_user()` / `list_all()`** — union Redis ∪ DuckDB, dedupado
+por token_hash, prefere o registro com `last_seen` mais recente. Se
+Redis estiver vazio (restart recente), DuckDB cobre o gap.
+
+**`remove()`** — marca `revoked_at` no DuckDB + delete no Redis. Não toca
+o denylist do JWT (chamador é responsável).
+
+**Bootstrap** (`bootstrap_from_duckdb()`, chamado no `lifespan` startup):
+
+1. **Cleanup**: deleta rows com `exp` mais antigo que 30 dias (impede
+   crescimento sem fim em sistemas com muito churn de usuário).
+2. **Rehydrate**: carrega sessões ainda válidas e não-revogadas do DuckDB,
+   reescreve no Redis com TTL adequado. Só sobrescreve se a chave Redis
+   ainda não existe (race com tracking após restart).
+3. Logs `sessions.bootstrap_done` com contador rehydrated/total.
+
+**Testes** (`tests/test_sessions_persistence.py`, 5 novos):
+
+- track persiste no DuckDB quando Redis off
+- remove marca revoked_at (não retorna mais em list_for_user)
+- list filtra sessões expiradas (`exp <= now`)
+- bootstrap deleta rows com exp+30d < now
+- track subsequente atualiza last_seen mas preserva login_at
+
+63/63 testes verdes (era 58).
+
+VERSION 2.12.0 → 2.13.0 (minor — schema change + nova feature).
+
+---
+
 ## v2.12.0 — 2026-05-13
 
 ### changelog.php repaginada — busca + filtros + accordion + render markdown

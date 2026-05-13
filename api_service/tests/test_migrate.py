@@ -19,7 +19,7 @@ def test_apply_migrations_creates_schema(tmp_path) -> None:
 
     db = tmp_path / "test.duckdb"
     applied = run_migrations(str(db))
-    assert applied == [1, 2]
+    assert applied == [1, 2, 3]
 
     with duckdb.connect(str(db), read_only=True) as conn:
         tables = {
@@ -28,7 +28,7 @@ def test_apply_migrations_creates_schema(tmp_path) -> None:
                 "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
             ).fetchall()
         }
-        # Tabelas do plano + schema_migrations
+        # Tabelas do plano + schema_migrations + auth_sessions (V3)
         assert tables == {
             "users",
             "settings",
@@ -36,6 +36,7 @@ def test_apply_migrations_creates_schema(tmp_path) -> None:
             "query_logs",
             "daily_stats",
             "blocklist_domains",
+            "auth_sessions",
             "schema_migrations",
         }
 
@@ -47,6 +48,6 @@ def test_apply_migrations_is_idempotent(tmp_path) -> None:
     first = run_migrations(str(db))
     second = run_migrations(str(db))
     third = run_migrations(str(db))
-    assert first == [1, 2]
+    assert first == [1, 2, 3]
     assert second == []
     assert third == []
