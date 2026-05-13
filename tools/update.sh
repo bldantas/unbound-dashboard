@@ -242,11 +242,14 @@ apply_apiservice() {
         fi
     fi
 
+    # IMPORTANTE: --delete-excluded NÃO está aqui. Adicioná-lo apagaria o
+    # .venv do destino — bug que custou várias iterações pra descobrir.
+    # As --exclude só impedem cópia do source pro destino (tarball já não
+    # inclui .venv); preservar o .venv existente no destino é o que queremos.
     rsync -a \
         --exclude='.venv' \
         --exclude='__pycache__' \
         --exclude='*.pyc' \
-        --delete-excluded \
         "$src/" "$APISERVICE_DIR/"
 
     log "api_service atualizado"

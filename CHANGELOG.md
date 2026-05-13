@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.17.6 — 2026-05-13
+
+### fix(update.sh): remover `--delete-excluded` que apagava .venv
+
+`apply_apiservice` no `tools/update.sh` tinha `rsync -a --exclude='.venv'
+--delete-excluded`. A intenção era impedir que `.venv` fosse copiada
+do source (tarball) pro destino. Mas `--delete-excluded` faz mais que
+isso: implica `--delete` e remove do destino qualquer arquivo
+correspondente aos patterns de exclusão — **apaga o `.venv` existente
+no destino**.
+
+Quando `pyproject.toml`/`uv.lock` mudavam, `update.sh` rodava
+`uv sync --no-dev` em seguida e tudo voltava. Quando não mudavam
+(`need_uv_sync=false`), o sync era pulado e o `.venv` ficava apagado —
+api_service falha com `ModuleNotFoundError`/`No such file or directory:
+uvicorn`.
+
+Fix: remover `--delete-excluded`. As `--exclude` continuam (impedem
+cópia do source, que de toda forma não tem `.venv` no tarball).
+
+VERSION 2.17.5 → 2.17.6.
+
+---
+
 ## v2.17.5 — 2026-05-13
 
 ### fix(updates): expandir ReadWritePaths em vez de systemd-run
