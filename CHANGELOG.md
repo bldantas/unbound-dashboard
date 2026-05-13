@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.17.4 — 2026-05-13
+
+### fix(updates): redirect via shell em vez de systemd StandardOutput
+
+`update.sh` chama `systemctl daemon-reload` ao instalar a nova
+unit file. Isso fecha o file descriptor que o systemd estava mantendo
+via `--property=StandardOutput=append:<log>` — então o resto do log
+do update sumia (output ia pro vazio).
+
+**Fix**: `tools/run-update.sh` agora usa `bash -c "exec update.sh ... >> $LOG 2>&1"`
+dentro da unit transient. O redirect é feito pelo shell do filho,
+imune a `daemon-reload`.
+
+VERSION 2.17.3 → 2.17.4.
+
+---
+
 ## v2.17.3 — 2026-05-13
 
 ### fix(updates): escapar do namespace mount via systemd-run
