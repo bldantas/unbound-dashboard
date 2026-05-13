@@ -65,7 +65,7 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
                             <span class="ml-2 text-slate-500 dark:text-slate-600">— configure a fonte em <a href="config.php#tab-rpz" class="text-orange-500 hover:underline">Configurações → Lista de Bloqueios</a>.</span>
                         </p>
                     </div>
-                    <?php if (\App\Auth::isAdmin()): ?>
+                    <?php if (\App\Auth::can('blocklist.write')): ?>
                         <button type="button" id="btnUpdateBlocklist"
                                 class="glass-btn !bg-orange-600 !text-white text-[10px] uppercase font-black flex items-center gap-2"
                                 title="Re-baixa a fonte ativa e regenera o arquivo">

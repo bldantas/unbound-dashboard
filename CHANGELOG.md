@@ -1,5 +1,52 @@
 # Changelog
 
+## v2.15.1 — 2026-05-13
+
+### RBAC — completa migração de endpoints e páginas restantes
+
+Após v2.15.0 (RBAC granular), faltavam routers e páginas que ainda usavam
+`require_admin` / `Auth::isAdmin()` em vez do mapeamento por capability —
+isso impedia readonly_admin/operator de enxergar conteúdo apropriado.
+
+**API routers migrados pra `require_capability`:**
+
+| Endpoint                          | Antes        | Agora                       |
+|-----------------------------------|--------------|------------------------------|
+| `GET /threats/data`               | require_admin| `blocklist.read`             |
+| `GET /exports/query-logs`         | require_admin| `blocklist.read`             |
+| `GET /exports/stats-report`       | require_admin| `blocklist.read`             |
+| `GET /exports/blocklist`          | require_admin| `blocklist.read`             |
+| `GET /exports/settings`           | require_admin| `config.read_sensitive`      |
+| `POST /exports/settings/bulk`     | require_admin| `config.write`               |
+| `GET /users`                      | require_admin| `users.read`                 |
+| `POST /users`                     | require_admin| `users.manage`               |
+| `PUT /users/{id}/active`          | require_admin| `users.manage`               |
+| `PUT /users/{id}/role`            | require_admin| `users.manage`               |
+| `DELETE /users/{id}`              | require_admin| `users.manage`               |
+| `POST /users/{id}/password-reset` | require_admin| `users.manage`               |
+| `PUT /users/{id}/email`           | admin OR self| `users.manage` OR self       |
+
+**Páginas PHP migradas pra `Auth::can()`:**
+
+- `health.php` → `dashboard.read` (todos os roles veem hardware/saúde)
+- `threats.php` → `blocklist.read` (operator + RO-admin + admin)
+- `logs.php` → `blocklist.read`
+- `exports.php` → `blocklist.read` (settings export rejeitado no API se sem cap)
+- `alerts.php` gate → `alerts.read`
+- Botões em `alerts.php` (Reconhecer, Limpar Resolvidos, Editar Limiares)
+  e `blocklist.php` (Atualizar Agora) → `Auth::can('alerts.resolve')` /
+  `Auth::can('blocklist.write')`
+
+Mantidos como `isAdmin()` por serem operações ativas no servidor:
+- `diagnostics.php`, `dns_benchmark.php` (executam comandos no host)
+
+Mensagem de erro no `users_service.update_role` atualizada com lista
+correta dos 4 roles válidos.
+
+72/72 testes verdes. VERSION 2.15.0 → 2.15.1.
+
+---
+
 ## v2.15.0 — 2026-05-13
 
 ### Custom roles — RBAC granular com 4 papéis

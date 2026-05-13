@@ -10,7 +10,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.core.deps import require_admin
+from app.core.deps import require_capability
 from app.repositories.duckdb import (
     settings_repo,
     threats_repo,  # reuse onde possível
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/v1/exports", tags=["exports"])
 
 @router.get("/query-logs")
 async def export_query_logs(
-    _: Annotated[dict, Depends(require_admin)],
+    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
     since: int = Query(0, ge=0, description="Unix epoch — só retorna rows >= since (0 = todos)"),
 ) -> list[dict]:
     """Retorna query_logs ordenados DESC. Usado pro CSV de logs DNS."""
@@ -48,7 +48,7 @@ async def export_query_logs(
 
 
 @router.get("/stats-report")
-async def export_stats_report(_: Annotated[dict, Depends(require_admin)]) -> dict:
+async def export_stats_report(_: Annotated[dict, Depends(require_capability("blocklist.read"))]) -> dict:
     """
     Sumário pra o JSON de stats: daily_history (90d) + top_domains_24h +
     top_clients_24h. NÃO inclui current_metrics (PHP lê data/latest_stats.json).
@@ -102,7 +102,7 @@ async def export_stats_report(_: Annotated[dict, Depends(require_admin)]) -> dic
 
 
 @router.get("/settings")
-async def export_settings(_: Annotated[dict, Depends(require_admin)]) -> list[dict]:
+async def export_settings(_: Annotated[dict, Depends(require_capability("config.read_sensitive"))]) -> list[dict]:
     rows = await settings_repo.list_all()
     return [
         {"setting_key": str(r["setting_key"]), "setting_value": str(r["setting_value"])}
@@ -112,7 +112,7 @@ async def export_settings(_: Annotated[dict, Depends(require_admin)]) -> list[di
 
 @router.post("/settings/bulk", status_code=200)
 async def import_settings_bulk(
-    _: Annotated[dict, Depends(require_admin)],
+    _: Annotated[dict, Depends(require_capability("config.write"))],
     entries: list[dict],
 ) -> dict:
     """Bulk upsert de settings — usado pelo restore de config backup."""
@@ -121,7 +121,7 @@ async def import_settings_bulk(
 
 
 @router.get("/blocklist")
-async def export_blocklist(_: Annotated[dict, Depends(require_admin)]) -> list[dict]:
+async def export_blocklist(_: Annotated[dict, Depends(require_capability("blocklist.read"))]) -> list[dict]:
     """Lista todos blocklist_domains pra export CSV."""
     # threats_repo não tem list_all; usa db_fetchall direto
     rows = await db_fetchall(

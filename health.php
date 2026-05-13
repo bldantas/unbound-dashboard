@@ -4,7 +4,7 @@ require_once 'src/ShellHelper.php';
 require_once 'src/UnboundManager.php';
 
 \App\Auth::check();
-if (!\App\Auth::isAdmin()) { header('Location: index.php'); exit; }
+if (!\App\Auth::can('dashboard.read')) { header('Location: index.php'); exit; }
 
 $tmpRet = 0;
 

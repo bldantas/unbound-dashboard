@@ -2,7 +2,7 @@
 require_once 'src/Auth.php';
 
 \App\Auth::check();
-if (!\App\Auth::isAdmin()) {
+if (!\App\Auth::can('blocklist.read')) {
     header('Location: index.php');
     exit;
 }

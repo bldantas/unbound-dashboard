@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
-from app.core.deps import require_admin, require_auth
+from app.core.deps import require_auth, require_capability
 from app.services import users_service
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
@@ -29,7 +29,7 @@ class UpdateRoleRequest(BaseModel):
 
 
 @router.get("")
-async def list_users(_: Annotated[dict, Depends(require_admin)]) -> list[dict]:
+async def list_users(_: Annotated[dict, Depends(require_capability("users.read"))]) -> list[dict]:
     return await users_service.list_all()
 
 
@@ -45,7 +45,7 @@ async def users_exist() -> dict:
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: CreateUserRequest,
-    _: Annotated[dict, Depends(require_admin)],
+    _: Annotated[dict, Depends(require_capability("users.manage"))],
 ) -> dict:
     try:
         new_id = await users_service.create(
@@ -73,10 +73,11 @@ async def update_email(
     body: UpdateEmailRequest,
     payload: Annotated[dict, Depends(require_auth)],
 ) -> None:
-    # Auth model: permite admin OR self editar email
-    is_admin = payload.get("role") == "admin"
+    # Auth model: permite users.manage OR self editar email
+    from app.core.rbac import can
+    is_manager = can(payload.get("role"), "users.manage")
     is_self = int(payload.get("sub", 0)) == user_id
-    if not (is_admin or is_self):
+    if not (is_manager or is_self):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     try:
         await users_service.update_email(user_id, body.email)
@@ -90,7 +91,7 @@ async def update_email(
 @router.put("/{user_id}/active", status_code=status.HTTP_204_NO_CONTENT)
 async def toggle_active(
     user_id: Annotated[int, Path(ge=1)],
-    payload: Annotated[dict, Depends(require_admin)],
+    payload: Annotated[dict, Depends(require_capability("users.manage"))],
 ) -> None:
     try:
         await users_service.toggle_active(user_id, requesting_user_id=int(payload["sub"]))
@@ -108,7 +109,7 @@ async def toggle_active(
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: Annotated[int, Path(ge=1)],
-    payload: Annotated[dict, Depends(require_admin)],
+    payload: Annotated[dict, Depends(require_capability("users.manage"))],
 ) -> None:
     try:
         await users_service.delete_user(user_id, requesting_user_id=int(payload["sub"]))
@@ -127,7 +128,7 @@ async def delete_user(
 async def update_role(
     user_id: Annotated[int, Path(ge=1)],
     body: UpdateRoleRequest,
-    payload: Annotated[dict, Depends(require_admin)],
+    payload: Annotated[dict, Depends(require_capability("users.manage"))],
 ) -> None:
     try:
         await users_service.update_role(
@@ -136,7 +137,7 @@ async def update_role(
     except users_service.InvalidRole:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Role inválido. Valores aceitos: admin, viewer.",
+            detail="Role inválido. Valores aceitos: admin, readonly_admin, operator, viewer.",
         ) from None
     except users_service.CannotTargetSelf:
         raise HTTPException(
@@ -152,7 +153,7 @@ async def update_role(
 @router.post("/{user_id}/password-reset")
 async def admin_reset_password(
     user_id: Annotated[int, Path(ge=1)],
-    payload: Annotated[dict, Depends(require_admin)],
+    payload: Annotated[dict, Depends(require_capability("users.manage"))],
 ) -> dict:
     """
     Admin gera senha temporária aleatória para o user. Senha é retornada

@@ -5,7 +5,8 @@ Mantém o mesmo shape de resposta que o frontend PHP existente espera, pra
 permitir cutover sem mudança no JS do dashboard. Validação de `limit` segue
 política do PHP (10/20/50/100/'todos' → 1000; qualquer outra coisa cai pra 10).
 
-Protegido por `require_admin` — JWT Bearer válido com role=admin.
+Protegido por capability `blocklist.read` — admin, readonly_admin e operator.
+Threats são o que a blocklist está filtrando; faz sentido o operator do NOC ver.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.core.deps import require_admin
+from app.core.deps import require_capability
 from app.services import threats_service
 
 router = APIRouter(prefix="/api/v1/threats", tags=["threats"])
@@ -34,7 +35,7 @@ def _parse_limit(raw: str) -> int:
 
 @router.get("/data")
 async def threats_data(
-    _: Annotated[dict, Depends(require_admin)],
+    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
     limit: str = Query("10", description="10|20|50|100|'todos'"),
 ) -> dict:
     parsed_limit = _parse_limit(limit)

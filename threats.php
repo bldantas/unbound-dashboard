@@ -4,7 +4,7 @@ require_once 'src/Auth.php';
 use App\Auth;
 
 Auth::check();
-if (!\App\Auth::isAdmin()) { header('Location: index.php'); exit; }
+if (!\App\Auth::can('blocklist.read')) { header('Location: index.php'); exit; }
 
 // Renderiza a estrutura inicial para exibir o loader enquanto as consultas rodam
 ob_start();

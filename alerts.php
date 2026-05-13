@@ -3,7 +3,7 @@ require_once 'src/Auth.php';
 require_once 'src/AlertManager.php';
 
 \App\Auth::check();
-if (!\App\Auth::isAdmin()) {
+if (!\App\Auth::can('alerts.read')) {
     header('Location: index.php');
     exit;
 }
@@ -189,12 +189,14 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
                     </h1>
                     <p class="page-subtitle">Monitoramento em tempo real de hardware, segurança e conectividade.</p>
                 </div>
+                <?php if (\App\Auth::can('alerts.resolve')): ?>
                 <button type="button" id="btnEditThresholds"
                         class="glass-btn text-[10px] uppercase font-black flex items-center gap-2"
                         title="Editar limiares que disparam alertas">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                     Editar Limiares
                 </button>
+                <?php endif; ?>
             </header>
 
             <!-- Seção de Hardware -->
@@ -345,6 +347,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
                         </div>
                     <?php endif; ?>
 
+                    <?php if (\App\Auth::can('alerts.resolve')): ?>
                     <form method="POST" data-confirm-message="Limpar todos os alertas já resolvidos do histórico?" data-confirm-title="Confirmar limpeza" data-confirm-text="Limpar">
                         <input type="hidden" name="action" value="clear_all">
                         <button type="submit" class="glass-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border-white/5 uppercase tracking-widest text-[10px] font-black">
@@ -354,6 +357,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
                             Limpar Resolvidos
                         </button>
                     </form>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -495,7 +499,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
                                         <?= htmlspecialchars($fmtDuration($durationSecs)) ?>
                                     </td>
                                     <td class="text-right">
-                                        <?php if ($status === 'active'): ?>
+                                        <?php if ($status === 'active' && \App\Auth::can('alerts.resolve')): ?>
                                             <form method="POST" class="inline">
                                                 <input type="hidden" name="action" value="resolve">
                                                 <input type="hidden" name="alert_id" value="<?= (int)$a['id'] ?>">
@@ -549,7 +553,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
     </main>
 
     <!-- Modal: Editar Limiares -->
-    <?php if (\App\Auth::isAdmin()): ?>
+    <?php if (\App\Auth::can('alerts.resolve')): ?>
     <div id="modalThresholds" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
          onclick="if (event.target === this) this.classList.add('hidden')">
         <div class="glass-panel max-w-lg w-full">
