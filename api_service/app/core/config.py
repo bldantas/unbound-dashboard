@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     rate_limit_auth: str = "10/minute"
     rate_limit_enabled: bool = True  # tests usam false pra evitar cross-test 429
 
+    # GitHub token — necessário se o repo é privado. Sem isso, /api/v1/updates/check
+    # vai retornar 404 quando GitHub bloquear a request anônima. Em repo público,
+    # pode ficar vazio. Em prod, gere um Fine-grained PAT com escopo `Contents: Read`
+    # do repo unbound-dashboard e injete via env var GITHUB_TOKEN.
+    github_token: SecretStr = SecretStr("")
+
     @field_validator("jwt_secret")
     @classmethod
     def _reject_default_secret(cls, v: SecretStr) -> SecretStr:

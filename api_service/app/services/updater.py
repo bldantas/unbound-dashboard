@@ -153,12 +153,14 @@ async def fetch_latest_release(force_refresh: bool = False) -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             pass
 
+    headers = {"Accept": "application/vnd.github+json"}
+    token = settings.github_token.get_secret_value() if settings.github_token else ""
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.get(
-                GITHUB_API_URL,
-                headers={"Accept": "application/vnd.github+json"},
-            )
+            resp = await client.get(GITHUB_API_URL, headers=headers)
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:  # noqa: BLE001
@@ -247,11 +249,19 @@ def _find_assets(release: dict[str, Any]) -> tuple[dict, dict] | tuple[None, Non
 
 
 async def _download(url: str, dest: Path) -> None:
-    """Baixa URL pra dest. Atômico via .part + rename."""
+    """Baixa URL pra dest. Atômico via .part + rename. Auth se repo privado."""
     part = dest.with_suffix(dest.suffix + ".part")
+    headers = {}
+    token = settings.github_token.get_secret_value() if settings.github_token else ""
+    if token and "github.com" in url:
+        # Pra asset privado, precisa pedir application/octet-stream NA API URL,
+        # não no browser_download_url. Mas browser_download_url também funciona
+        # com Bearer token se o repo for privado. Mantemos simples.
+        headers["Authorization"] = f"Bearer {token}"
+        headers["Accept"] = "application/octet-stream"
     try:
         async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as client:
-            async with client.stream("GET", url) as resp:
+            async with client.stream("GET", url, headers=headers) as resp:
                 resp.raise_for_status()
                 with part.open("wb") as f:
                     async for chunk in resp.aiter_bytes(chunk_size=64 * 1024):

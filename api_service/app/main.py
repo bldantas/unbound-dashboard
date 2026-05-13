@@ -34,7 +34,7 @@ from app.routers import (
     webhooks,
 )
 from app.routers import unbound as unbound_router
-from app.workers import AlertChecker, LogWatcher, StatsAggregator, UnboundCollector
+from app.workers import AlertChecker, LogWatcher, StatsAggregator, UnboundCollector, UpdateChecker
 
 log = structlog.get_logger()
 
@@ -89,6 +89,7 @@ async def lifespan(app: FastAPI):
     stats_aggregator = StatsAggregator()
     alert_checker = AlertChecker()
     unbound_collector = UnboundCollector()
+    update_checker = UpdateChecker()
     _background_tasks.extend(
         [
             asyncio.create_task(_supervised("log_watcher", log_watcher), name="log_watcher"),
@@ -98,6 +99,9 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(_supervised("alert_checker", alert_checker), name="alert_checker"),
             asyncio.create_task(
                 _supervised("unbound_collector", unbound_collector), name="unbound_collector"
+            ),
+            asyncio.create_task(
+                _supervised("update_checker", update_checker), name="update_checker"
             ),
         ]
     )
@@ -111,6 +115,7 @@ async def lifespan(app: FastAPI):
     await stats_aggregator.stop()
     await alert_checker.stop()
     await unbound_collector.stop()
+    await update_checker.stop()
     for task in _background_tasks:
         task.cancel()
     await asyncio.gather(*_background_tasks, return_exceptions=True)

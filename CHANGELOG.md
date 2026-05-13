@@ -1,5 +1,83 @@
 # Changelog
 
+## v2.17.0 — 2026-05-13
+
+### Self-update via UI — clica e atualiza, com rollback automático
+
+Sai do `scp + sudo bash update.sh ...` manual. Admin agora atualiza o
+sistema direto pela aba **Sistema / Atualizações** em
+`config.php` (admin-only). Pipeline completo: download verificado por
+SHA256 do GitHub Releases → spawna `update.sh` → log live via SSE →
+rollback automático se health check pós-restart falhar.
+
+**Pipeline (6 fases, todas implementadas):**
+
+1. **`tools/release.sh`** — publica GitHub Release a partir do `VERSION`
+   atual. Extrai notas do CHANGELOG (`## v<X.Y.Z>`), gera tarball +
+   `.sha256` via `build-update.sh` (sem auto-bump), `gh release create`
+   com os 2 assets. Suporta `DRAFT=true` e `PRERELEASE=true`.
+2. **sudoers + dir** — `system/sudoers/unbound-dashboard` ganha entrada
+   pra `www-data` rodar `bash tools/update.sh
+   /var/lib/unbound-dashboard/updates/unbound-dashboard-update-v[0-9]*.tar.gz`
+   (glob restrito anti-injection). `install.sh` cria
+   `/var/lib/unbound-dashboard/updates/` 750 www-data. `update.sh`
+   ganha `restart_and_smoke` resiliente (loop 30s até healthz=200) +
+   `rollback_from_backup()` automático: exit 2 = rolled_back, exit 3 =
+   ROLLBACK FAILED.
+3. **API REST** (`/api/v1/updates/*`, todos `config.write`):
+   - `GET /check` — consulta GitHub Releases, cacheia 5min Redis,
+     compara com `VERSION` local. Detecta `has_update` + `is_major_bump`.
+   - `POST /apply {version, acknowledge_breaking}` — lock global Redis
+     (anti-concorrência), refresh release (anti-replay), download +
+     valida SHA256, spawn `sudo update.sh` detachado, registra job em
+     Redis, retorna `{job_id}`.
+   - `GET /status/{job_id}` — estado: running/succeeded/failed/
+     rolled_back/rollback_failed.
+4. **SSE** `GET /log/{job_id}` — StreamingResponse com generator async
+   que faz `tail -f` do `/var/log/unbound-dashboard/update-<job_id>.log`,
+   heartbeat 15s pra manter keepalive vivo, evento `done` final com
+   payload JSON do estado. Validação `job_id` = 12 chars hex (anti
+   path-traversal).
+5. **UI** — nova aba **Sistema / Atualizações** em `config.php`:
+   - Status card com versão atual vs última no GitHub
+   - Banner contextual (up-to-date / update / major bump warning /
+     GitHub off)
+   - Botão "Atualizar pra vX.Y.Z" + checkbox obrigatório se major
+   - Painel notas da release (CHANGELOG do tag)
+   - Console live via `fetch + ReadableStream` (não EventSource, pra
+     manter Authorization Bearer)
+   - Banner final colorido (✓ / ⚠ rollback / ✗ rollback failed / ✗ failed)
+6. **Worker `update_checker`** — `app/workers/update_checker.py`
+   polleia GitHub a cada 6h, cacheia em Redis `udash:update:latest`.
+   Sidebar (`includes/sidebar.php`) lê o cache via API (60s PHP cache)
+   e mostra badge azul **"↑ Update"** no item Configurações + link
+   direto pra `config.php?tab=updates`.
+
+**Repo privado**: adicionada setting `GITHUB_TOKEN` em `core/config.py`.
+Sem ela, GitHub retorna 404 nas chamadas da API. `api-v1.env.example`
+documenta como gerar e onde colocar.
+
+**Riscos mitigados:**
+
+- **Path traversal**: glob sudoers + regex `_validate_job_id` 12 hex
+- **Tarball MITM**: SHA256 obrigatório do mesmo Release
+- **2 updates simultâneos**: lock Redis `udash:update:running` (TTL 30min,
+  409 Conflict)
+- **Major bump acidental**: `acknowledge_breaking=true` obrigatório
+- **Health check pós-update falha**: rollback automático
+- **Rollback falha**: exit 3 + banner vermelho intervenção manual
+
+**21 testes novos** (`tests/test_updater.py`) cobrem: semver parse,
+sha256 verify, asset discovery, status inference, GitHub off,
+major bump detect, ack obrigatório, version mismatch (anti-replay),
+lock, SSE format, job_id validation.
+
+100/100 testes verdes (era 79; +21 updater).
+
+VERSION 2.16.3 → 2.17.0 (minor — feature grande, sem breaking changes).
+
+---
+
 ## v2.16.3 — 2026-05-13
 
 ### fix(deps): httpx promovido pra dependência de produção
