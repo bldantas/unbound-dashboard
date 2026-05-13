@@ -50,6 +50,7 @@ GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATES_DIR = Path("/var/lib/unbound-dashboard/updates")
 LOG_DIR = Path("/var/log/unbound-dashboard")
 UPDATE_SCRIPT = "/var/www/html/unbound-dashboard/tools/update.sh"
+RUN_UPDATE_WRAPPER = "/var/www/html/unbound-dashboard/tools/run-update.sh"
 VERSION_FILE = Path("/var/www/html/unbound-dashboard/VERSION")
 
 REDIS_LATEST_KEY = "udash:update:latest"
@@ -403,22 +404,32 @@ _EXIT_TO_STATUS = {
 }
 
 
-def _spawn_update_process(tarball_path: Path, log_path: Path) -> int:
+def _spawn_update_process(tarball_path: Path, job_id: str, log_path: Path) -> int:
     """
-    Spawna `sudo bash tools/update.sh <tarball>`, redireciona stdout/stderr
-    pro log_path, NÃO espera (background). Retorna PID.
+    Spawna `sudo bash tools/run-update.sh <job_id> <tarball>`.
+
+    O wrapper invoca `update.sh` via `systemd-run --unit=... --collect`,
+    o que coloca o update numa unit transient SEM herdar o namespace
+    mount restrito do api_service (ProtectSystem=strict + ReadWritePaths
+    limitado bloqueia /var/backups, /etc, etc).
+
+    O wrapper redireciona stdout/stderr direto pro arquivo de log via
+    `--property=StandardOutput=append:...`, então o Popen aqui só
+    captura o output do PRÓPRIO systemd-run (geralmente vazio).
+
+    Retorna o PID do systemd-run. Quando ele exit, a unit transient
+    continua rodando (até o update.sh terminar) — monitor olha o log
+    pra detectar fim.
     """
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    # 'append' mode pra não perder log se já existir
     log_fd = log_path.open("ab", buffering=0)
     try:
-        # sudo precisa ser sem-tty (-n) pra falhar limpo se sudoers não permitir
         proc = subprocess.Popen(  # noqa: S603
-            ["sudo", "-n", "/usr/bin/bash", UPDATE_SCRIPT, str(tarball_path)],
+            ["sudo", "-n", "/usr/bin/bash", RUN_UPDATE_WRAPPER, job_id, str(tarball_path)],
             stdout=log_fd,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
-            start_new_session=True,  # detacha do parent (sobrevive ao reload do uvicorn)
+            start_new_session=True,
         )
         return proc.pid
     finally:
@@ -466,7 +477,7 @@ async def apply_update(version: str, acknowledge_breaking: bool = False) -> str:
 
         # 5. Spawn detachado
         log_path = LOG_DIR / f"update-{job_id}.log"
-        pid = _spawn_update_process(tarball_path, log_path)
+        pid = _spawn_update_process(tarball_path, job_id, log_path)
 
         # 6. Registra job no Redis
         await _save_job_state(
@@ -493,25 +504,47 @@ async def apply_update(version: str, acknowledge_breaking: bool = False) -> str:
 
 async def _monitor_job(job_id: str, pid: int, log_path: Path) -> None:
     """
-    Polleia `/proc/<pid>` a cada 2s. Quando processo termina, lê exit code
-    via wait_for_exit (que faz `waitpid` ou checa log final) e grava status
-    final em Redis.
+    Como o subprocess é spawnado via `systemd-run --unit=...` numa unit
+    transient OUTSIDE do api_service.service, ele NÃO é filho do uvicorn
+    e tampouco aparece em `/proc/<pid>` por mais do que a vida do
+    `systemd-run` (que sai rápido após registrar a unit).
 
-    Como o subprocess foi spawnado com start_new_session, ele NÃO é mais
-    filho deste processo Python (detached). Não podemos usar Popen.wait().
-    Em vez disso, polleia `/proc/<pid>` e parseia a última linha do log
-    pra deduzir status.
+    Estratégia: pollear o log atrás dos marcadores finais que update.sh
+    emite (succeeded / rolled_back / rollback_failed). Backstop por
+    tempo absoluto (60min) — qualquer update mais lento que isso é
+    considerado travado e marcado como `failed` pelo monitor.
     """
-    proc_path = Path(f"/proc/{pid}")
-    while proc_path.exists():
-        await asyncio.sleep(2)
+    MAX_WAIT_SECONDS = 60 * 60
+    POLL_INTERVAL = 3
+    started = time.time()
 
-    # Processo terminou. Como é detachado, não temos exit code direto.
-    # Heurística: parsea o log pra detectar marcadores de update.sh.
+    while True:
+        await asyncio.sleep(POLL_INTERVAL)
+        elapsed = time.time() - started
+        if log_path.exists() and _log_has_terminal_marker(log_path):
+            break
+        if elapsed > MAX_WAIT_SECONDS:
+            log.warning("updater.monitor_timeout", job_id=job_id, elapsed=elapsed)
+            break
+
     status = _infer_status_from_log(log_path)
     await _save_job_state(job_id, status=status, finished_at=int(time.time()))
     await release_lock()
     log.info("updater.job_finished", job_id=job_id, status=status)
+
+
+def _log_has_terminal_marker(log_path: Path) -> bool:
+    """True se o log já contém um marcador de término do update.sh."""
+    try:
+        lines = log_path.read_text(errors="replace").splitlines()[-200:]
+    except Exception:  # noqa: BLE001
+        return False
+    text = "\n".join(lines)
+    return any(m in text for m in (
+        "Update concluído",
+        "ROLLBACK CONCLUÍDO",
+        "ROLLBACK FAILED",
+    ))
 
 
 def _infer_status_from_log(log_path: Path) -> str:

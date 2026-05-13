@@ -1,5 +1,39 @@
 # Changelog
 
+## v2.17.3 — 2026-05-13
+
+### fix(updates): escapar do namespace mount via systemd-run
+
+`update.sh` rodado como subprocess de `sudo` herdava o mount-namespace
+do api_service.service (`ProtectSystem=strict` + ReadWritePaths limitado).
+Resultado: o tar do backup falhava silenciosamente porque `/var/backups`
+não estava nos paths permitidos. Adicionar todos os paths necessários
+(/var/backups, /etc/sudoers.d, /etc/systemd/system, /etc/apache2, …) ao
+ReadWritePaths seria fragil e equivalente a remover ProtectSystem.
+
+**Fix elegante**: novo `tools/run-update.sh` (wrapper) que invoca
+`update.sh` via `systemd-run --unit=unbound-dashboard-update-<job_id>
+--collect --property=StandardOutput=append:LOG`. systemd-run cria uma
+unit transient como filho do init (PID 1) — totalmente fora do namespace
+do api_service. Log do update vai direto pro arquivo via systemd
+StandardOutput=append.
+
+**`services/updater.py`** atualizado:
+- `_spawn_update_process()` chama o wrapper em vez de update.sh direto.
+- `_monitor_job()` agora polleia o log atrás de marcadores finais
+  ("Update concluído", "ROLLBACK CONCLUÍDO", "ROLLBACK FAILED") em vez
+  de `/proc/<pid>` (PID era do sudo+systemd-run que sai cedo).
+- Helper `_log_has_terminal_marker()`.
+- Backstop de 60min — log sem marcador é marcado como `failed`.
+
+**Sudoers** atualizado pra permitir o wrapper com glob restrito ao
+job_id (`*` antes do path do tarball — sudoers parsea como token sem
+espaço, então não permite injeção via `..`).
+
+VERSION 2.17.2 → 2.17.3.
+
+---
+
 ## v2.17.2 — 2026-05-13
 
 ### fix(updates): correções descobertas em teste end-to-end
