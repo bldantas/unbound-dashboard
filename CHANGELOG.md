@@ -1,5 +1,62 @@
 # Changelog
 
+## v2.14.0 — 2026-05-13
+
+### Webhooks de alertas — Slack / Discord / Teams / Genérico
+
+Alertas críticos (CPU, RAM, swap, disco, DNS travado, etc.) agora podem
+notificar canais externos via webhook. Configurável pelo UI (admin only).
+
+**Novo serviço `services/webhook_notifier.py`:**
+
+- `notify(alert_type, severity, message)` chamado automaticamente por
+  `AlertChecker._raise_alert` após inserir o alerta no DuckDB. Best-effort
+  — falha HTTP/conexão é logada mas não derruba o worker.
+- Suporta 4 formatos:
+  - **Slack** / **Teams**: `{"text": "..."}`. Compatível com Incoming Webhooks.
+  - **Discord**: `{"content": "..."}` (truncado em 1900 chars).
+  - **Generic**: JSON puro com `{type, severity, message, timestamp, source}`.
+- Throttle por tipo (15min) usando Redis (`udash:webhook:cooldown:<type>`).
+  Sem Redis = sempre envia (best-effort).
+- Filtro de severity_min: só dispara se severity ≥ configurado
+  (`info < warning < critical`).
+- Timeout HTTP de 5s (worker não trava).
+
+**Novo router `routers/webhooks.py`:**
+
+- `GET /api/v1/webhooks/config` — admin only, retorna config atual.
+- `PUT /api/v1/webhooks/config` — admin only, salva enabled/url/type/severity_min.
+  Valida tipo + severity_min + URL com http/https quando enabled.
+- `POST /api/v1/webhooks/test` — dispara envio de teste, ignora cooldown
+  e severity_min. Retorna corpo da resposta do servidor (≤500 chars).
+
+**Settings persistidos no DuckDB** (tabela `settings` existente — sem
+migration nova):
+
+- `webhook_enabled`, `webhook_url`, `webhook_type`, `webhook_severity_min`.
+
+**Nova aba "Webhooks de Alertas"** em `config.php` (admin only):
+
+- Card status verde/cinza com tipo + severity_min.
+- Form: habilitar, URL, tipo (Slack/Discord/Teams/Generic), severity mínima
+  (warning ou critical).
+- Card "Enviar teste" com input opcional de mensagem + display da resposta
+  HTTP do servidor.
+- Cheat-sheet com instruções de criar webhook em Slack/Discord/Teams +
+  spec do payload genérico.
+
+**Hook em `alert_checker.py`:**
+
+`_raise_alert()` agora chama `webhook_notifier.notify()` logo após
+INSERT bem-sucedido — alerta novo dispara notificação. Alertas dedupados
+(`existing != None`) não re-disparam.
+
+63/63 testes verdes (sem regressão).
+
+VERSION 2.13.0 → 2.14.0 (minor — feature nova).
+
+---
+
 ## v2.13.0 — 2026-05-13
 
 ### Persistência de sessões em DuckDB — sobreviver restart Redis

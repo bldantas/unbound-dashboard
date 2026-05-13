@@ -119,7 +119,8 @@ class AlertChecker:
     # ----------------------------------------------------------------- #
 
     async def _raise_alert(self, alert_type: str, severity: str, message: str) -> None:
-        """Cria alerta apenas se não há um ativo do mesmo type (dedupe)."""
+        """Cria alerta apenas se não há um ativo do mesmo type (dedupe).
+        Após criar, dispara webhook (best-effort, com cooldown próprio)."""
         existing = await db_fetchone(
             "SELECT id FROM alerts WHERE type = ? AND resolved_at IS NULL LIMIT 1",
             [alert_type],
@@ -131,6 +132,12 @@ class AlertChecker:
             [alert_type, severity, message],
         )
         log.warning("alert_checker.created", type=alert_type, severity=severity, message=message)
+        # Webhook best-effort — não derruba o worker
+        try:
+            from app.services.webhook_notifier import notify as webhook_notify
+            await webhook_notify(alert_type, severity, message)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("alert_checker.webhook_failed", type=alert_type, error=str(exc))
 
     async def _resolve_alert(self, alert_type: str) -> None:
         """Marca alertas ativos do type como resolvidos (UPDATE WHERE resolved_at IS NULL)."""

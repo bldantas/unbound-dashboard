@@ -220,6 +220,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['smtp_test_log'] = implode("\n", $mailer->getLog());
             $_SESSION['smtp_test_hint'] = $res['hint'] ?? '';
         }
+    } elseif ($action === 'save_webhook_config' && $isAdmin) {
+        require_once __DIR__ . '/src/ApiClient.php';
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        $payload = [
+            'enabled'      => isset($_POST['webhook_enabled']),
+            'url'          => trim($_POST['webhook_url'] ?? ''),
+            'type'         => in_array($_POST['webhook_type'] ?? '', ['slack','discord','teams','generic'], true) ? $_POST['webhook_type'] : 'generic',
+            'severity_min' => in_array($_POST['webhook_severity_min'] ?? '', ['warning','critical'], true) ? $_POST['webhook_severity_min'] : 'critical',
+        ];
+        $res = \App\ApiClient::put('/api/v1/webhooks/config', $jwt, $payload);
+        $message = $res['ok'] ? 'Webhook salvo.' : 'Falha ao salvar webhook: ' . ($res['reason'] ?? 'erro');
+        $messageType = $res['ok'] ? 'success' : 'error';
+    } elseif ($action === 'test_webhook' && $isAdmin) {
+        require_once __DIR__ . '/src/ApiClient.php';
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        $payload = ['message' => trim($_POST['test_message'] ?? '') ?: null];
+        $res = \App\ApiClient::post('/api/v1/webhooks/test', $jwt, $payload);
+        if ($res['ok']) {
+            $sent = !empty($res['data']['sent']);
+            $reason = $res['data']['reason'] ?? '';
+            $message = $sent
+                ? 'Webhook enviado com sucesso (HTTP ' . ($res['data']['http_status'] ?? '?') . ').'
+                : 'Webhook não enviou: ' . $reason . (isset($res['data']['http_status']) ? ' (HTTP ' . $res['data']['http_status'] . ')' : '');
+            $messageType = $sent ? 'success' : 'error';
+            $_SESSION['webhook_test_body'] = $res['data']['body'] ?? ($res['data']['error'] ?? '');
+        } else {
+            $message = 'Erro ao chamar API: ' . ($res['reason'] ?? '?');
+            $messageType = 'error';
+        }
     } elseif ($action === 'revoke_session') {
         $hash = trim($_POST['session_hash'] ?? '');
         if ($hash !== '') {
@@ -491,7 +520,7 @@ function field($key, $label, $desc = '', $def = '')
                 <aside class="w-full lg:w-72 flex-shrink-0">
                     <nav class="glass-panel !p-2 rounded-3xl border border-slate-200 dark:border-white/5 space-y-1">
                         <?php $tabs = $isAdmin
-                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'email' => 'Email / SMTP', 'usuarios' => 'Gestão de Usuários', 'perfil' => 'Meu Perfil']
+                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'email' => 'Email / SMTP', 'webhooks' => 'Webhooks de Alertas', 'usuarios' => 'Gestão de Usuários', 'perfil' => 'Meu Perfil']
                             : ['perfil' => 'Meu Perfil'];
                         $activeTab = in_array($requestedTab, array_keys($tabs)) ? $requestedTab : array_key_first($tabs);
                         foreach ($tabs as $id => $label): ?>
@@ -1067,6 +1096,138 @@ function field($key, $label, $desc = '', $def = '')
                                     <p class="text-slate-500">Host: <code>localhost</code></p>
                                     <p class="text-slate-500">Porta: <code>25</code> · Sem encriptação</p>
                                     <p class="text-slate-500 text-[10px]">Sem auth se relay local.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- tab-webhooks — webhook de alertas (admin only) — fora do mainConfigForm -->
+                    <?php if ($isAdmin):
+                        require_once __DIR__ . '/src/ApiClient.php';
+                        $jwtForWebhook = $_SESSION['api_jwt'] ?? '';
+                        $whCfg = ['enabled' => false, 'url' => '', 'type' => 'generic', 'severity_min' => 'critical'];
+                        $whRes = \App\ApiClient::get('/api/v1/webhooks/config', $jwtForWebhook);
+                        if ($whRes['ok'] && is_array($whRes['data'])) {
+                            $whCfg = array_merge($whCfg, $whRes['data']);
+                        }
+                        $whTestBody = $_SESSION['webhook_test_body'] ?? '';
+                        unset($_SESSION['webhook_test_body']);
+                    ?>
+                    <div id="tab-webhooks" class="tab-content <?= $activeTab === 'webhooks' ? 'active' : '' ?> space-y-6">
+
+                        <!-- Status -->
+                        <div class="glass-panel border-l-4 <?= $whCfg['enabled'] ? 'border-emerald-500' : 'border-slate-500' ?>">
+                            <div class="flex items-center gap-3">
+                                <span class="w-3 h-3 rounded-full <?= $whCfg['enabled'] ? 'bg-emerald-500' : 'bg-slate-400' ?>"></span>
+                                <?php if ($whCfg['enabled'] && !empty($whCfg['url'])): ?>
+                                    <p class="text-sm text-slate-700 dark:text-slate-300">Webhook <strong class="text-emerald-600 dark:text-emerald-400">ATIVO</strong> — tipo <code class="text-xs"><?= htmlspecialchars($whCfg['type']) ?></code>, severity mínima <code class="text-xs"><?= htmlspecialchars($whCfg['severity_min']) ?></code>.</p>
+                                <?php else: ?>
+                                    <p class="text-sm text-slate-500">Webhook <strong>DESATIVADO</strong> — alertas não disparam notificação externa.</p>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+
+                        <!-- Form config -->
+                        <form method="POST" action="config.php?tab=webhooks" class="glass-panel space-y-5">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+                            <input type="hidden" name="action" value="save_webhook_config">
+                            <input type="hidden" name="tab" value="webhooks">
+
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h2 class="text-lg font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                                        <svg class="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                                        Webhook de Alertas
+                                    </h2>
+                                    <p class="text-sm text-slate-500 mt-1">Notifica Slack, Discord, Teams ou endpoint genérico quando alertas críticos disparam.</p>
+                                </div>
+                                <label class="flex items-center gap-2 text-xs font-bold">
+                                    <input type="checkbox" name="webhook_enabled" value="1" <?= !empty($whCfg['enabled']) ? 'checked' : '' ?> class="w-5 h-5">
+                                    <span>Habilitar</span>
+                                </label>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div class="sm:col-span-2 space-y-2">
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">URL do webhook</label>
+                                    <input type="url" name="webhook_url" value="<?= htmlspecialchars($whCfg['url']) ?>"
+                                           placeholder="https://hooks.slack.com/services/T00.../B00.../xxx"
+                                           class="glass-input w-full font-mono">
+                                </div>
+                                <div class="space-y-2">
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Tipo</label>
+                                    <select name="webhook_type" class="glass-input w-full">
+                                        <option value="slack"   <?= $whCfg['type'] === 'slack'   ? 'selected' : '' ?>>Slack</option>
+                                        <option value="discord" <?= $whCfg['type'] === 'discord' ? 'selected' : '' ?>>Discord</option>
+                                        <option value="teams"   <?= $whCfg['type'] === 'teams'   ? 'selected' : '' ?>>Microsoft Teams</option>
+                                        <option value="generic" <?= $whCfg['type'] === 'generic' ? 'selected' : '' ?>>Genérico (JSON)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div class="space-y-2">
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Severity mínima</label>
+                                    <select name="webhook_severity_min" class="glass-input w-full">
+                                        <option value="critical" <?= $whCfg['severity_min'] === 'critical' ? 'selected' : '' ?>>Apenas críticos</option>
+                                        <option value="warning"  <?= $whCfg['severity_min'] === 'warning'  ? 'selected' : '' ?>>Warning e críticos</option>
+                                    </select>
+                                    <p class="text-[9px] text-slate-600 font-bold italic">Alertas abaixo da severity não notificam.</p>
+                                </div>
+                                <div class="sm:col-span-2 flex items-end">
+                                    <p class="text-[10px] text-slate-500 leading-relaxed">
+                                        <strong>Throttle:</strong> mesmo tipo de alerta não re-notifica por 15min após envio.
+                                        Estado mantido em Redis. <strong>Best-effort:</strong> falhas HTTP/conexão são logadas
+                                        mas não derrubam o worker (timeout 5s).
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="flex justify-end">
+                                <button type="submit" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">Salvar webhook</button>
+                            </div>
+                        </form>
+
+                        <!-- Teste -->
+                        <form method="POST" action="config.php?tab=webhooks" class="glass-panel space-y-4">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+                            <input type="hidden" name="action" value="test_webhook">
+                            <input type="hidden" name="tab" value="webhooks">
+
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Enviar teste</h3>
+                            <p class="text-[11px] text-slate-500">Dispara mensagem de teste pra confirmar a integração. Ignora throttle e severity mínima.</p>
+                            <div class="flex flex-col sm:flex-row gap-3">
+                                <input type="text" name="test_message" placeholder="Mensagem (opcional)" class="glass-input flex-1">
+                                <button type="submit" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black whitespace-nowrap">Enviar teste</button>
+                            </div>
+                            <?php if ($whTestBody !== ''): ?>
+                                <div>
+                                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Resposta do servidor</p>
+                                    <pre class="bg-slate-900/90 text-slate-100 rounded-xl border border-slate-700/60 p-3 overflow-auto text-[11px] leading-relaxed font-mono"><?= htmlspecialchars($whTestBody) ?></pre>
+                                </div>
+                            <?php endif; ?>
+                        </form>
+
+                        <!-- Cheat-sheet -->
+                        <div class="glass-panel">
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3">Como criar o webhook</h3>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[11px]">
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="font-black text-slate-700 dark:text-slate-300 mb-1">Slack</p>
+                                    <p class="text-slate-500">Apps → "Incoming Webhooks" → Add to Slack → escolha canal → copie a URL.</p>
+                                </div>
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="font-black text-slate-700 dark:text-slate-300 mb-1">Discord</p>
+                                    <p class="text-slate-500">Canal → engrenagem → Integrações → Webhooks → Novo → copie URL.</p>
+                                </div>
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="font-black text-slate-700 dark:text-slate-300 mb-1">Microsoft Teams</p>
+                                    <p class="text-slate-500">Canal → ⋯ → Conectores → Incoming Webhook → configurar.</p>
+                                </div>
+                                <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                    <p class="font-black text-slate-700 dark:text-slate-300 mb-1">Genérico</p>
+                                    <p class="text-slate-500">Qualquer endpoint que aceite POST JSON. Body: <code>{type, severity, message, timestamp, source}</code>.</p>
                                 </div>
                             </div>
                         </div>
@@ -1661,7 +1822,7 @@ function field($key, $label, $desc = '', $def = '')
             document.getElementById('tabField').value = tabId;
 
             // Abas que têm forms próprios (não usam o "Sincronizar Todas") — esconder o botão.
-            const tabsWithOwnForms = ['usuarios', 'ntp', 'perfil', 'email'];
+            const tabsWithOwnForms = ['usuarios', 'ntp', 'perfil', 'email', 'webhooks'];
             document.getElementById('btnSaveFloating').classList.toggle('hidden', tabsWithOwnForms.includes(tabId));
 
             const actionMap = {

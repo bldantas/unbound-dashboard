@@ -30,6 +30,7 @@ from app.routers import (
     stats,
     threats,
     users,
+    webhooks,
 )
 from app.routers import unbound as unbound_router
 from app.workers import AlertChecker, LogWatcher, StatsAggregator, UnboundCollector
@@ -146,3 +147,4 @@ app.include_router(stats.router)
 app.include_router(threats.router)
 app.include_router(unbound_router.router)
 app.include_router(users.router)
+app.include_router(webhooks.router)
