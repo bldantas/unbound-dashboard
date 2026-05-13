@@ -277,8 +277,82 @@ class Mailer
             @fclose($fp);
             $msg = $e->getMessage();
             $this->log[] = "[smtp] EXCEPTION: $msg";
-            return ['success' => false, 'message' => "SMTP: $msg"];
+            $hint = self::interpretSmtpError($msg);
+            return [
+                'success' => false,
+                'message' => "SMTP: $msg",
+                'hint'    => $hint,
+            ];
         }
+    }
+
+    /**
+     * Mapeia respostas SMTP comuns pra dicas acionáveis. Foca nos códigos
+     * 4xx/5xx + texto chave do server. Retorna string vazia se não
+     * reconheceu — UI mostra só o erro cru nesse caso.
+     */
+    private static function interpretSmtpError(string $serverMessage): string
+    {
+        // Extrai o código SMTP de 3 dígitos no início da última linha do erro
+        $code = 0;
+        if (preg_match('/\b([45]\d{2})\b/', $serverMessage, $m)) {
+            $code = (int) $m[1];
+        }
+        $lower = strtolower($serverMessage);
+
+        // Sinais textuais (mais específicos que o código sozinho)
+        $mentionsSender = str_contains($lower, 'sender') || str_contains($lower, 'remetente');
+        $mentionsNotAllowed = str_contains($lower, 'not authorized')
+            || str_contains($lower, 'not allowed')
+            || str_contains($lower, 'permission')
+            || str_contains($lower, 'permissao para enviar')
+            || str_contains($lower, 'não tem permissão')
+            || str_contains($lower, 'nao tem permissao')
+            || str_contains($lower, 'address rejected')
+            || str_contains($lower, 'not owned')
+            || str_contains($lower, 'unverified');
+        if ($mentionsSender && $mentionsNotAllowed) {
+            return "Remetente não autorizado no provedor. O endereço em 'From' precisa ser verificado/aprovado no painel do seu provedor SMTP (Mailgun, SES, SendGrid, smptlw, etc). Ou use um 'From' que já esteja na lista de remetentes liberados — geralmente o próprio endereço usado no campo 'Usuário (auth)'.";
+        }
+        if (str_contains($lower, 'spf') || str_contains($lower, 'dkim') || str_contains($lower, 'dmarc')) {
+            return "Falha de autenticação de domínio (SPF/DKIM/DMARC). Configure registros DNS do domínio do remetente apontando pro provedor SMTP — sem isso, mensagens são rejeitadas como spoofing.";
+        }
+        if (str_contains($lower, 'authentication') || str_contains($lower, 'auth fail') || str_contains($lower, 'senha inválida') || str_contains($lower, 'username invál')) {
+            return "Autenticação falhou. Confira usuário/senha. Para Gmail use App Password (não a senha normal). Para SendGrid, user = literal 'apikey'.";
+        }
+        if (str_contains($lower, 'starttls') || str_contains($lower, 'must issue') || str_contains($lower, 'crypto') || str_contains($lower, 'tls negotiation')) {
+            return "Encriptação exigida ou negociação TLS falhou. Verifique se a porta (587 = STARTTLS, 465 = SMTPS) bate com a 'Encriptação' configurada. Alguns servidores exigem TLS 1.2+ — se o servidor for muito antigo pode haver incompatibilidade.";
+        }
+        if (str_contains($lower, 'relay') && (str_contains($lower, 'denied') || str_contains($lower, 'access'))) {
+            return "Relay negado. O servidor SMTP só aceita envio se autenticado (configure usuário/senha) OU se você estiver numa rede liberada (IP allowlist).";
+        }
+        if (str_contains($lower, 'connection') && (str_contains($lower, 'refused') || str_contains($lower, 'timed out'))) {
+            return "Conexão recusada ou expirou. Confira host/porta. Verifique se o firewall do servidor permite saída pra essa porta (587/465/25 podem estar bloqueadas pelo provedor de cloud).";
+        }
+        if (str_contains($lower, 'mailbox') && (str_contains($lower, 'unavailable') || str_contains($lower, 'does not exist'))) {
+            return "Destinatário não existe ou caixa indisponível. Confira o endereço de email digitado no teste.";
+        }
+        if (str_contains($lower, 'over quota') || str_contains($lower, 'storage')) {
+            return "Limite de envio do provedor atingido. Espere alguns minutos ou veja a quota da sua conta no painel.";
+        }
+        if (str_contains($lower, 'blacklist') || str_contains($lower, 'block')) {
+            return "Email ou IP em blacklist. Verifique se o domínio do remetente não está em listas de spam (mxtoolbox.com/blacklists).";
+        }
+
+        // Fallback por código
+        switch ($code) {
+            case 421: return "Servidor temporariamente indisponível (421). Tente de novo em alguns minutos.";
+            case 451: return "Erro temporário do servidor (451). Pode ser greylisting — tente de novo após alguns minutos.";
+            case 452: return "Espaço insuficiente no servidor (452).";
+            case 521: case 554:
+                return "Servidor rejeitou a transação. Pode ser spam-blocker do destinatário OU regra do provedor — confira o painel SMTP.";
+            case 525: return "Conta desabilitada ou remetente não autorizado (525). Verifique no painel do provedor.";
+            case 530: return "Autenticação obrigatória (530). Configure usuário/senha SMTP — sem auth o servidor não aceita.";
+            case 535: return "Credenciais SMTP inválidas (535). Senha errada ou conta bloqueada. Para Gmail, gere App Password.";
+            case 550: return "Endereço rejeitado (550). Pode ser destinatário inexistente, remetente não autorizado, ou conteúdo classificado como spam.";
+            case 553: return "Nome de remetente ou destinatário inválido (553). Confira o formato dos endereços.";
+        }
+        return '';
     }
 
     /**

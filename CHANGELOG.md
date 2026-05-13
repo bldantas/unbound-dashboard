@@ -1,5 +1,46 @@
 # Changelog
 
+## v2.11.1 — 2026-05-13
+
+### SMTP — parser de erros + dica acionável no teste
+
+Em produção, o teste de envio retornava só a resposta crua do servidor
+SMTP (ex: `525 5.7.13 <END-OF-MESSAGE>: Este remetente nao tem permissao
+para enviar`). Pra admin desavisado parecia bug do código quando na
+verdade era config do provedor.
+
+**Novo `Mailer::interpretSmtpError()`** mapeia respostas comuns pra
+dicas acionáveis em português:
+
+- **Sender não autorizado** (525, 553, "not authorized", "permissao",
+  "address rejected"): explica que o endereço `From` precisa ser
+  verificado no painel do provedor (Mailgun/SES/SendGrid/smptlw).
+- **SPF/DKIM/DMARC**: instrui configurar DNS.
+- **Autenticação** (535, "auth fail"): user/senha inválidos; lembra
+  do App Password do Gmail e do user="apikey" do SendGrid.
+- **STARTTLS/encriptação** (530, "must issue"): porta/encr não batem.
+- **Relay denied**: precisa de auth ou IP allowlist.
+- **Connection refused/timeout**: firewall, porta bloqueada (cloud
+  geralmente bloqueia 25/587).
+- **Mailbox unavailable** (550): destinatário inexistente.
+- **Quota** (452, "over quota"): limite da conta.
+- **Blacklist**: aponta pro mxtoolbox.com/blacklists.
+- **421/451**: temporário / greylisting.
+
+Detecção bilíngue: match em "sender" + "remetente", "permissao" +
+"permission", etc. — provedores brasileiros que retornam mensagens em
+português agora são reconhecidos.
+
+**UI (`config.php` aba Email):**
+
+Após teste de envio com falha, **card amarelo "💡 Dica baseada no erro"**
+aparece acima do log SMTP, mostrando a dica humana. O log raw continua
+visível abaixo pra debug avançado.
+
+VERSION 2.11.0 → 2.11.1.
+
+---
+
 ## v2.11.0 — 2026-05-12
 
 ### Nova aba "Email / SMTP" — configuração de cliente SMTP integrado

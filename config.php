@@ -216,8 +216,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             $message = $res['message'];
             $messageType = !empty($res['success']) ? 'success' : 'error';
-            // Salva log do envio pra UI mostrar
+            // Salva log + hint pra UI mostrar destacado
             $_SESSION['smtp_test_log'] = implode("\n", $mailer->getLog());
+            $_SESSION['smtp_test_hint'] = $res['hint'] ?? '';
         }
     } elseif ($action === 'revoke_session') {
         $hash = trim($_POST['session_hash'] ?? '');
@@ -910,7 +911,8 @@ function field($key, $label, $desc = '', $def = '')
                             require_once __DIR__ . '/src/Mailer.php';
                             $smtpConfig = \App\Mailer::loadConfig();
                             $smtpTestLog = $_SESSION['smtp_test_log'] ?? '';
-                            unset($_SESSION['smtp_test_log']);
+                            $smtpTestHint = $_SESSION['smtp_test_hint'] ?? '';
+                            unset($_SESSION['smtp_test_log'], $_SESSION['smtp_test_hint']);
                         }
                     ?>
                     <?php if ($isAdmin): ?>
@@ -1015,6 +1017,12 @@ function field($key, $label, $desc = '', $def = '')
                                 <button type="submit" class="glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black">Enviar Teste</button>
                             </form>
 
+                            <?php if (!empty($smtpTestHint)): ?>
+                                <div class="mt-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                                    <p class="text-[10px] font-black text-amber-600 dark:text-amber-300 uppercase tracking-widest mb-2">💡 Dica baseada no erro</p>
+                                    <p class="text-xs text-amber-700 dark:text-amber-200 leading-relaxed"><?= htmlspecialchars($smtpTestHint) ?></p>
+                                </div>
+                            <?php endif; ?>
                             <?php if (!empty($smtpTestLog)): ?>
                                 <div class="mt-4">
                                     <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Log SMTP da última tentativa</p>
