@@ -24,6 +24,10 @@ from app.repositories.duckdb import user_repo
 _MAX_FAILED = 5
 _LOCKOUT_MINUTES = 15
 
+# Challenge token (entre /login e /login/2fa-verify). TTL curto pra evitar
+# que um challenge vazado seja reutilizado várias vezes.
+_TOTP_CHALLENGE_MINUTES = 5
+
 
 class AuthError(Exception):
     """Base de erros de auth — capturada no router."""
@@ -38,6 +42,22 @@ class AccountInactive(AuthError):
 
 
 class AccountLocked(AuthError):
+    pass
+
+
+class TOTPRequired(AuthError):
+    """User tem 2FA habilitado — login precisa de segundo passo."""
+
+    def __init__(self, challenge_token: str) -> None:
+        super().__init__("totp_required")
+        self.challenge_token = challenge_token
+
+
+class InvalidTOTPCode(AuthError):
+    pass
+
+
+class InvalidChallengeToken(AuthError):
     pass
 
 
@@ -73,9 +93,61 @@ async def login(username: str, password: str) -> dict:
         raise InvalidCredentials
 
     await user_repo.reset_failed_logins(user["id"])
-    await user_repo.touch_last_login(user["id"])
 
+    # 2FA: se totp_enabled, NÃO emite JWT real ainda — devolve challenge.
+    if user.get("totp_enabled"):
+        challenge = create_access_token(
+            {"sub": str(user["id"]), "totp_pending": True},
+            expires_delta=timedelta(minutes=_TOTP_CHALLENGE_MINUTES),
+        )
+        raise TOTPRequired(challenge_token=challenge)
+
+    await user_repo.touch_last_login(user["id"])
     token = create_access_token({"sub": str(user["id"]), "role": user["role"]})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user["role"],
+    }
+
+
+async def login_2fa_verify(challenge_token: str, code: str) -> dict:
+    """
+    Segundo passo do login. Recebe o challenge + code TOTP, valida,
+    emite JWT real.
+    """
+    from jose import ExpiredSignatureError, JWTError, jwt
+
+    from app.core.config import settings
+    from app.services import totp_service
+
+    try:
+        payload = jwt.decode(
+            challenge_token,
+            settings.jwt_secret.get_secret_value(),
+            algorithms=[settings.jwt_algorithm],
+        )
+    except ExpiredSignatureError:
+        raise InvalidChallengeToken from None
+    except JWTError:
+        raise InvalidChallengeToken from None
+
+    if not payload.get("totp_pending"):
+        raise InvalidChallengeToken
+    try:
+        user_id = int(payload["sub"])
+    except (KeyError, ValueError, TypeError):
+        raise InvalidChallengeToken from None
+
+    user = await user_repo.find_by_id(user_id)
+    if user is None or not user.get("is_active") or not user.get("totp_enabled"):
+        raise InvalidChallengeToken
+
+    if not totp_service.verify(user.get("totp_secret") or "", code):
+        raise InvalidTOTPCode
+
+    await user_repo.touch_last_login(user_id)
+    token = create_access_token({"sub": str(user_id), "role": user["role"]})
     return {
         "access_token": token,
         "token_type": "bearer",

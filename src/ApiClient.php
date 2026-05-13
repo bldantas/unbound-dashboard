@@ -66,6 +66,71 @@ class ApiClient
         }
 
         $data = json_decode($response, true);
+        if (!is_array($data)) {
+            return ['ok' => false, 'reason' => 'invalid_response'];
+        }
+
+        // Caso 2FA: API retorna challenge sem access_token — caller redireciona
+        // pra login_2fa.php pra coletar o code.
+        if (!empty($data['requires_totp']) && !empty($data['challenge_token'])) {
+            return [
+                'ok'              => true,
+                'requires_totp'   => true,
+                'challenge_token' => (string) $data['challenge_token'],
+            ];
+        }
+
+        if (empty($data['access_token'])) {
+            return ['ok' => false, 'reason' => 'invalid_response'];
+        }
+
+        return [
+            'ok'    => true,
+            'token' => (string) $data['access_token'],
+            'role'  => (string) ($data['role'] ?? ''),
+        ];
+    }
+
+    /**
+     * Segundo passo do login pra users com 2FA. Recebe challenge_token
+     * (emitido em login()) + 6-digit code TOTP. Retorna o JWT real ou
+     * ['ok' => false, 'reason' => ...].
+     */
+    public static function login2faVerify(string $challengeToken, string $code): array
+    {
+        $payload = json_encode(['challenge_token' => $challengeToken, 'code' => $code]);
+        if ($payload === false) {
+            return ['ok' => false, 'reason' => 'json_encode_failed'];
+        }
+
+        $ch = curl_init(self::BASE_URL . '/api/v1/auth/login/2fa-verify');
+        if ($ch === false) {
+            return ['ok' => false, 'reason' => 'curl_init_failed'];
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Accept: application/json'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => self::TIMEOUT_SECONDS,
+            CURLOPT_TIMEOUT        => self::TIMEOUT_SECONDS,
+        ]);
+
+        $response = curl_exec($ch);
+        if ($response === false) {
+            $err = curl_error($ch);
+            curl_close($ch);
+            return ['ok' => false, 'reason' => 'curl_error: ' . $err];
+        }
+        $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($http !== 200) {
+            return ['ok' => false, 'reason' => 'http_' . $http];
+        }
+
+        $data = json_decode($response, true);
         if (!is_array($data) || empty($data['access_token'])) {
             return ['ok' => false, 'reason' => 'invalid_response'];
         }

@@ -38,6 +38,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $result = \App\Auth::login($username, $password);
 
     if ($result['success']) {
+        if (!empty($result['requires_totp'])) {
+            header('Location: login_2fa.php');
+            exit;
+        }
         header('Location: index.php');
         exit;
     } else {

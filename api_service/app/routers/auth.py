@@ -30,13 +30,19 @@ class TokenResponse(BaseModel):
     role: str
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 @limiter.limit(settings.rate_limit_auth)
-async def login(request: Request, body: LoginRequest) -> TokenResponse:
+async def login(request: Request, body: LoginRequest) -> dict:
+    """
+    Retorna TokenResponse normal OU `{requires_totp: true, challenge_token}`
+    se o user tem 2FA habilitado. Frontend (login.php) precisa detectar
+    `requires_totp` e redirecionar pro fluxo de 2FA.
+    """
     try:
         result = await auth_service.login(body.username, body.password)
+    except auth_service.TOTPRequired as exc:
+        return {"requires_totp": True, "challenge_token": exc.challenge_token}
     except (auth_service.InvalidCredentials, auth_service.AccountInactive):
-        # Mesma resposta pra ambos — não revela se usuário existe.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciais inválidas",
@@ -45,6 +51,33 @@ async def login(request: Request, body: LoginRequest) -> TokenResponse:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Conta bloqueada temporariamente. Tente novamente em 15 minutos.",
+        ) from None
+    return result
+
+
+class Login2FARequest(BaseModel):
+    challenge_token: str
+    code: str
+
+
+@router.post("/login/2fa-verify", response_model=TokenResponse)
+@limiter.limit(settings.rate_limit_auth)
+async def login_2fa_verify(request: Request, body: Login2FARequest) -> TokenResponse:
+    """
+    Segundo passo do login pra users com 2FA habilitado. Recebe o
+    challenge_token vindo de /login e o code TOTP atual.
+    """
+    try:
+        result = await auth_service.login_2fa_verify(body.challenge_token, body.code)
+    except auth_service.InvalidChallengeToken:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sessão de login expirou — faça login novamente.",
+        ) from None
+    except auth_service.InvalidTOTPCode:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Código 2FA inválido.",
         ) from None
     return TokenResponse(**result)
 
@@ -60,6 +93,7 @@ async def me(payload: Annotated[dict, Depends(require_auth)]) -> dict:
         "role": user["role"],
         "email": user.get("email"),
         "is_active": user["is_active"],
+        "totp_enabled": bool(user.get("totp_enabled", False)),
     }
 
 
@@ -286,3 +320,98 @@ async def confirm_password_reset(request: Request, body: PasswordResetConfirm) -
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Link de recuperação inválido ou expirado.",
         ) from None
+
+
+# ---------------------------------------------------------------------------
+# 2FA TOTP — setup, enable, disable, admin-reset
+# ---------------------------------------------------------------------------
+
+
+@router.post("/2fa/setup")
+async def setup_2fa(payload: Annotated[dict, Depends(require_auth)]) -> dict:
+    """
+    Gera secret novo + URI provisionamento. NÃO persiste — user precisa
+    confirmar com code via /2fa/confirm pra ativar de fato.
+    """
+    from app.services import totp_service
+
+    user = await user_repo.find_by_id(int(payload["sub"]))
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User não encontrado")
+    if user.get("totp_enabled"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA já está habilitado — desabilite primeiro pra trocar.",
+        )
+    secret = totp_service.generate_secret()
+    uri = totp_service.provisioning_uri(secret, user["username"])
+    return {"secret": secret, "provisioning_uri": uri}
+
+
+class TOTPConfirmRequest(BaseModel):
+    secret: str
+    code: str
+
+
+@router.post("/2fa/confirm", status_code=status.HTTP_204_NO_CONTENT)
+async def confirm_2fa(
+    body: TOTPConfirmRequest,
+    payload: Annotated[dict, Depends(require_auth)],
+) -> None:
+    """Valida code do secret novo + persiste no user."""
+    from app.services import totp_service
+
+    if not totp_service.verify(body.secret, body.code):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Código inválido — confira o relógio do dispositivo.",
+        )
+    ok = await user_repo.enable_totp(int(payload["sub"]), body.secret)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User não encontrado")
+
+
+class TOTPDisableRequest(BaseModel):
+    code: str
+
+
+@router.post("/2fa/disable", status_code=status.HTTP_204_NO_CONTENT)
+async def disable_2fa(
+    body: TOTPDisableRequest,
+    payload: Annotated[dict, Depends(require_auth)],
+) -> None:
+    """User desabilita o próprio 2FA. Exige code TOTP válido (anti-takeover)."""
+    from app.services import totp_service
+
+    user_id = int(payload["sub"])
+    user = await user_repo.find_by_id(user_id)
+    if user is None or not user.get("totp_enabled"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA não está habilitado.")
+    if not totp_service.verify(user.get("totp_secret") or "", body.code):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Código 2FA inválido.",
+        )
+    await user_repo.disable_totp(user_id)
+
+
+@router.post("/2fa/admin-reset/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_reset_2fa(
+    user_id: int,
+    payload: Annotated[dict, Depends(require_auth)],
+) -> None:
+    """
+    Admin zera 2FA de um user (caso de celular perdido). Requer
+    `users.manage`. Self-target permitido como fallback (admin que perdeu
+    o próprio celular E é o único admin — sem isso fica trancado).
+    """
+    from app.core.rbac import can
+
+    if not can(payload.get("role"), "users.manage"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas users com 'users.manage' podem resetar 2FA de terceiros.",
+        )
+    ok = await user_repo.disable_totp(user_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User não encontrado")

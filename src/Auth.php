@@ -26,19 +26,15 @@ class Auth
     {
         $result = ApiClient::login($user, $pass);
         if ($result['ok']) {
-            session_regenerate_id(true);
-            $_SESSION['logged_in']  = true;
-            $_SESSION['username']   = $user;
-            $_SESSION['role']       = $result['role'] ?? 'viewer';
-            $_SESSION['api_jwt']    = $result['token'];
-            $_SESSION['jwt_expires_at'] = self::_extractJwtExp($result['token']);
-            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-            // user_id: descobre via /api/v1/auth/me (precisa pra POSTs de toggle/delete que comparam self)
-            $me = ApiClient::get('/api/v1/auth/me', $result['token']);
-            if ($me['ok'] && isset($me['data']['id'])) {
-                $_SESSION['user_id'] = (int) $me['data']['id'];
-                $_SESSION['email']   = $me['data']['email'] ?? null;
+            // Caso 2FA: API ainda não emitiu JWT — guarda challenge e
+            // sinaliza pro login.php redirecionar pra login_2fa.php.
+            if (!empty($result['requires_totp'])) {
+                $_SESSION['totp_challenge'] = $result['challenge_token'];
+                $_SESSION['totp_username']  = $user;
+                $_SESSION['totp_started_at']= time();
+                return ['success' => true, 'requires_totp' => true];
             }
+            self::_finalizeLogin($user, $result['token'], $result['role'] ?? 'viewer');
             return ['success' => true];
         }
 
@@ -51,6 +47,114 @@ class Auth
             return ['success' => false, 'message' => 'Usuário ou senha inválidos.'];
         }
         return ['success' => false, 'message' => 'Serviço indisponível. Tente novamente em instantes.'];
+    }
+
+    /**
+     * Segundo passo do 2FA: recebe code 6-dígitos, troca o challenge por JWT.
+     * Usado por login_2fa.php após login() retornar requires_totp.
+     */
+    public static function login2faSubmit(string $code): array
+    {
+        $challenge = $_SESSION['totp_challenge'] ?? '';
+        $username  = $_SESSION['totp_username'] ?? '';
+        if ($challenge === '' || $username === '') {
+            return ['success' => false, 'message' => 'Sessão de login expirou — refaça login.'];
+        }
+        $result = ApiClient::login2faVerify($challenge, $code);
+        if ($result['ok']) {
+            unset($_SESSION['totp_challenge'], $_SESSION['totp_username'], $_SESSION['totp_started_at']);
+            self::_finalizeLogin($username, $result['token'], $result['role'] ?? 'viewer');
+            return ['success' => true];
+        }
+        $reason = $result['reason'] ?? '';
+        if (str_contains($reason, '401')) {
+            return ['success' => false, 'message' => 'Código inválido ou sessão expirada.'];
+        }
+        return ['success' => false, 'message' => 'Falha ao verificar 2FA. Tente novamente.'];
+    }
+
+    /**
+     * Inicia setup de 2FA: pede um secret novo + URI ao backend.
+     * Retorna ['success' => bool, 'secret' => str, 'provisioning_uri' => str].
+     */
+    public static function setup2fa(): array
+    {
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($jwt === '') return ['success' => false, 'message' => 'Sessão expirada.'];
+        $res = ApiClient::post('/api/v1/auth/2fa/setup', $jwt);
+        if (!$res['ok']) {
+            return ['success' => false, 'message' => 'Falha ao iniciar 2FA: ' . ($res['reason'] ?? '?')];
+        }
+        return [
+            'success'          => true,
+            'secret'           => (string) ($res['data']['secret'] ?? ''),
+            'provisioning_uri' => (string) ($res['data']['provisioning_uri'] ?? ''),
+        ];
+    }
+
+    /**
+     * Confirma 2FA com secret + code, persistindo no backend.
+     */
+    public static function confirm2fa(string $secret, string $code): array
+    {
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($jwt === '') return ['success' => false, 'message' => 'Sessão expirada.'];
+        $res = ApiClient::post('/api/v1/auth/2fa/confirm', $jwt, ['secret' => $secret, 'code' => $code]);
+        if ($res['ok']) {
+            $_SESSION['totp_enabled'] = true;
+            return ['success' => true, 'message' => '2FA ativado com sucesso.'];
+        }
+        return ['success' => false, 'message' => 'Código inválido — confira o relógio do dispositivo.'];
+    }
+
+    /**
+     * Self-disable 2FA — exige code TOTP atual.
+     */
+    public static function disable2fa(string $code): array
+    {
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($jwt === '') return ['success' => false, 'message' => 'Sessão expirada.'];
+        $res = ApiClient::post('/api/v1/auth/2fa/disable', $jwt, ['code' => $code]);
+        if ($res['ok']) {
+            $_SESSION['totp_enabled'] = false;
+            return ['success' => true, 'message' => '2FA desativado.'];
+        }
+        return ['success' => false, 'message' => 'Código 2FA inválido.'];
+    }
+
+    /**
+     * Admin zera 2FA de outro user (caso de celular perdido).
+     */
+    public static function adminReset2fa(int $userId): array
+    {
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($jwt === '') return ['success' => false, 'message' => 'Sessão expirada.'];
+        $res = ApiClient::post('/api/v1/auth/2fa/admin-reset/' . $userId, $jwt);
+        if ($res['ok']) {
+            return ['success' => true, 'message' => '2FA do usuário foi resetado.'];
+        }
+        return ['success' => false, 'message' => 'Falha ao resetar 2FA: ' . ($res['reason'] ?? '?')];
+    }
+
+    /**
+     * Helper compartilhado entre login() e login2faSubmit() — popula
+     * a sessão final após autenticação bem-sucedida.
+     */
+    private static function _finalizeLogin(string $username, string $jwt, string $role): void
+    {
+        session_regenerate_id(true);
+        $_SESSION['logged_in']     = true;
+        $_SESSION['username']      = $username;
+        $_SESSION['role']          = $role;
+        $_SESSION['api_jwt']       = $jwt;
+        $_SESSION['jwt_expires_at']= self::_extractJwtExp($jwt);
+        $_SESSION['csrf_token']    = bin2hex(random_bytes(32));
+        $me = ApiClient::get('/api/v1/auth/me', $jwt);
+        if ($me['ok'] && isset($me['data']['id'])) {
+            $_SESSION['user_id']      = (int) $me['data']['id'];
+            $_SESSION['email']        = $me['data']['email'] ?? null;
+            $_SESSION['totp_enabled'] = !empty($me['data']['totp_enabled']);
+        }
     }
 
     public static function updatePassword(string $username, string $oldPass, string $newPass): array

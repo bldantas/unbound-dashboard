@@ -11,7 +11,8 @@ async def find_by_username(username: str) -> dict | None:
     return await db_fetchone(
         """
         SELECT id, username, password_hash, role, email, is_active,
-               failed_logins, locked_until, created_at
+               failed_logins, locked_until, created_at,
+               totp_secret, totp_enabled
         FROM users
         WHERE username = ?
         """,
@@ -22,7 +23,8 @@ async def find_by_username(username: str) -> dict | None:
 async def find_by_id(user_id: int) -> dict | None:
     return await db_fetchone(
         """
-        SELECT id, username, role, email, is_active, created_at
+        SELECT id, username, role, email, is_active, created_at,
+               totp_secret, totp_enabled
         FROM users
         WHERE id = ?
         """,
@@ -77,11 +79,41 @@ async def list_all() -> list[dict]:
     return await db_fetchall(
         """
         SELECT id, username, email, role, is_active,
-               failed_logins, locked_until, created_at, last_login_at
+               failed_logins, locked_until, created_at, last_login_at,
+               totp_enabled
         FROM users
         ORDER BY id ASC
         """
     )
+
+
+# ---------------------------------------------------------------------------
+# TOTP (2FA)
+# ---------------------------------------------------------------------------
+
+
+async def enable_totp(user_id: int, secret: str) -> bool:
+    """Persiste secret + marca totp_enabled=true. Idempotente."""
+    row = await db_fetchone("SELECT id FROM users WHERE id = ?", [user_id])
+    if not row:
+        return False
+    await db_execute(
+        "UPDATE users SET totp_secret = ?, totp_enabled = true WHERE id = ?",
+        [secret, user_id],
+    )
+    return True
+
+
+async def disable_totp(user_id: int) -> bool:
+    """Zera secret + totp_enabled=false. Usado em self-disable e admin-reset."""
+    row = await db_fetchone("SELECT id FROM users WHERE id = ?", [user_id])
+    if not row:
+        return False
+    await db_execute(
+        "UPDATE users SET totp_secret = NULL, totp_enabled = false WHERE id = ?",
+        [user_id],
+    )
+    return True
 
 
 async def find_by_email(email: str) -> dict | None:

@@ -256,6 +256,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = $res['message'];
             $messageType = !empty($res['success']) ? 'success' : 'error';
         }
+    } elseif ($action === 'setup_totp') {
+        $res = \App\Auth::setup2fa();
+        if ($res['success']) {
+            $_SESSION['totp_setup'] = ['secret' => $res['secret'], 'provisioning_uri' => $res['provisioning_uri']];
+            $message = 'Escaneie o QR code e digite o código pra confirmar.';
+            $messageType = 'success';
+        } else {
+            $message = $res['message'] ?? 'Falha ao iniciar 2FA.';
+            $messageType = 'error';
+        }
+    } elseif ($action === 'confirm_totp') {
+        $res = \App\Auth::confirm2fa($_POST['secret'] ?? '', $_POST['code'] ?? '');
+        $message = $res['message'];
+        $messageType = $res['success'] ? 'success' : 'error';
+    } elseif ($action === 'disable_totp') {
+        $res = \App\Auth::disable2fa($_POST['code'] ?? '');
+        $message = $res['message'];
+        $messageType = $res['success'] ? 'success' : 'error';
+    } elseif ($action === 'admin_reset_totp' && $isAdmin) {
+        $res = \App\Auth::adminReset2fa((int) ($_POST['user_id'] ?? 0));
+        $message = $res['message'];
+        $messageType = $res['success'] ? 'success' : 'error';
     } elseif ($action === 'update_profile_pass') {
         $res = \App\Auth::updatePassword($_SESSION['username'], $_POST['old_pass'], $_POST['new_pass']);
         $message = $res['message'];
@@ -1391,6 +1413,9 @@ function field($key, $label, $desc = '', $def = '')
                                                 <?php else: ?>
                                                     <span class="inline-block px-2 py-1 rounded-lg bg-red-500/15 text-red-600 dark:text-red-400 text-[10px] uppercase font-black">Suspenso</span>
                                                 <?php endif; ?>
+                                                <?php if (!empty($u['totp_enabled'])): ?>
+                                                    <span class="inline-block ml-1 px-2 py-1 rounded-lg bg-blue-500/15 text-blue-600 dark:text-blue-400 text-[10px] uppercase font-black" title="2FA habilitado">🛡️ 2FA</span>
+                                                <?php endif; ?>
                                             </td>
                                             <td class="py-3 px-2 text-xs text-slate-600 dark:text-slate-400"><?= htmlspecialchars($relativeUserTime($u['last_login_at'] ?? null)) ?>
                                                 <?php if (!empty($u['last_login_at'])): ?>
@@ -1408,6 +1433,15 @@ function field($key, $label, $desc = '', $def = '')
                                                         <input type="hidden" name="target_username" value="<?= htmlspecialchars($username) ?>">
                                                         <button type="submit" class="glass-btn !py-1 !px-2 text-[9px] uppercase font-black" title="Resetar senha">🔑</button>
                                                     </form>
+                                                    <?php if (!empty($u['totp_enabled'])): ?>
+                                                    <form method="POST" data-confirm-message="Resetar 2FA de <?= htmlspecialchars($username) ?>? Ele(a) precisará reconfigurar no app autenticador." data-confirm-title="Reset 2FA" data-confirm-text="Resetar 2FA" data-confirm-variant="danger">
+                                                        <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                                        <input type="hidden" name="tab" value="usuarios">
+                                                        <input type="hidden" name="action" value="admin_reset_totp">
+                                                        <input type="hidden" name="user_id" value="<?= (int)$u['id'] ?>">
+                                                        <button type="submit" class="glass-btn !py-1 !px-2 text-[9px] uppercase font-black bg-amber-500/15 text-amber-600" title="Resetar 2FA">🛡️↺</button>
+                                                    </form>
+                                                    <?php endif; ?>
                                                     <?php if (!$isSelf): ?>
                                                         <form method="POST">
                                                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
@@ -1484,6 +1518,86 @@ function field($key, $label, $desc = '', $def = '')
                                 <input type="password" name="new_pass" placeholder="NOVA SENHA" class="glass-input w-full">
                                 <button type="submit" class="glass-btn w-full text-[10px] font-black uppercase">SALVAR NOVA SENHA</button>
                             </form>
+                        </div>
+
+                        <!-- 2FA TOTP -->
+                        <?php
+                            $totpEnabled = !empty($_SESSION['totp_enabled']);
+                            $totpSetup = $_SESSION['totp_setup'] ?? null;  // {secret, uri} populado pelo handler setup_totp
+                            unset($_SESSION['totp_setup']);
+                        ?>
+                        <div class="glass-panel border-l-4 <?= $totpEnabled ? 'border-emerald-500' : 'border-slate-500' ?>">
+                            <div class="flex items-start justify-between gap-3 mb-4 border-b border-slate-900/10 dark:border-white/5 pb-3">
+                                <div>
+                                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase flex items-center gap-2">
+                                        <svg class="w-4 h-4 <?= $totpEnabled ? 'text-emerald-500' : 'text-slate-500' ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                                        Autenticação em 2 fatores (TOTP)
+                                    </h3>
+                                    <p class="text-[11px] text-slate-500 mt-1">
+                                        <?php if ($totpEnabled): ?>
+                                            <span class="text-emerald-600 dark:text-emerald-400 font-bold">ATIVADO</span> — login pede um código de 6 dígitos após senha.
+                                        <?php else: ?>
+                                            <span class="text-slate-500 font-bold">DESATIVADO</span> — opcional. Apps: Google Authenticator, Authy, 1Password, Aegis.
+                                        <?php endif; ?>
+                                    </p>
+                                </div>
+                            </div>
+
+                            <?php if ($totpSetup): ?>
+                                <!-- Estágio 2: mostrar QR code + pedir confirmação -->
+                                <div class="space-y-4">
+                                    <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                                        <strong>1.</strong> Escaneie o QR code com seu app autenticador.<br>
+                                        <strong>2.</strong> Digite o código de 6 dígitos que aparecer.<br>
+                                        <strong>3.</strong> Clique em <em>Confirmar</em>.
+                                    </p>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+                                        <div class="bg-white p-4 rounded-2xl flex items-center justify-center">
+                                            <div id="totp-qr"></div>
+                                        </div>
+                                        <div class="space-y-3">
+                                            <div class="bg-slate-900/5 dark:bg-white/5 p-3 rounded-xl">
+                                                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Não consegue ler o QR? Digite o secret</p>
+                                                <code class="text-[11px] font-mono break-all text-slate-700 dark:text-slate-300"><?= htmlspecialchars($totpSetup['secret']) ?></code>
+                                            </div>
+                                            <form method="POST" class="space-y-3">
+                                                <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                                <input type="hidden" name="tab" value="perfil">
+                                                <input type="hidden" name="action" value="confirm_totp">
+                                                <input type="hidden" name="secret" value="<?= htmlspecialchars($totpSetup['secret']) ?>">
+                                                <input type="text" name="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" required autofocus placeholder="000000" class="glass-input w-full text-center text-xl font-mono tracking-widest">
+                                                <button type="submit" class="glass-btn !bg-emerald-600 !text-white w-full text-[10px] font-black uppercase">Confirmar e ativar</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                                <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+                                <script>
+                                    QRCode.toCanvas(document.getElementById('totp-qr'), <?= json_encode($totpSetup['provisioning_uri']) ?>, { width: 192, margin: 1 });
+                                </script>
+
+                            <?php elseif ($totpEnabled): ?>
+                                <!-- Já ativado: form pra desativar -->
+                                <form method="POST" class="flex flex-col sm:flex-row gap-3 sm:items-end">
+                                    <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                    <input type="hidden" name="tab" value="perfil">
+                                    <input type="hidden" name="action" value="disable_totp">
+                                    <div class="flex-1">
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Digite o código atual pra desativar</label>
+                                        <input type="text" name="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" required placeholder="000000" class="glass-input w-full font-mono tracking-widest">
+                                    </div>
+                                    <button type="submit" class="glass-btn !bg-red-600 !text-white text-[10px] font-black uppercase whitespace-nowrap">Desativar 2FA</button>
+                                </form>
+
+                            <?php else: ?>
+                                <!-- Desativado: botão pra começar setup -->
+                                <form method="POST">
+                                    <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                    <input type="hidden" name="tab" value="perfil">
+                                    <input type="hidden" name="action" value="setup_totp">
+                                    <button type="submit" class="glass-btn !bg-blue-600 !text-white text-[10px] font-black uppercase">Ativar 2FA</button>
+                                </form>
+                            <?php endif; ?>
                         </div>
 
                         <!-- Sessões Ativas (Redis tracking) -->

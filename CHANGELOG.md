@@ -1,5 +1,77 @@
 # Changelog
 
+## v2.16.0 — 2026-05-13
+
+### 2FA TOTP opt-in por usuário
+
+Saiu do standby. Cada user pode ativar voluntariamente 2FA via app
+autenticador (Google Authenticator, Authy, Aegis, 1Password, etc).
+Implementação RFC 6238 padrão; sem backup codes nesta versão — admin
+reseta se user perder o celular.
+
+**Backend (`api_service/`):**
+
+- **Migration V4**: adiciona `users.totp_secret VARCHAR(64)` (nullable) e
+  `users.totp_enabled BOOLEAN` (nullable; tratado como `false` quando NULL).
+  DuckDB 1.x não suporta `ADD COLUMN NOT NULL DEFAULT` em ALTER, daí o
+  workaround com UPDATE pós-ALTER.
+- **`services/totp_service.py`** — wrapper fino sobre `pyotp`:
+  - `generate_secret()` base32 32-chars (160-bit entropy)
+  - `provisioning_uri(secret, username)` — formato `otpauth://totp/...`
+  - `verify(secret, code)` com `valid_window=1` (aceita ±30s clock skew),
+    aceita espaços no code (`123 456` → `123456`).
+- **Novo flow de login em 2 passos**:
+  1. `POST /auth/login` com user+pass → se `totp_enabled`, retorna
+     `{requires_totp: true, challenge_token}` em vez do JWT.
+  2. `POST /auth/login/2fa-verify` com `{challenge_token, code}` → JWT.
+  - `challenge_token` é JWT especial com claim `totp_pending: true`,
+    TTL 5min. Validação `iat`/`exp` normal.
+- **Endpoints 2FA** (todos require_auth):
+  - `POST /auth/2fa/setup` → gera secret + URI (NÃO persiste).
+  - `POST /auth/2fa/confirm` `{secret, code}` → valida e persiste.
+  - `POST /auth/2fa/disable` `{code}` → self-disable com code obrigatório.
+  - `POST /auth/2fa/admin-reset/{user_id}` → requer `users.manage`,
+    self-target permitido (admin que perdeu próprio celular).
+- `/auth/me` agora retorna `totp_enabled`. List de users também.
+
+**PHP (`src/Auth.php` + `src/ApiClient.php`):**
+
+- `Auth::login()` detecta `requires_totp` no response, guarda challenge
+  em sessão (`totp_challenge`, `totp_username`, `totp_started_at`),
+  sinaliza pro `login.php` redirecionar pra `login_2fa.php`.
+- Novo `Auth::login2faSubmit($code)` — troca challenge+code por JWT real.
+- `Auth::setup2fa()`, `confirm2fa()`, `disable2fa()`, `adminReset2fa()` —
+  wrappers que chamam os endpoints novos.
+- `_finalizeLogin()` extraído como helper privado pra evitar duplicação
+  entre `login()` e `login2faSubmit()`.
+
+**UI:**
+
+- **`login_2fa.php` novo** — página de 2º passo com input numérico de 6
+  dígitos. Auto-submit ao digitar 6 dígitos. Expira local após 5min.
+- **`config.php` aba "Meu Perfil"** ganha seção 2FA:
+  - Desativado: botão "Ativar 2FA" → POST `setup_totp` → mostra QR code
+    (gerado clientside via qrcode.js do CDN, zero deps server) + secret
+    fallback + input pra confirmar code.
+  - Ativado: form com input de code pra "Desativar 2FA".
+- **Tabela de usuários** ganha:
+  - Badge "🛡️ 2FA" ao lado do status quando habilitado.
+  - Botão "🛡️↺" admin-reset (só aparece se user tem 2FA ativo) com
+    confirmação destrutiva.
+
+**Testes**:
+
+- `tests/test_totp.py` com 7 testes: secret format, URI format, verify
+  válido/inválido, rejeição de não-numérico/wrong-length, strip de
+  espaços, edge cases.
+- `tests/test_migrate.py` atualizado pra esperar 4 migrations.
+
+79/79 testes verdes (era 72; +7 TOTP).
+
+VERSION 2.15.1 → 2.16.0 (minor — feature nova + schema change).
+
+---
+
 ## v2.15.1 — 2026-05-13
 
 ### RBAC — completa migração de endpoints e páginas restantes

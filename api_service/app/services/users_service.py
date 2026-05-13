@@ -68,6 +68,7 @@ async def list_all() -> list[dict]:
             "locked_until": r["locked_until"].isoformat() if r.get("locked_until") else None,
             "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
             "last_login_at": r["last_login_at"].isoformat() if r.get("last_login_at") else None,
+            "totp_enabled": bool(r.get("totp_enabled", False)),
         }
         for r in rows
     ]
