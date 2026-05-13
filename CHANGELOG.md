@@ -1,5 +1,42 @@
 # Changelog
 
+## v2.12.0 — 2026-05-13
+
+### changelog.php repaginada — busca + filtros + accordion + render markdown
+
+Página de Histórico de Versões antes era só `<pre>` cru do CHANGELOG.md
+(1868 linhas em um único bloco — impraticável navegar). Agora segue o
+padrão das outras páginas repaginadas (alerts/history/threats/logs/etc).
+
+**Parser server-side** (`parseChangelog()`):
+- Quebra o CHANGELOG.md em entries por header `## vX.Y.Z — YYYY-MM-DD`.
+- Detecta tipo da release pelo semver: **major** (X.0.0), **minor**
+  (X.Y.0), **patch** (X.Y.Z).
+- Cada entry: version, date, type, body.
+- 47 entries detectadas no CHANGELOG atual (1 major, 11 minor, 35 patch).
+
+**Render markdown próprio** (`renderChangelogMarkdown()` + `inlineMd()`):
+- Suporta H3/H4, listas, code blocks ` ``` `, code inline ` ` `,
+  **bold**, *italic*, [links](url) só HTTPS, --- hr.
+- Zero dependências externas (sem composer).
+- Estilizado pra glass-panel (dark+light).
+
+**UI:**
+- 4 stat cards no topo: Total / Major / Minor / Patch (com cores).
+- Busca client-side (versão, data, texto do corpo).
+- Chips de filtro: Todos / Major / Minor / Patch.
+- Checkbox "Expandir tudo" pra abrir todas entries visíveis.
+- Contador "X/N visíveis".
+- Cada entry vira um `<details>` (accordion) — primeira aberta por
+  default, demais colapsadas pra navegação rápida.
+- **Badge "Atual"** + ring cyan na entry da versão ativa (lida do VERSION).
+- Empty state quando filtro zera resultado.
+
+VERSION 2.11.1 → 2.12.0 (UI repagination — bump minor consistente com
+outras repagings).
+
+---
+
 ## v2.11.1 — 2026-05-13
 
 ### SMTP — parser de erros + dica acionável no teste
