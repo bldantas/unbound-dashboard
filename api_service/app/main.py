@@ -29,6 +29,7 @@ from app.routers import (
     history,
     stats,
     threats,
+    updates,
     users,
     webhooks,
 )
@@ -146,5 +147,6 @@ app.include_router(history.router)
 app.include_router(stats.router)
 app.include_router(threats.router)
 app.include_router(unbound_router.router)
+app.include_router(updates.router)
 app.include_router(users.router)
 app.include_router(webhooks.router)
