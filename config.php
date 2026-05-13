@@ -1626,16 +1626,29 @@ function field($key, $label, $desc = '', $def = '')
                             };
                         ?>
                         <div class="glass-panel border-slate-900/10 dark:border-white/5">
-                            <div class="flex justify-between items-center mb-4 border-b border-slate-900/10 dark:border-white/5 pb-3">
+                            <div class="flex flex-wrap justify-between items-center gap-3 mb-4 border-b border-slate-900/10 dark:border-white/5 pb-3">
                                 <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase">Sessões Ativas</h3>
-                                <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest"><?= count($mySessions) ?> sessão(ões)</span>
+                                <div class="flex items-center gap-3">
+                                    <label class="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                        Exibir
+                                        <select id="sessions-limit" class="glass-input !py-1 !px-2 text-[10px] uppercase font-black">
+                                            <option value="10" selected>10</option>
+                                            <option value="50">50</option>
+                                            <option value="100">100</option>
+                                            <option value="all">Todas</option>
+                                        </select>
+                                    </label>
+                                    <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                        <span id="sessions-visible-count"><?= min(10, count($mySessions)) ?></span>/<?= count($mySessions) ?> sessão(ões)
+                                    </span>
+                                </div>
                             </div>
                             <p class="text-[11px] text-slate-500 mb-4">Cada navegador/dispositivo onde você está logado. Revogar uma sessão força logout naquela máquina imediatamente (denylist Redis).</p>
 
                             <?php if (empty($mySessions)): ?>
                                 <p class="text-sm text-slate-500 italic py-4">Nenhuma sessão ativa detectada. Se você está logado agora, recarregue a página em alguns segundos pra o tracking iniciar.</p>
                             <?php else: ?>
-                                <div class="space-y-2">
+                                <div id="sessions-list" class="space-y-2">
                                     <?php foreach ($mySessions as $sess):
                                         $ip = htmlspecialchars($sess['ip'] ?? '?');
                                         $ua = htmlspecialchars($shortenUA($sess['user_agent'] ?? '?'));
@@ -1643,7 +1656,7 @@ function field($key, $label, $desc = '', $def = '')
                                         $loginAt = date('d/m/Y H:i', (int)($sess['login_at'] ?? 0));
                                         $hash = $sess['token_hash'] ?? '';
                                         ?>
-                                        <div class="flex items-center justify-between gap-3 p-3 bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5">
+                                        <div class="session-row flex items-center justify-between gap-3 p-3 bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5">
                                             <div class="flex-1 min-w-0">
                                                 <p class="font-bold text-xs text-slate-900 dark:text-white"><?= $ua ?></p>
                                                 <p class="text-[10px] text-slate-500 font-mono">IP <?= $ip ?> · login em <?= htmlspecialchars($loginAt) ?></p>
@@ -1659,6 +1672,27 @@ function field($key, $label, $desc = '', $def = '')
                                         </div>
                                     <?php endforeach; ?>
                                 </div>
+                                <script>
+                                    (function () {
+                                        const sel  = document.getElementById('sessions-limit');
+                                        const rows = document.querySelectorAll('#sessions-list .session-row');
+                                        const cnt  = document.getElementById('sessions-visible-count');
+                                        if (!sel || !rows.length || !cnt) return;
+                                        function applyLimit() {
+                                            const v = sel.value;
+                                            const max = (v === 'all') ? rows.length : parseInt(v, 10);
+                                            let shown = 0;
+                                            rows.forEach((row, idx) => {
+                                                const visible = idx < max;
+                                                row.style.display = visible ? '' : 'none';
+                                                if (visible) shown++;
+                                            });
+                                            cnt.textContent = shown;
+                                        }
+                                        sel.addEventListener('change', applyLimit);
+                                        applyLimit();
+                                    })();
+                                </script>
                             <?php endif; ?>
                         </div>
                     </div>

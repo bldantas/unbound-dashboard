@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.16.1 — 2026-05-13
+
+### Sessões ativas — filtro de linhas (10/50/100/Todas)
+
+Lista de "Sessões Ativas" na aba **Meu Perfil** podia ficar enorme em
+contas usadas em múltiplos dispositivos/navegadores ao longo do tempo
+(TTL = exp do JWT = 60min default, mas tracking acumula até expirar).
+Adicionado select client-side com opções **10 / 50 / 100 / Todas**
+(default: 10). Contador "X/N sessão(ões)" atualizado conforme o filtro.
+
+VERSION 2.16.0 → 2.16.1.
+
+---
+
 ## v2.16.0 — 2026-05-13
 
 ### 2FA TOTP opt-in por usuário
