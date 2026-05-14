@@ -1,5 +1,34 @@
 # Changelog
 
+## v2.17.16 — 2026-05-14
+
+### fix(update.sh): `uv sync` incondicional pra blindar `.venv`
+
+Histórico: o `.venv` desaparecia consistentemente após cada update,
+mesmo após várias correções (`--delete-excluded` removido, sudoers
+corrigido, etc.). Investigação isolada do rsync mostrou que ele
+PRESERVA o `.venv` corretamente. A causa raiz nesse ponto pode ser:
+
+- Race condition entre rsync + restart_and_smoke
+- Cgroup cleanup quando `daemon-reload` é chamado dentro do scope
+- Algum efeito colateral do `chown -R` em `reset_permissions`
+- Backup de versão anterior do update.sh (sem fix) que se autoperpetua
+
+Em vez de continuar caçando, fix pragmático: **`uv sync` SEMPRE roda**
+no final de `apply_apiservice`, mesmo se `pyproject.toml`/`uv.lock`
+não mudaram. É idempotente: se .venv está consistente, é quase no-op.
+Se está apagada (do bug), restaura.
+
+Além disso:
+- `chown -R www-data:www-data .venv` após sync — garante que se `uv`
+  criou .venv como root (rodando via sudo), o api_service consegue ler
+- Path fallback adicional pro `uv`: `/root/.local/bin/uv` (instalação
+  comum quando user roda `curl ... | sh` como root)
+
+VERSION 2.17.15 → 2.17.16.
+
+---
+
 ## v2.17.15 — 2026-05-14
 
 ### fix(build): incluir `tools/` no tarball de update

@@ -227,21 +227,6 @@ apply_apiservice() {
         return 0
     fi
 
-    # Detecta se pyproject.toml mudou (pra decidir se precisa uv sync)
-    local need_uv_sync=false
-    if [ -f "$src/pyproject.toml" ] && [ -f "$APISERVICE_DIR/pyproject.toml" ]; then
-        if ! cmp -s "$src/pyproject.toml" "$APISERVICE_DIR/pyproject.toml"; then
-            need_uv_sync=true
-            debug "pyproject.toml mudou — uv sync será necessário"
-        fi
-    fi
-    if [ -f "$src/uv.lock" ] && [ -f "$APISERVICE_DIR/uv.lock" ]; then
-        if ! cmp -s "$src/uv.lock" "$APISERVICE_DIR/uv.lock"; then
-            need_uv_sync=true
-            debug "uv.lock mudou — uv sync será necessário"
-        fi
-    fi
-
     # IMPORTANTE: --delete-excluded NÃO está aqui. Adicioná-lo apagaria o
     # .venv do destino — bug que custou várias iterações pra descobrir.
     # As --exclude só impedem cópia do source pro destino (tarball já não
@@ -254,18 +239,27 @@ apply_apiservice() {
 
     log "api_service atualizado"
 
-    if [ "$need_uv_sync" = "true" ] && [ "$SKIP_VENV_SYNC" != "true" ]; then
-        info "pyproject/uv.lock mudaram — rodando uv sync..."
+    # uv sync INCONDICIONAL — antes só rodava se pyproject/uv.lock mudasse.
+    # Mas há cenários (race condition? cgroup cleanup? bug histórico
+    # do --delete-excluded?) onde .venv desaparece DEPOIS do rsync mesmo
+    # com pyproject intacto. Rodar uv sync sempre garante venv consistente
+    # após cada update. É idempotente: se .venv já está OK, é quase no-op
+    # (uv detecta lock match e não baixa nada).
+    if [ "$SKIP_VENV_SYNC" = "true" ]; then
+        debug "SKIP_VENV_SYNC=true — pulando uv sync"
+    else
+        info "Sincronizando .venv via uv sync (incondicional)..."
         local uv_bin
         uv_bin="$(command -v uv || echo /usr/local/bin/uv)"
+        [ -x "$uv_bin" ] || uv_bin="/root/.local/bin/uv"
         if [ ! -x "$uv_bin" ]; then
             warn "uv não disponível — pulei uv sync; instale com: curl -fsSL https://astral.sh/uv/install.sh | sh"
         else
             (cd "$APISERVICE_DIR" && "$uv_bin" sync --no-dev --quiet) || warn "uv sync falhou — venv pode estar inconsistente"
-            log "venv sincronizado"
+            # Garante owner correto se uv criou .venv do zero (rodando como root)
+            chown -R www-data:www-data "$APISERVICE_DIR/.venv" 2>/dev/null || true
+            log "venv sincronizado (owner: www-data)"
         fi
-    elif [ "$SKIP_VENV_SYNC" = "true" ]; then
-        debug "SKIP_VENV_SYNC=true — pulando uv sync"
     fi
 }
 
