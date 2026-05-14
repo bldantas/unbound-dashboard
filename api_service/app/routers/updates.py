@@ -26,13 +26,18 @@ router = APIRouter(prefix="/api/v1/updates", tags=["updates"])
 
 
 @router.get("/check")
-async def check(_: Annotated[dict, Depends(require_capability("config.write"))]) -> dict:
+async def check(
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+    force: bool = False,
+) -> dict:
     """
     Consulta GitHub Releases pela última versão publicada. Resposta
     sempre 200 — se GitHub off, retorna {error: ...} e has_update=false.
-    Cache de 5min em Redis pra não bater GitHub a cada refresh do UI.
+
+    Cache: 5min Redis por default. `?force=1` bypassa o cache (usado pelo
+    botão "Verificar atualizações" da UI pra refresh manual imediato).
     """
-    return await updater.check_for_updates()
+    return await updater.check_for_updates(force_refresh=force)
 
 
 class ApplyRequest(BaseModel):

@@ -2366,12 +2366,16 @@ function field($key, $label, $desc = '', $def = '')
                 el.banner.classList.add('hidden');
             }
 
-            async function checkUpdates() {
+            async function checkUpdates(force = true) {
+                // force=true por default — chamadas explícitas do user clicando "Verificar"
+                // forçam refresh do cache Redis. O check inicial (auto ao abrir aba) também
+                // força porque o user provavelmente quer ver dado fresco.
                 el.refreshBtn.disabled = true;
                 el.refreshBtn.classList.add('is-checking');
                 if (el.lastCheck) el.lastCheck.textContent = 'Verificando…';
                 try {
-                    const resp = await fetch('/api/v1/updates/check', { headers: HEADERS });
+                    const url = '/api/v1/updates/check' + (force ? '?force=1' : '');
+                    const resp = await fetch(url, { headers: HEADERS });
                     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                     const data = await resp.json();
                     lastCheck = data;

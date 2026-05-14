@@ -203,16 +203,19 @@ async def fetch_latest_release(force_refresh: bool = False) -> dict[str, Any]:
     return payload
 
 
-async def check_for_updates() -> dict[str, Any]:
+async def check_for_updates(force_refresh: bool = False) -> dict[str, Any]:
     """
     Compara última release com VERSION local. Retorna:
         {current, latest, has_update, is_major_bump, release_url, body,
          published_at, tag_name, assets}
     Ou {current, has_update: false, error: ...} se GitHub off.
+
+    `force_refresh=True` bypassa cache Redis e bate direto no GitHub.
+    Usado pelo botão "Verificar atualizações" da UI.
     """
     current = _read_local_version()
     try:
-        rel = await fetch_latest_release()
+        rel = await fetch_latest_release(force_refresh=force_refresh)
     except GitHubUnavailable as exc:
         return {
             "current": current,
