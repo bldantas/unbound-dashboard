@@ -1,5 +1,39 @@
 # Changelog
 
+## v2.17.14 — 2026-05-14
+
+### UI: pulse animation no badge "Update" da sidebar
+
+Badge "↑ Update" no item Configurações da sidebar ganhou animação
+pulse sutil (~2s loop) usando `::after` com ring border + scale.
+Chama atenção sem ser intrusivo — admin nota mesmo focado em outra
+parte do dashboard.
+
+VERSION 2.17.13 → 2.17.14.
+
+---
+
+## v2.17.13 — 2026-05-14
+
+### fix(updates): botão "Verificar" força refresh do cache Redis (sem F5)
+
+Antes, clicar "Verificar atualizações" não bypassava o cache Redis
+(TTL 5min) do `updater.fetch_latest_release`. Quando uma release
+nova era publicada, o test server continuava mostrando a versão
+anterior por até 5min depois do clique — só dava certo com F5
+no navegador (que limpava o estado JS, mas isso era coincidência).
+
+Fix:
+- `GET /api/v1/updates/check?force=1` bypassa cache Redis quando
+  query param presente
+- JS do botão "Verificar" passa `?force=1` por default
+- Cache de 5min continua valendo pro worker `update_checker` em
+  background e pra leituras passivas (sidebar badge)
+
+VERSION 2.17.12 → 2.17.13.
+
+---
+
 ## v2.17.12 — 2026-05-14
 
 ### UI: console do update vira modal full-screen com status visual
