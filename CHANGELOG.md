@@ -1,5 +1,31 @@
 # Changelog
 
+## v2.17.9 — 2026-05-14
+
+### fix(updates): mover update.sh pra cgroup independente via systemd-run --scope
+
+Diagnóstico final do bug "log corta em Apache conf atualizado":
+
+- Subprocess do update.sh era filho do uvicorn → estava no cgroup
+  `/system.slice/unbound-dashboard-api.service/`
+- `update.sh` chama `systemctl daemon-reload` ao instalar nova unit
+- systemd reaplica restrições/namespaces ao cgroup → mata processos
+
+Tentativas anteriores que falharam:
+- v2.17.3: `systemd-run --unit=...` (transient unit em /run/systemd/
+  transient é REMOVIDA por daemon-reload, mata processo)
+- v2.17.8: redirect via shell (resolveu o fd mas o subprocess continua
+  no cgroup errado)
+
+**Fix definitivo**: `systemd-run --scope --slice=system.slice` cria um
+cgroup-scope filho direto do system.slice, totalmente fora do cgroup
+do api_service. daemon-reload não afeta. Sudoers continua permitindo
+só `run-update.sh <job_id> <tarball>` com glob restrito.
+
+VERSION 2.17.8 → 2.17.9.
+
+---
+
 ## v2.17.8 — 2026-05-13
 
 ### fix(updates): log SSE completo (era cortado em "Apache conf atualizado")

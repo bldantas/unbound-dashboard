@@ -2,20 +2,23 @@
 # ============================================================
 # Unbound Dashboard — Run Update Wrapper
 #
-# Wrapper invocado por services/updater.py (via sudoers). Existe pra
-# resolver UM problema específico: o fd do log compartilhado com uvicorn.
+# Wrapper invocado por services/updater.py (via sudoers). Resolve UM
+# problema fundamental: o processo do `update.sh` precisa rodar FORA
+# do cgroup do `unbound-dashboard-api.service`. Caso contrário:
 #
-# Sem este wrapper, updater.py passava `stdout=log_fd` direto pro Popen.
-# Quando `update.sh` chamava `systemctl restart unbound-dashboard-api`,
-# o uvicorn morria e seu fd duplicado do log era fechado. O fd do
-# subprocess também sumia em algum ponto (provavelmente cgroup cleanup),
-# e o log truncava em "Apache conf atualizado" — toda a parte de restart/
-# smoke/sucesso ficava sem registro na UI SSE.
+#   1. update.sh chama `systemctl daemon-reload` ao instalar nova unit
+#   2. systemd reaplica restrições/namespaces ao cgroup atual
+#   3. processos que estão usando os recursos antigos morrem
+#   4. log SSE trunca em "Apache conf atualizado"
 #
-# Com o wrapper, é o SHELL DO FILHO que abre o log (`>> LOG 2>&1`). Esse
-# fd nasce dentro do session group novo (criado por setsid no Popen do
-# Python via `start_new_session=True`), totalmente independente do
-# uvicorn — sobrevive ao restart.
+# Estratégia: usar `systemd-run --scope --slice=system.slice`. Diferente
+# de `--unit` (que cria transient unit em /run/systemd/transient/
+# e é REMOVIDA por daemon-reload), `--scope` cria um cgroup-scope
+# herdando direto do slice especificado — totalmente OUT do
+# cgroup do api_service.
+#
+# Redirect de stdout/stderr é feito pelo shell DESTE wrapper antes do
+# exec — o fd nasce no shell do filho, sobrevive ao restart do api.
 #
 # Uso (via sudoers):
 #   sudo bash tools/run-update.sh <job_id> <tarball_path>
@@ -31,20 +34,26 @@ if [ -z "$JOB_ID" ] || [ -z "$TARBALL" ]; then
     exit 2
 fi
 
-# Validação defense-in-depth (updater.py já valida, mas redundância barata)
 if ! [[ "$JOB_ID" =~ ^[a-f0-9]{12}$ ]]; then
     echo "job_id inválido: $JOB_ID" >&2
     exit 2
 fi
 
 LOG="/var/log/unbound-dashboard/update-${JOB_ID}.log"
-
-# Garante log dir antes — update.sh confia que existe
 mkdir -p "$(dirname "$LOG")"
 
-# Abre o log com `exec ... >> $LOG 2>&1`. A partir desta linha, TODO output
-# do shell e dos comandos filhos vai pro arquivo, com fd próprio deste
-# processo (não herdado do Python que spawnou). Sobrevive ao restart do
-# api_service que update.sh dispara mais tarde.
+# Redirect deste shell pro log — todos os logs subsequentes (deste script
+# e do update.sh executado abaixo) caem no arquivo. fd nasce no novo
+# scope criado por systemd-run, fora do cgroup do api_service.
 exec >> "$LOG" 2>&1
-exec /usr/bin/bash /var/www/html/unbound-dashboard/tools/update.sh "$TARBALL"
+
+# `--scope --slice=system.slice` move o processo pro cgroup
+# `/system.slice/run-rXXX.scope`, herdando do system.slice — NÃO do
+# cgroup do api_service. Daemon-reload do update.sh não afeta este scope.
+# `--quiet` suprime mensagens "Running as unit:..." do próprio systemd-run.
+exec /usr/bin/systemd-run \
+    --scope \
+    --slice=system.slice \
+    --quiet \
+    --description="Unbound Dashboard self-update job $JOB_ID" \
+    /usr/bin/bash /var/www/html/unbound-dashboard/tools/update.sh "$TARBALL"
