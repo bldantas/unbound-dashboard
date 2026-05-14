@@ -490,7 +490,7 @@ async def apply_update(version: str, acknowledge_breaking: bool = False) -> str:
         )
 
         # 7. Monitor em background — atualiza status quando processo terminar
-        asyncio.create_task(_monitor_job(job_id, pid, log_path))
+        asyncio.create_task(_monitor_job(job_id, pid, log_path, latest))
 
         log.info("updater.apply_started", job_id=job_id, version=latest, pid=pid)
         return job_id
@@ -500,35 +500,55 @@ async def apply_update(version: str, acknowledge_breaking: bool = False) -> str:
         raise
 
 
-async def _monitor_job(job_id: str, pid: int, log_path: Path) -> None:
+async def _monitor_job(job_id: str, pid: int, log_path: Path, to_version: str) -> None:
     """
-    Como o subprocess é spawnado via `systemd-run --unit=...` numa unit
-    transient OUTSIDE do api_service.service, ele NÃO é filho do uvicorn
-    e tampouco aparece em `/proc/<pid>` por mais do que a vida do
-    `systemd-run` (que sai rápido após registrar a unit).
+    Monitor com duas estratégias paralelas pra detectar fim do update:
 
-    Estratégia: pollear o log atrás dos marcadores finais que update.sh
-    emite (succeeded / rolled_back / rollback_failed). Backstop por
-    tempo absoluto (60min) — qualquer update mais lento que isso é
-    considerado travado e marcado como `failed` pelo monitor.
+    1. **Log marker**: polleia o arquivo de log atrás de strings de fim
+       que `update.sh` emite (Update concluído / ROLLBACK ...).
+    2. **VERSION file**: polleia `/var/www/html/.../VERSION`. Se bater
+       com `to_version`, update aplicou com sucesso — mesmo que o log
+       tenha truncado (problema crônico: o subprocess do update.sh
+       morre durante `daemon-reload` em algumas configs de systemd,
+       cortando o log mas o tarball JÁ foi extraído por cima).
+
+    A combinação cobre o caso comum (log completo → marker) e o edge
+    case (log truncado por daemon-reload → VERSION ainda confiável).
+
+    Backstop: 5min absoluto. Após isso, decide via VERSION:
+    - Se VERSION == to_version → succeeded (update aplicou apesar do
+      log truncado)
+    - Senão → failed (algo travou de verdade)
     """
-    MAX_WAIT_SECONDS = 60 * 60
+    MAX_WAIT_SECONDS = 5 * 60
     POLL_INTERVAL = 3
     started = time.time()
+    marker_found = False
 
     while True:
         await asyncio.sleep(POLL_INTERVAL)
         elapsed = time.time() - started
+
+        # Strategy 1: log marker
         if log_path.exists() and _log_has_terminal_marker(log_path):
+            marker_found = True
             break
+
+        # Strategy 2: VERSION file
+        if _read_local_version() == to_version:
+            log.info("updater.detected_version_match", job_id=job_id, version=to_version)
+            # Espera mais 5s pro restart_and_smoke do update.sh terminar
+            await asyncio.sleep(5)
+            break
+
         if elapsed > MAX_WAIT_SECONDS:
             log.warning("updater.monitor_timeout", job_id=job_id, elapsed=elapsed)
             break
 
-    status = _infer_status_from_log(log_path)
+    status = _resolve_final_status(log_path, to_version, marker_found)
     await _save_job_state(job_id, status=status, finished_at=int(time.time()))
     await release_lock()
-    log.info("updater.job_finished", job_id=job_id, status=status)
+    log.info("updater.job_finished", job_id=job_id, status=status, marker_found=marker_found)
 
 
 def _log_has_terminal_marker(log_path: Path) -> bool:
@@ -543,6 +563,24 @@ def _log_has_terminal_marker(log_path: Path) -> bool:
         "ROLLBACK CONCLUÍDO",
         "ROLLBACK FAILED",
     ))
+
+
+def _resolve_final_status(log_path: Path, to_version: str, marker_found: bool) -> str:
+    """
+    Decide status final do job combinando log + VERSION file.
+
+    - Se log tem marker explícito → confia nele (succeeded/rolled_back/
+      rollback_failed)
+    - Senão (log truncou ou foi parcial):
+      - VERSION == to_version → succeeded (update aplicou apesar do log)
+      - VERSION != to_version → failed
+    """
+    if marker_found:
+        return _infer_status_from_log(log_path)
+    # Sem marker: VERSION é a fonte da verdade
+    if _read_local_version() == to_version:
+        return "succeeded"
+    return "failed"
 
 
 def _infer_status_from_log(log_path: Path) -> str:

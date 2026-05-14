@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.17.10 — 2026-05-14
+
+### fix(updates): monitor verifica VERSION quando log trunca
+
+Diagnóstico final do log truncation: o `systemctl daemon-reload` chamado
+DE DENTRO de um `systemd-run --scope` desativa o scope (testado isolado;
+quando reload vem de fora, scope sobrevive). Não há config trivial de
+systemd que cubra esse caso.
+
+**Solução pragmática**: tornar o monitor robusto a logs truncados:
+- Polleia tanto o LOG (marker explícito) quanto o `VERSION` file
+- Se `VERSION` bate com `to_version`, considera sucesso mesmo sem marker
+- Backstop reduzido de 60min → 5min (não há razão pra update demorar mais)
+- `_resolve_final_status()` combina ambas as fontes
+
+Resultado: a UI mostra "Update aplicado com sucesso" se VERSION cresceu,
+independente de o log SSE ter cortado ou não.
+
+Wrapper `run-update.sh` mantido como `systemd-run --scope` — quando
+funciona (log curto + sem daemon-reload), preserva log completo.
+
+3 testes novos em test_updater.py (103/103 totais).
+
+VERSION 2.17.9 → 2.17.10.
+
+---
+
 ## v2.17.9 — 2026-05-14
 
 ### fix(updates): mover update.sh pra cgroup independente via systemd-run --scope

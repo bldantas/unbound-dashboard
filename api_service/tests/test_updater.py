@@ -295,6 +295,36 @@ def test_sse_single_line_no_event():
     assert out == "data: ok\n\n"
 
 
+def test_resolve_final_status_with_marker(tmp_path, monkeypatch):
+    """Marker no log tem precedência sobre VERSION check."""
+    from app.services import updater
+
+    log = tmp_path / "u.log"
+    log.write_text("Update concluído\n")
+    monkeypatch.setattr(updater, "_read_local_version", lambda: "2.17.0")
+    assert updater._resolve_final_status(log, "2.17.9", marker_found=True) == "succeeded"
+
+
+def test_resolve_final_status_version_match_no_marker(tmp_path, monkeypatch):
+    """Sem marker, mas VERSION bate → succeeded (log truncou mas update aplicou)."""
+    from app.services import updater
+
+    log = tmp_path / "u.log"
+    log.write_text("[..] coisas\n[OK] Apache conf atualizado\n")  # log truncado
+    monkeypatch.setattr(updater, "_read_local_version", lambda: "2.17.9")
+    assert updater._resolve_final_status(log, "2.17.9", marker_found=False) == "succeeded"
+
+
+def test_resolve_final_status_version_mismatch_no_marker(tmp_path, monkeypatch):
+    """Sem marker E VERSION não bate → failed."""
+    from app.services import updater
+
+    log = tmp_path / "u.log"
+    log.write_text("[..] coisas\n[OK] Apache conf atualizado\n")
+    monkeypatch.setattr(updater, "_read_local_version", lambda: "2.17.0")  # ainda antiga
+    assert updater._resolve_final_status(log, "2.17.9", marker_found=False) == "failed"
+
+
 def test_validate_job_id():
     """Aceita 12 chars hex, rejeita resto (anti path-traversal)."""
     from fastapi import HTTPException
