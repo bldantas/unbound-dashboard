@@ -1,5 +1,30 @@
 # Changelog
 
+## v2.17.11 — 2026-05-14
+
+### fix(systemd): adicionar /var/spool/cron ao ReadWritePaths
+
+Durante self-update via UI no test server, `update.sh` aplicou tudo
+(frontend, api_service, sudoers, systemd, apache, php-fpm,
+/usr/local/bin) mas quebrou em `apply_system` → `crontab` com:
+
+```
+/var/spool/cron/: mkstemp: Sistema de arquivos somente para leitura
+```
+
+`crontab` escreve em `/var/spool/cron/crontabs/root`. Esse path não
+estava em `ReadWritePaths` do api_service.service — então o subprocess
+do update.sh herdava o filesystem read-only ali.
+
+Update funcionalmente OK (VERSION atualizou, services subiram), mas
+o cron job de `unbound-dashboard-crons` ficava sem atualizar.
+
+Fix: adicionar `/var/spool/cron` ao ReadWritePaths.
+
+VERSION 2.17.10 → 2.17.11.
+
+---
+
 ## v2.17.10 — 2026-05-14
 
 ### fix(updates): monitor verifica VERSION quando log trunca
