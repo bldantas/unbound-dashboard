@@ -1,5 +1,31 @@
 # Changelog
 
+## v2.17.12 — 2026-05-14
+
+### UI: console do update vira modal full-screen com status visual
+
+Antes, ao clicar "Atualizar agora" o console live aparecia inline na
+aba "Sistema / Atualizações" — fácil scrollar pra fora, perder o
+contexto, ou navegar pra outra parte do dashboard durante o update.
+
+Agora:
+- **Modal centralizado** (`z-110`, backdrop blur, `max-w-3xl`) cobre a
+  tela com o log live no centro
+- **Header com spinner animado** + título "Aplicando atualização"
+- **Footer com aviso**: "Não feche esta janela — o update precisa terminar"
+- **Botão X (header) desabilitado** enquanto roda; libera quando termina
+- **`beforeunload` bloqueia** tentativa de fechar a aba/navegar durante o update
+- **Estado final** atualiza header com ícone colorido (✓ verde, ⚠ amarelo,
+  ✗ vermelho) + título correspondente + CTA contextual:
+  - **Succeeded**: botão verde "Recarregar página" (única ação)
+  - **Rolled_back / Rollback_failed / Failed**: botão "Fechar" + CTA crítico
+- **ESC + clique no X** fecham só após o update terminar
+- `body.overflow = hidden` enquanto modal aberto (trava scroll do fundo)
+
+VERSION 2.17.11 → 2.17.12.
+
+---
+
 ## v2.17.11 — 2026-05-14
 
 ### fix(systemd): adicionar /var/spool/cron ao ReadWritePaths

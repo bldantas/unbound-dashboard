@@ -1332,14 +1332,44 @@ function field($key, $label, $desc = '', $def = '')
                             <p class="mt-3"><a id="updates-release-url" href="#" target="_blank" rel="noopener" class="text-cyan-600 dark:text-cyan-400 underline text-xs">Ver no GitHub</a></p>
                         </div>
 
-                        <!-- Console live (aparece após clicar Atualizar) -->
-                        <div class="glass-panel hidden" id="updates-console-panel">
-                            <div class="flex items-center justify-between mb-3">
-                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">⏳ Aplicando update — <span id="updates-job-version" class="text-cyan-600 dark:text-cyan-400">…</span></h3>
-                                <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest" id="updates-job-id"></span>
+                    </div>
+
+                    <!-- Modal global de update — fora do tab-updates pra cobrir tela inteira -->
+                    <div id="updates-console-panel" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="updates-modal-title">
+                        <div class="glass-panel w-full max-w-3xl max-h-[90vh] flex flex-col !p-0 overflow-hidden border-slate-200 dark:border-white/5 shadow-2xl shadow-cyan-500/20">
+                            <!-- Header -->
+                            <div class="px-6 py-4 border-b border-slate-200 dark:border-white/10 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 flex items-center justify-between gap-3">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <div id="updates-modal-spinner" class="relative shrink-0 w-8 h-8">
+                                        <div class="absolute inset-0 rounded-full border-2 border-cyan-500/30"></div>
+                                        <div class="absolute inset-0 rounded-full border-2 border-transparent border-t-cyan-500 animate-spin"></div>
+                                    </div>
+                                    <div id="updates-modal-final-icon" class="hidden shrink-0 w-8 h-8 rounded-full flex items-center justify-center"></div>
+                                    <div class="min-w-0">
+                                        <h3 id="updates-modal-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest truncate">Aplicando atualização</h3>
+                                        <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 truncate">
+                                            <span id="updates-job-version" class="text-cyan-600 dark:text-cyan-400">…</span>
+                                            <span id="updates-job-id" class="ml-2 opacity-60"></span>
+                                        </p>
+                                    </div>
+                                </div>
+                                <button type="button" id="updates-modal-close" class="hidden glass-btn !p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white" title="Fechar" aria-label="Fechar modal">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
                             </div>
-                            <pre id="updates-console" class="bg-slate-900/95 text-slate-100 rounded-xl border border-slate-700/60 p-4 overflow-auto text-[11px] leading-relaxed font-mono max-h-[400px]"></pre>
-                            <div id="updates-final-banner" class="mt-3 hidden"></div>
+
+                            <!-- Body: log + banner final -->
+                            <div class="flex-1 overflow-hidden flex flex-col gap-3 p-5">
+                                <pre id="updates-console" class="flex-1 min-h-[280px] bg-slate-900/95 text-slate-100 rounded-xl border border-slate-700/60 p-4 overflow-auto text-[11px] leading-relaxed font-mono"></pre>
+                                <div id="updates-final-banner" class="hidden"></div>
+                            </div>
+
+                            <!-- Footer com hint quando rodando -->
+                            <div id="updates-modal-footer" class="px-6 py-3 border-t border-slate-200 dark:border-white/10 bg-slate-900/5 dark:bg-white/5">
+                                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">
+                                    Não feche esta janela — o update precisa terminar pra evitar inconsistências.
+                                </p>
+                            </div>
                         </div>
                     </div>
                     <?php endif; ?>
@@ -2314,6 +2344,11 @@ function field($key, $label, $desc = '', $def = '')
                 jobVersion:     document.getElementById('updates-job-version'),
                 jobId:          document.getElementById('updates-job-id'),
                 finalBanner:    document.getElementById('updates-final-banner'),
+                modalSpinner:   document.getElementById('updates-modal-spinner'),
+                modalFinalIcon: document.getElementById('updates-modal-final-icon'),
+                modalTitle:     document.getElementById('updates-modal-title'),
+                modalClose:     document.getElementById('updates-modal-close'),
+                modalFooter:    document.getElementById('updates-modal-footer'),
             };
             if (!el.current) return;  // aba não renderizada (não-admin)
 
@@ -2467,7 +2502,15 @@ function field($key, $label, $desc = '', $def = '')
                     el.jobVersion.textContent = `v${lastCheck.current} → v${lastCheck.latest}`;
                     el.consoleEl.textContent = '';
                     el.finalBanner.classList.add('hidden');
+                    el.modalFinalIcon.classList.add('hidden');
+                    el.modalSpinner.classList.remove('hidden');
+                    el.modalTitle.textContent = 'Aplicando atualização';
+                    el.modalClose.classList.add('hidden');  // não pode fechar enquanto roda
+                    el.modalFooter.classList.remove('hidden');
                     el.consolePanel.classList.remove('hidden');
+                    document.body.style.overflow = 'hidden';  // trava scroll do fundo
+                    // Bloqueia navegação acidental enquanto o update roda
+                    window.__updateRunning = true;
                     el.action.classList.add('hidden');
                     streamLog(data.job_id);
                 } catch (err) {
@@ -2539,17 +2582,100 @@ function field($key, $label, $desc = '', $def = '')
 
             function renderFinal(state) {
                 const status = state.status || 'unknown';
-                const messages = {
-                    succeeded:       { html: '<p class="text-sm text-emerald-700 dark:text-emerald-300"><strong>✓ Update aplicado com sucesso</strong> — sistema agora está em v' + (state.to_version || '?') + '.</p>', color: 'bg-emerald-500/10 border-emerald-500/30' },
-                    rolled_back:     { html: '<p class="text-sm text-amber-700 dark:text-amber-300"><strong>⚠ Rollback executado</strong> — o health check falhou, sistema voltou pra v' + (state.from_version || '?') + '. Veja o log acima.</p>', color: 'bg-amber-500/10 border-amber-500/30' },
-                    rollback_failed: { html: '<p class="text-sm text-red-700 dark:text-red-300"><strong>✗ ROLLBACK FALHOU</strong> — estado inconsistente. Intervenção manual necessária via SSH. Veja o log acima.</p>', color: 'bg-red-500/10 border-red-500/30' },
-                    failed:          { html: '<p class="text-sm text-red-700 dark:text-red-300"><strong>✗ Update falhou</strong> — veja o log acima pra detalhes.</p>', color: 'bg-red-500/10 border-red-500/30' },
+                const styles = {
+                    succeeded: {
+                        title: '✓ Update aplicado',
+                        msg:   `<p class="text-sm text-emerald-700 dark:text-emerald-300"><strong>Update aplicado com sucesso</strong> — sistema agora está em v${state.to_version || '?'}.</p>`,
+                        bannerColor: 'bg-emerald-500/10 border-emerald-500/30',
+                        iconBg: 'bg-emerald-500/20 text-emerald-500',
+                        iconSvg: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>',
+                        ctaLabel: 'Recarregar página',
+                        ctaClass: '!bg-emerald-600 !text-white',
+                    },
+                    rolled_back: {
+                        title: '⚠ Rollback executado',
+                        msg:   `<p class="text-sm text-amber-700 dark:text-amber-300"><strong>Rollback automático executado</strong> — o health check pós-restart falhou, sistema voltou pra v${state.from_version || '?'}. Veja o log acima.</p>`,
+                        bannerColor: 'bg-amber-500/10 border-amber-500/30',
+                        iconBg: 'bg-amber-500/20 text-amber-500',
+                        iconSvg: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>',
+                        ctaLabel: 'Fechar',
+                        ctaClass: '!bg-amber-600 !text-white',
+                    },
+                    rollback_failed: {
+                        title: '✗ ROLLBACK FALHOU',
+                        msg:   '<p class="text-sm text-red-700 dark:text-red-300"><strong>ROLLBACK FALHOU — estado inconsistente.</strong> Intervenção manual via SSH necessária. Veja o log acima.</p>',
+                        bannerColor: 'bg-red-500/10 border-red-500/30',
+                        iconBg: 'bg-red-500/20 text-red-500',
+                        iconSvg: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.732 0 2.814-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>',
+                        ctaLabel: 'Fechar',
+                        ctaClass: '!bg-red-600 !text-white',
+                    },
+                    failed: {
+                        title: '✗ Update falhou',
+                        msg:   '<p class="text-sm text-red-700 dark:text-red-300"><strong>Update falhou</strong> — veja o log acima pra detalhes.</p>',
+                        bannerColor: 'bg-red-500/10 border-red-500/30',
+                        iconBg: 'bg-red-500/20 text-red-500',
+                        iconSvg: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>',
+                        ctaLabel: 'Fechar',
+                        ctaClass: '!bg-red-600 !text-white',
+                    },
                 };
-                const m = messages[status] || { html: `<p>Status final: ${status}</p>`, color: 'bg-slate-500/10 border-slate-500/30' };
-                el.finalBanner.className = 'mt-3 p-4 rounded-xl border ' + m.color;
-                el.finalBanner.innerHTML = m.html + '<button type="button" onclick="location.reload()" class="mt-3 glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">Recarregar página</button>';
+                const s = styles[status] || styles.failed;
+
+                el.finalBanner.className = 'p-4 rounded-xl border ' + s.bannerColor;
+                el.finalBanner.innerHTML = s.msg;
                 el.finalBanner.classList.remove('hidden');
+
+                // Atualiza header do modal
+                el.modalSpinner.classList.add('hidden');
+                el.modalFinalIcon.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center ' + s.iconBg;
+                el.modalFinalIcon.innerHTML = s.iconSvg;
+                el.modalFinalIcon.classList.remove('hidden');
+                el.modalTitle.textContent = s.title;
+
+                // Libera fechamento
+                el.modalClose.classList.remove('hidden');
+                window.__updateRunning = false;
+
+                // Footer vira CTA — succeeded recarrega; demais fecham modal
+                const isSuccess = status === 'succeeded';
+                el.modalFooter.innerHTML = `
+                    <div class="flex justify-end gap-2">
+                        ${isSuccess ? '' : '<button type="button" id="updates-modal-cancel-btn" class="glass-btn text-[10px] uppercase font-black">Fechar</button>'}
+                        <button type="button" id="updates-modal-cta" class="glass-btn ${s.ctaClass} text-[10px] uppercase font-black">${s.ctaLabel}</button>
+                    </div>
+                `;
+                document.getElementById('updates-modal-cta').addEventListener('click', () => {
+                    if (isSuccess) location.reload();
+                    else closeUpdateModal();
+                });
+                const cancelBtn = document.getElementById('updates-modal-cancel-btn');
+                if (cancelBtn) cancelBtn.addEventListener('click', closeUpdateModal);
             }
+
+            function closeUpdateModal() {
+                if (window.__updateRunning) return;  // protege contra fechar no meio
+                el.consolePanel.classList.add('hidden');
+                document.body.style.overflow = '';
+                // Re-verifica status após fechar (pode ter mudado VERSION)
+                checkUpdates();
+            }
+
+            // Botão X no header do modal — só funciona quando update terminou
+            el.modalClose.addEventListener('click', closeUpdateModal);
+            // ESC pra fechar (também só quando terminou)
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && !el.consolePanel.classList.contains('hidden') && !window.__updateRunning) {
+                    closeUpdateModal();
+                }
+            });
+            // beforeunload pra avisar se tentar fechar aba durante update
+            window.addEventListener('beforeunload', (e) => {
+                if (window.__updateRunning) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            });
 
             // Check inicial quando a aba abre (lazy — só quando user clica na aba)
             let firstCheckDone = false;
