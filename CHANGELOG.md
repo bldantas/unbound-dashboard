@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.17.8 — 2026-05-13
+
+### fix(updates): log SSE completo (era cortado em "Apache conf atualizado")
+
+Bug cosmético do pipeline self-update: depois de `restart_and_smoke()`
+reiniciar o api_service (parent do subprocess do update), o log SSE
+parava de gravar em "Apache conf atualizado". O update continuava e
+terminava com sucesso, mas a UI só via metade.
+
+Causa: o fd do log era aberto pelo Python e passado pro Popen via
+`stdout=log_fd`. Quando o uvicorn (parent) morria no restart, o fd
+era cortado e nada mais era escrito.
+
+Fix: voltar com o wrapper `tools/run-update.sh` (sem systemd-run desta
+vez). O wrapper faz `exec >> $LOG 2>&1` ANTES de invocar update.sh —
+o fd do log nasce no shell do filho, dentro do session group novo
+(`start_new_session=True` no Popen), independente do uvicorn. Sobrevive
+ao restart.
+
+Updater.py spawna `sudo bash run-update.sh <job_id> <tarball>` com
+stdout/stderr/stdin = DEVNULL. Sudoers ajustado pra wrapper. Log_path
+é tocado antes do spawn pra SSE encontrar o arquivo imediatamente.
+
+VERSION 2.17.7 → 2.17.8.
+
+---
+
 ## v2.17.7 — 2026-05-13
 
 ### UI: botão "Verificar atualizações" repaginado

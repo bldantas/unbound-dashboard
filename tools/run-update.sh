@@ -2,24 +2,23 @@
 # ============================================================
 # Unbound Dashboard — Run Update Wrapper
 #
-# Dispara `update.sh` numa unit transient do systemd, escapando do
-# namespace mount restrito do api_service (ProtectSystem=strict +
-# ReadWritePaths limitado). Sem isso, update.sh não consegue escrever
-# em /var/backups, /etc, /usr/local/bin, etc.
+# Wrapper invocado por services/updater.py (via sudoers). Existe pra
+# resolver UM problema específico: o fd do log compartilhado com uvicorn.
 #
-# Uso (via sudoers, chamado pelo services/updater.py):
+# Sem este wrapper, updater.py passava `stdout=log_fd` direto pro Popen.
+# Quando `update.sh` chamava `systemctl restart unbound-dashboard-api`,
+# o uvicorn morria e seu fd duplicado do log era fechado. O fd do
+# subprocess também sumia em algum ponto (provavelmente cgroup cleanup),
+# e o log truncava em "Apache conf atualizado" — toda a parte de restart/
+# smoke/sucesso ficava sem registro na UI SSE.
+#
+# Com o wrapper, é o SHELL DO FILHO que abre o log (`>> LOG 2>&1`). Esse
+# fd nasce dentro do session group novo (criado por setsid no Popen do
+# Python via `start_new_session=True`), totalmente independente do
+# uvicorn — sobrevive ao restart.
+#
+# Uso (via sudoers):
 #   sudo bash tools/run-update.sh <job_id> <tarball_path>
-#
-# - job_id: 12 chars hex (validado pelo updater.py + regex aqui)
-# - tarball_path: /var/lib/unbound-dashboard/updates/...tar.gz
-#
-# A transient unit é nomeada `unbound-dashboard-update-<job_id>.service`
-# e usa --collect (auto-remove ao terminar). Stdout+stderr são
-# redirecionados pelo SHELL interno (não via --property=StandardOutput),
-# porque update.sh chama `systemctl daemon-reload` (ao instalar nova
-# unit) — isso fecha o fd que systemd estava mantendo via
-# StandardOutput=append. Redirecionando no bash do filho, esse problema
-# desaparece.
 # ============================================================
 
 set -euo pipefail
@@ -39,14 +38,13 @@ if ! [[ "$JOB_ID" =~ ^[a-f0-9]{12}$ ]]; then
 fi
 
 LOG="/var/log/unbound-dashboard/update-${JOB_ID}.log"
-UNIT="unbound-dashboard-update-${JOB_ID}.service"
 
-# `--collect` libera a unit do systemd quando exit (não fica enfileirada).
-# Redirect é feito por bash dentro do unit transient — não via systemd
-# StandardOutput, que quebra após daemon-reload (ver doc acima).
-exec /usr/bin/systemd-run \
-    --unit="$UNIT" \
-    --collect \
-    --description="Unbound Dashboard self-update job $JOB_ID" \
-    /usr/bin/bash -c "exec /usr/bin/bash /var/www/html/unbound-dashboard/tools/update.sh \"\$0\" >> \"$LOG\" 2>&1" \
-    "$TARBALL"
+# Garante log dir antes — update.sh confia que existe
+mkdir -p "$(dirname "$LOG")"
+
+# Abre o log com `exec ... >> $LOG 2>&1`. A partir desta linha, TODO output
+# do shell e dos comandos filhos vai pro arquivo, com fd próprio deste
+# processo (não herdado do Python que spawnou). Sobrevive ao restart do
+# api_service que update.sh dispara mais tarde.
+exec >> "$LOG" 2>&1
+exec /usr/bin/bash /var/www/html/unbound-dashboard/tools/update.sh "$TARBALL"

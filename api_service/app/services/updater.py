@@ -406,35 +406,32 @@ _EXIT_TO_STATUS = {
 
 def _spawn_update_process(tarball_path: Path, job_id: str, log_path: Path) -> int:
     """
-    Spawna `sudo bash tools/update.sh <tarball>` detachado, com stdout/
-    stderr redirecionados pro log_path.
+    Spawna `sudo bash tools/run-update.sh <job_id> <tarball>` detachado.
 
-    Tentativa anterior usava `systemd-run --unit=... --collect` pra
-    escapar do namespace mount do api_service (ProtectSystem=strict +
-    ReadWritePaths limitado). Mas update.sh chama `systemctl daemon-reload`
-    ao instalar a nova unit file, e isso removia a transient unit de
-    `/run/systemd/transient/`, matando o processo do update.
+    O wrapper `run-update.sh` faz `exec >> $LOG 2>&1` internamente, então
+    o fd do log é aberto pelo SHELL DO FILHO — não herdado do Python.
+    Isso é crítico: quando `restart_and_smoke()` reinicia o api_service
+    (que é parent deste subprocess), o fd herdado do Python sumia e o log
+    truncava em "Apache conf atualizado". Com o redirect dentro do shell,
+    o fd nasce no session group novo (criado por start_new_session) e
+    sobrevive ao restart.
 
-    Solução pragmática: expandir ReadWritePaths no api_service.service
-    pra cobrir todos os paths que update.sh toca (/var/backups, /etc/...,
-    /usr/local/bin, /tmp, etc) e spawnar direto via sudo. Mantém zero
-    deps extras e funciona com `start_new_session=True`.
-
-    `job_id` é usado só pra nomear o log; não vai pro update.sh.
+    Garantimos `log_path` exista ANTES de spawnar pra o SSE não retornar
+    erro "Job não encontrado" se o frontend abrir o stream antes do
+    wrapper rodar.
     """
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_fd = log_path.open("ab", buffering=0)
-    try:
-        proc = subprocess.Popen(  # noqa: S603
-            ["sudo", "-n", "/usr/bin/bash", UPDATE_SCRIPT, str(tarball_path)],
-            stdout=log_fd,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        return proc.pid
-    finally:
-        log_fd.close()
+    # Toca o arquivo pra o SSE encontrar imediatamente
+    log_path.touch()
+
+    proc = subprocess.Popen(  # noqa: S603
+        ["sudo", "-n", "/usr/bin/bash", RUN_UPDATE_WRAPPER, job_id, str(tarball_path)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return proc.pid
 
 
 async def apply_update(version: str, acknowledge_breaking: bool = False) -> str:
