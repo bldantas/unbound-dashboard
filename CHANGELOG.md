@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.17.15 — 2026-05-14
+
+### fix(build): incluir `tools/` no tarball de update
+
+`build-update.sh` excluía o diretório `tools/` inteiro do dashboard
+no pacote — então qualquer arquivo em `tools/` (incluindo o
+`run-update.sh` adicionado em v2.17.8) nunca chegava em instalações
+existentes via update incremental.
+
+Sintoma no test server: ao clicar "Atualizar agora", a UI abria o
+modal mas o log ficava vazio porque `_spawn_update_process` chamava
+`sudo bash run-update.sh ...` e o wrapper não existia no destino.
+
+Fix: remover `--exclude='tools'` do rsync. Excludes específicos
+mantidos:
+- `tools/teardown_mariadb.sh` (legado, não usado em prod)
+- `tools/docker/` (scripts de docker dev-only)
+
+VERSION 2.17.14 → 2.17.15.
+
+---
+
 ## v2.17.14 — 2026-05-14
 
 ### UI: pulse animation no badge "Update" da sidebar

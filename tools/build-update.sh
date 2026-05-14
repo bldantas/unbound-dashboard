@@ -83,7 +83,6 @@ copy_dashboard() {
         --exclude='.vscode' \
         --exclude='docs' \
         --exclude='*.md' \
-        --exclude='tools' \
         --exclude='api_service' \
         --exclude='dist' \
         --exclude='data/.installed' \
@@ -93,6 +92,8 @@ copy_dashboard() {
         --exclude='src/data/*.json' \
         --exclude='src/data/official_blocklist.conf' \
         --exclude='test_help.php' \
+        --exclude='tools/teardown_mariadb.sh' \
+        --exclude='tools/docker' \
         "$DASHBOARD_DIR/" "$BUILD_DIR/dashboard/"
 
     # Força inclusão de CHANGELOG.md (excluído pelo *.md acima)
