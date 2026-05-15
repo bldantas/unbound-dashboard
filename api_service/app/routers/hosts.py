@@ -1,14 +1,20 @@
 """
 /api/v1/hosts/* — gerência de agents pelo master no multi-host.
 
-CRUD + poll on-demand. Capability `config.write` (admin only).
+CRUD + poll on-demand + proxy calls + batch ops. Capability `config.write`.
 
 Endpoints:
-  GET    /api/v1/hosts                — lista com último status
-  POST   /api/v1/hosts                — adiciona host {label, base_url, api_token, notes}
-  PUT    /api/v1/hosts/{id}           — atualiza label/api_token/notes
-  DELETE /api/v1/hosts/{id}           — remove
-  POST   /api/v1/hosts/{id}/poll      — força poll agora (atualiza estado)
+  GET    /api/v1/hosts                          — lista com último status
+  POST   /api/v1/hosts                          — adiciona host
+  PUT    /api/v1/hosts/{id}                     — atualiza label/api_token/notes
+  DELETE /api/v1/hosts/{id}                     — remove
+  POST   /api/v1/hosts/{id}/poll                — força poll agora
+  GET    /api/v1/hosts/{id}/info                — proxy /host/info do agent
+  POST   /api/v1/hosts/{id}/restart/{service}   — restart api|unbound no agent
+  POST   /api/v1/hosts/{id}/upgrade             — dispara self-update no agent
+  POST   /api/v1/hosts/batch/poll               — re-poll todos (sequencial)
+  POST   /api/v1/hosts/batch/restart/{service}  — restart em todos
+  POST   /api/v1/hosts/batch/upgrade            — upgrade em todos
 """
 
 from __future__ import annotations
@@ -22,6 +28,8 @@ from app.core.deps import require_capability
 from app.services import managed_hosts
 
 router = APIRouter(prefix="/api/v1/hosts", tags=["hosts"])
+
+_ALLOWED_RESTART_SERVICES = {"api", "unbound"}
 
 
 def _scrub(h: dict) -> dict:
@@ -117,3 +125,89 @@ async def poll_now(
     except managed_hosts.HostNotFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
     return result
+
+
+@router.get("/{host_id}/info")
+async def host_info(
+    host_id: int,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Proxy: GET /api/v1/host/info do agent (estático: hostname, OS, etc)."""
+    try:
+        return await managed_hosts.proxy_get(host_id, "/api/v1/host/info")
+    except managed_hosts.HostNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
+
+
+@router.post("/{host_id}/restart/{service}", status_code=status.HTTP_202_ACCEPTED)
+async def restart_host_service(
+    host_id: int,
+    service: str,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Reinicia api ou unbound no agent específico."""
+    if service not in _ALLOWED_RESTART_SERVICES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Serviço inválido: {service}. Permitidos: {sorted(_ALLOWED_RESTART_SERVICES)}",
+        )
+    try:
+        return await managed_hosts.restart_service(host_id, service)
+    except managed_hosts.HostNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
+
+
+class UpgradeRequest(BaseModel):
+    version: str = Field(min_length=5, max_length=20, description="Semver sem 'v' (ex: 2.21.4)")
+
+
+@router.post("/{host_id}/upgrade", status_code=status.HTTP_202_ACCEPTED)
+async def upgrade_host(
+    host_id: int,
+    body: UpgradeRequest,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Dispara self-update no agent pra versão informada."""
+    try:
+        return await managed_hosts.trigger_upgrade(host_id, body.version)
+    except managed_hosts.HostNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
+
+
+# ============================================================
+# Batch ops — aplica em todos os hosts (sequencial)
+# ============================================================
+
+
+@router.post("/batch/poll", status_code=status.HTTP_200_OK)
+async def batch_poll(
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Força poll imediato em todos os hosts. Atualiza banco."""
+    results = await managed_hosts.poll_all()
+    return {"results": results, "count": len(results)}
+
+
+@router.post("/batch/restart/{service}", status_code=status.HTTP_202_ACCEPTED)
+async def batch_restart(
+    service: str,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Restart em todos os hosts. Sequencial — fail isolado por host."""
+    if service not in _ALLOWED_RESTART_SERVICES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Serviço inválido: {service}. Permitidos: {sorted(_ALLOWED_RESTART_SERVICES)}",
+        )
+    results = await managed_hosts.batch("restart", service=service)
+    return {"results": results, "count": len(results), "service": service}
+
+
+@router.post("/batch/upgrade", status_code=status.HTTP_202_ACCEPTED)
+async def batch_upgrade(
+    body: UpgradeRequest,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Upgrade em todos os hosts pra `version`. Sequencial."""
+    results = await managed_hosts.batch("upgrade", version=body.version)
+    return {"results": results, "count": len(results), "version": body.version}

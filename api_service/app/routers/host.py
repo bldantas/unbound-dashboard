@@ -18,16 +18,19 @@ from __future__ import annotations
 
 import platform
 import socket
+import subprocess
 import time
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.config import settings
-from app.core.deps import require_auth
+from app.core.deps import require_auth, require_capability
 from app.repositories.duckdb.connection import db_fetchone
 
 router = APIRouter(prefix="/api/v1/host", tags=["host"])
+log = structlog.get_logger()
 
 _START_TIME = time.time()  # Aproximação do uptime do api_service
 
@@ -129,3 +132,50 @@ async def host_status(payload: Annotated[dict, Depends(require_auth)]) -> dict:
         out["hit_ratio_24h"] = None
 
     return out
+
+
+# Whitelist explícito — qualquer outro valor é rejeitado antes de tocar systemctl.
+_RESTART_SERVICE_MAP = {
+    "api": "unbound-dashboard-api",
+    "unbound": "unbound",
+}
+
+
+@router.post("/restart/{service}", status_code=status.HTTP_202_ACCEPTED)
+async def restart_service(
+    service: str,
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """
+    Reinicia um serviço whitelisted (api | unbound). Spawn detachado:
+    o systemctl roda em session group novo, sobrevive se o caller for o
+    próprio api_service sendo morto.
+
+    Pedida pelo master multi-host nos batch ops; também útil localmente.
+    """
+    systemd_unit = _RESTART_SERVICE_MAP.get(service)
+    if systemd_unit is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Serviço inválido: {service}. Permitidos: {sorted(_RESTART_SERVICE_MAP)}",
+        )
+
+    actor = payload.get("auth_kind", "jwt")
+    log.info("host.restart_service", service=service, unit=systemd_unit, actor=actor)
+
+    try:
+        subprocess.Popen(  # noqa: S603
+            ["sudo", "-n", "/usr/bin/systemctl", "restart", systemd_unit],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.error("host.restart_spawn_failed", service=service, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Falha ao disparar restart: {exc}",
+        ) from None
+
+    return {"ok": True, "service": service, "unit": systemd_unit}

@@ -69,6 +69,24 @@ $currentPage = 'hosts.php';
                 </div>
             </div>
 
+            <!-- Batch ops toolbar -->
+            <div class="glass-panel !p-3 mb-5 flex flex-wrap items-center gap-2" id="hosts-batch-toolbar">
+                <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-2">Ações em lote:</span>
+                <button type="button" data-batch="poll" class="batch-btn glass-btn text-[10px] uppercase font-black flex items-center gap-1" title="Re-pollar todos os hosts agora">
+                    ↻ Re-poll todos
+                </button>
+                <button type="button" data-batch="upgrade" class="batch-btn glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black flex items-center gap-1" title="Disparar self-update em todos">
+                    ↑ Atualizar todos
+                </button>
+                <button type="button" data-batch="restart-api" class="batch-btn glass-btn !bg-amber-600 !text-white text-[10px] uppercase font-black flex items-center gap-1" title="Reiniciar o api_service de todos os agents">
+                    ⟲ Reiniciar API
+                </button>
+                <button type="button" data-batch="restart-unbound" class="batch-btn glass-btn !bg-amber-600 !text-white text-[10px] uppercase font-black flex items-center gap-1" title="Reiniciar o daemon Unbound de todos os agents">
+                    ⟲ Reiniciar Unbound
+                </button>
+                <span class="text-[10px] text-slate-500 ml-auto" id="batch-status"></span>
+            </div>
+
             <!-- Lista de hosts -->
             <div id="hosts-list" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div class="glass-panel text-center py-10 col-span-full">
@@ -79,6 +97,61 @@ $currentPage = 'hosts.php';
             <?php include 'includes/footer.php'; ?>
         </div>
     </main>
+
+    <!-- Modal: drill-down de 1 host (info + status) -->
+    <div id="host-detail-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+        <div class="glass-panel max-w-3xl w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-start justify-between gap-4 mb-4">
+                <div class="min-w-0">
+                    <h3 id="host-detail-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Detalhes do host</h3>
+                    <p class="text-[11px] text-slate-500 mt-1" id="host-detail-subtitle">…</p>
+                </div>
+                <button type="button" id="host-detail-close" class="glass-btn text-[10px] uppercase font-black">Fechar</button>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex gap-1 border-b border-slate-200 dark:border-white/10 mb-4">
+                <button type="button" data-tab="info" class="host-tab-btn px-3 py-2 text-[10px] uppercase font-black tracking-widest border-b-2 border-cyan-500 text-cyan-600 dark:text-cyan-400">Info do agent</button>
+                <button type="button" data-tab="status" class="host-tab-btn px-3 py-2 text-[10px] uppercase font-black tracking-widest border-b-2 border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">Status atual</button>
+            </div>
+
+            <!-- Tab content: info -->
+            <div id="host-tab-info" class="host-tab-pane">
+                <p class="text-[11px] text-slate-500 italic" id="host-tab-info-loader">Carregando informações estáticas do agent…</p>
+                <dl id="host-tab-info-grid" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px]"></dl>
+            </div>
+
+            <!-- Tab content: status -->
+            <div id="host-tab-status" class="host-tab-pane hidden">
+                <div class="flex items-center justify-between mb-3">
+                    <p class="text-[11px] text-slate-500" id="host-tab-status-meta">Último poll: —</p>
+                    <button type="button" id="host-tab-status-refresh" class="glass-btn text-[10px] uppercase font-black">↻ Forçar poll</button>
+                </div>
+                <dl id="host-tab-status-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]"></dl>
+                <p id="host-tab-status-err" class="hidden mt-3 text-[11px] text-red-500"></p>
+            </div>
+
+            <!-- Ações individuais -->
+            <div class="mt-6 pt-4 border-t border-slate-200 dark:border-white/10 flex flex-wrap gap-2">
+                <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-2 self-center">Ações:</span>
+                <button type="button" id="host-detail-restart-api" class="glass-btn !bg-amber-600 !text-white text-[10px] uppercase font-black">⟲ Reiniciar API</button>
+                <button type="button" id="host-detail-restart-unbound" class="glass-btn !bg-amber-600 !text-white text-[10px] uppercase font-black">⟲ Reiniciar Unbound</button>
+                <button type="button" id="host-detail-upgrade" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">↑ Atualizar este</button>
+                <a id="host-detail-open-ui" href="#" target="_blank" rel="noopener" class="glass-btn text-[10px] uppercase font-black ml-auto">↗ Abrir UI</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: resultado de batch op -->
+    <div id="batch-result-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+        <div class="glass-panel max-w-2xl w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl max-h-[80vh] overflow-y-auto">
+            <h3 id="batch-result-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3">Resultado</h3>
+            <div id="batch-result-list" class="space-y-2 text-[11px]"></div>
+            <div class="flex justify-end mt-4">
+                <button type="button" id="batch-result-close" class="glass-btn text-[10px] uppercase font-black">Fechar</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Modal: adicionar/editar host -->
     <div id="host-form-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
@@ -282,9 +355,10 @@ $currentPage = 'hosts.php';
                             </div>
 
                             <div class="flex flex-wrap gap-2">
-                                <button type="button" data-action="poll" data-id="${h.id}" class="host-action glass-btn !py-1 !px-3 text-[9px] uppercase font-black">↻ Poll agora</button>
+                                <button type="button" data-action="details" data-id="${h.id}" class="host-action glass-btn !py-1 !px-3 text-[9px] uppercase font-black !bg-cyan-600 !text-white">▤ Detalhes</button>
+                                <button type="button" data-action="poll" data-id="${h.id}" class="host-action glass-btn !py-1 !px-3 text-[9px] uppercase font-black">↻ Poll</button>
                                 <button type="button" data-action="edit" data-id="${h.id}" class="host-action glass-btn !py-1 !px-3 text-[9px] uppercase font-black">Editar</button>
-                                <a href="${escapeAttr(h.base_url)}" target="_blank" rel="noopener" class="glass-btn !py-1 !px-3 text-[9px] uppercase font-black">↗ Abrir UI</a>
+                                <a href="${escapeAttr(h.base_url)}" target="_blank" rel="noopener" class="glass-btn !py-1 !px-3 text-[9px] uppercase font-black">↗ UI</a>
                                 <button type="button" data-action="delete" data-id="${h.id}" data-label="${escapeAttr(h.label)}" class="host-action glass-btn !py-1 !px-3 text-[9px] uppercase font-black bg-red-500/15 text-red-600 dark:text-red-400 ml-auto">Remover</button>
                             </div>
                         </div>
@@ -305,9 +379,11 @@ $currentPage = 'hosts.php';
             async function handleAction(btn) {
                 const action = btn.getAttribute('data-action');
                 const id = btn.getAttribute('data-id');
-                if (action === 'poll') {
+                if (action === 'details') {
+                    openDetailModal(id);
+                } else if (action === 'poll') {
                     btn.disabled = true;
-                    btn.textContent = '⟳ Pollando…';
+                    btn.textContent = '⟳…';
                     try {
                         const resp = await fetch(`/api/v1/hosts/${id}/poll`, { method: 'POST', headers: HEADERS });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -315,7 +391,7 @@ $currentPage = 'hosts.php';
                     } catch (err) {
                         alert('Erro ao polar: ' + err.message);
                         btn.disabled = false;
-                        btn.textContent = '↻ Poll agora';
+                        btn.textContent = '↻ Poll';
                     }
                 } else if (action === 'edit') {
                     openEditModal(id);
@@ -430,6 +506,298 @@ $currentPage = 'hosts.php';
 
             el.addBtn.addEventListener('click', openCreateModal);
             el.refreshBtn.addEventListener('click', load);
+
+            // ============================================================
+            // Drill-down modal (Detalhes)
+            // ============================================================
+            const detailEl = {
+                modal:        document.getElementById('host-detail-modal'),
+                close:        document.getElementById('host-detail-close'),
+                title:        document.getElementById('host-detail-title'),
+                subtitle:     document.getElementById('host-detail-subtitle'),
+                tabBtns:      document.querySelectorAll('.host-tab-btn'),
+                paneInfo:     document.getElementById('host-tab-info'),
+                paneStatus:   document.getElementById('host-tab-status'),
+                infoLoader:   document.getElementById('host-tab-info-loader'),
+                infoGrid:     document.getElementById('host-tab-info-grid'),
+                statusMeta:   document.getElementById('host-tab-status-meta'),
+                statusGrid:   document.getElementById('host-tab-status-grid'),
+                statusErr:    document.getElementById('host-tab-status-err'),
+                statusReload: document.getElementById('host-tab-status-refresh'),
+                btnRestartApi:     document.getElementById('host-detail-restart-api'),
+                btnRestartUnbound: document.getElementById('host-detail-restart-unbound'),
+                btnUpgrade:        document.getElementById('host-detail-upgrade'),
+                openUi:            document.getElementById('host-detail-open-ui'),
+            };
+            let currentDetailHost = null;
+
+            function infoRow(k, v) {
+                return `
+                    <div class="bg-slate-900/5 dark:bg-white/5 p-2 rounded-lg">
+                        <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">${escapeHtml(k)}</p>
+                        <p class="font-mono text-[11px] font-bold text-slate-900 dark:text-white break-all">${escapeHtml(v === null || v === undefined ? '—' : v)}</p>
+                    </div>
+                `;
+            }
+
+            async function openDetailModal(id) {
+                const resp = await fetch('/api/v1/hosts', { headers: HEADERS });
+                const data = await resp.json();
+                const h = (data.hosts || []).find(x => String(x.id) === String(id));
+                if (!h) { alert('Host não encontrado'); return; }
+
+                currentDetailHost = h;
+                detailEl.title.textContent = h.label;
+                detailEl.subtitle.textContent = h.base_url + (h.notes ? ' — ' + h.notes : '');
+                detailEl.openUi.href = h.base_url;
+                switchTab('info');
+                detailEl.modal.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+
+                renderStatusTab(h);
+                await loadInfoTab(h.id);
+            }
+
+            function closeDetailModal() {
+                detailEl.modal.classList.add('hidden');
+                document.body.style.overflow = '';
+                currentDetailHost = null;
+            }
+
+            function switchTab(which) {
+                detailEl.tabBtns.forEach(b => {
+                    const active = b.getAttribute('data-tab') === which;
+                    b.classList.toggle('border-cyan-500', active);
+                    b.classList.toggle('text-cyan-600', active);
+                    b.classList.toggle('dark:text-cyan-400', active);
+                    b.classList.toggle('border-transparent', !active);
+                    b.classList.toggle('text-slate-500', !active);
+                });
+                detailEl.paneInfo.classList.toggle('hidden', which !== 'info');
+                detailEl.paneStatus.classList.toggle('hidden', which !== 'status');
+            }
+
+            async function loadInfoTab(id) {
+                detailEl.infoLoader.classList.remove('hidden');
+                detailEl.infoGrid.classList.add('hidden');
+                detailEl.infoGrid.innerHTML = '';
+                try {
+                    const resp = await fetch(`/api/v1/hosts/${id}/info`, { headers: HEADERS });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const body = await resp.json();
+                    if (!body.ok) {
+                        detailEl.infoLoader.textContent = 'Falha ao consultar /host/info: ' + (body.error || 'erro desconhecido');
+                        return;
+                    }
+                    const d = body.data || {};
+                    detailEl.infoGrid.innerHTML = [
+                        infoRow('Hostname', d.hostname),
+                        infoRow('FQDN', d.fqdn),
+                        infoRow('Sistema', `${d.system || '?'} ${d.release || ''}`.trim()),
+                        infoRow('Arquitetura', d.machine),
+                        infoRow('Python', d.python_version),
+                        infoRow('VERSION', d.version),
+                        infoRow('API version', d.api_version),
+                    ].join('');
+                    detailEl.infoLoader.classList.add('hidden');
+                    detailEl.infoGrid.classList.remove('hidden');
+                } catch (err) {
+                    detailEl.infoLoader.textContent = 'Erro: ' + err.message;
+                }
+            }
+
+            function renderStatusTab(h) {
+                const p = h.last_status_payload || {};
+                detailEl.statusMeta.textContent = `Último poll: ${fmtRelative(h.last_polled_at)} • Estado: ${h.last_status || 'unknown'}`;
+                detailEl.statusGrid.innerHTML = [
+                    infoRow('Versão', p.version ? 'v' + p.version : '—'),
+                    infoRow('Uptime', fmtUptime(p.uptime_seconds)),
+                    infoRow('Hit ratio 24h', p.hit_ratio_24h !== undefined && p.hit_ratio_24h !== null ? Number(p.hit_ratio_24h).toFixed(1) + '%' : '—'),
+                    infoRow('Queries 24h', fmtNum(p.queries_24h)),
+                    infoRow('Alertas', p.alerts_active),
+                    infoRow('Users', fmtNum(p.users_total)),
+                    infoRow('Sessões', fmtNum(p.sessions_active)),
+                    infoRow('DuckDB', p.duckdb_ok === true ? 'OK' : (p.duckdb_ok === false ? 'FAIL' : '—')),
+                    infoRow('Auth', p.auth_kind),
+                ].join('');
+                if (h.last_status !== 'ok' && h.last_error) {
+                    detailEl.statusErr.textContent = h.last_error;
+                    detailEl.statusErr.classList.remove('hidden');
+                } else {
+                    detailEl.statusErr.classList.add('hidden');
+                }
+            }
+
+            detailEl.tabBtns.forEach(b => b.addEventListener('click', () => switchTab(b.getAttribute('data-tab'))));
+            detailEl.close.addEventListener('click', closeDetailModal);
+            detailEl.modal.addEventListener('click', (e) => { if (e.target === detailEl.modal) closeDetailModal(); });
+            detailEl.statusReload.addEventListener('click', async () => {
+                if (!currentDetailHost) return;
+                detailEl.statusReload.disabled = true;
+                detailEl.statusReload.textContent = '⟳ Pollando…';
+                try {
+                    const resp = await fetch(`/api/v1/hosts/${currentDetailHost.id}/poll`, { method: 'POST', headers: HEADERS });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    await load();
+                    // Atualiza referência local com novo estado
+                    const r2 = await fetch('/api/v1/hosts', { headers: HEADERS });
+                    const data = await r2.json();
+                    const h = (data.hosts || []).find(x => x.id === currentDetailHost.id);
+                    if (h) { currentDetailHost = h; renderStatusTab(h); }
+                } catch (err) {
+                    alert('Erro: ' + err.message);
+                } finally {
+                    detailEl.statusReload.disabled = false;
+                    detailEl.statusReload.textContent = '↻ Forçar poll';
+                }
+            });
+
+            detailEl.btnRestartApi.addEventListener('click', async () => {
+                if (!currentDetailHost) return;
+                if (!confirm(`Reiniciar api_service em "${currentDetailHost.label}"? Polling do master vai falhar por ~5s.`)) return;
+                await singleHostAction(currentDetailHost.id, 'restart/api', 'API reiniciada');
+            });
+            detailEl.btnRestartUnbound.addEventListener('click', async () => {
+                if (!currentDetailHost) return;
+                if (!confirm(`Reiniciar Unbound em "${currentDetailHost.label}"? DNS pode parar por ~1s.`)) return;
+                await singleHostAction(currentDetailHost.id, 'restart/unbound', 'Unbound reiniciado');
+            });
+            detailEl.btnUpgrade.addEventListener('click', async () => {
+                if (!currentDetailHost) return;
+                const v = await detectLatestVersion();
+                if (!v) { alert('Não consegui detectar a versão mais recente — tente Configurações → Updates.'); return; }
+                if (!confirm(`Atualizar "${currentDetailHost.label}" pra v${v}?`)) return;
+                try {
+                    const resp = await fetch(`/api/v1/hosts/${currentDetailHost.id}/upgrade`, {
+                        method: 'POST', headers: HEADERS,
+                        body: JSON.stringify({ version: v }),
+                    });
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+                    if (data.ok) alert(`Update disparado em "${currentDetailHost.label}".`);
+                    else alert(`Falha: ${data.error || 'erro desconhecido'}`);
+                } catch (err) {
+                    alert('Erro: ' + err.message);
+                }
+            });
+
+            async function singleHostAction(id, path, successMsg) {
+                try {
+                    const resp = await fetch(`/api/v1/hosts/${id}/${path}`, { method: 'POST', headers: HEADERS });
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+                    if (data.ok) alert(successMsg + '.');
+                    else alert(`Falha: ${data.error || 'erro desconhecido'}`);
+                } catch (err) {
+                    alert('Erro: ' + err.message);
+                }
+            }
+
+            // ============================================================
+            // Batch ops
+            // ============================================================
+            const batchStatusEl = document.getElementById('batch-status');
+            const batchResultModal = document.getElementById('batch-result-modal');
+            const batchResultTitle = document.getElementById('batch-result-title');
+            const batchResultList  = document.getElementById('batch-result-list');
+            document.getElementById('batch-result-close').addEventListener('click', () => {
+                batchResultModal.classList.add('hidden');
+                document.body.style.overflow = '';
+            });
+
+            async function detectLatestVersion() {
+                try {
+                    const resp = await fetch('/api/v1/updates/check', { headers: HEADERS });
+                    if (!resp.ok) return null;
+                    const data = await resp.json();
+                    return data.latest_version || data.latest || null;
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            function setBatchBusy(busy, msg) {
+                document.querySelectorAll('.batch-btn').forEach(b => b.disabled = busy);
+                batchStatusEl.textContent = busy ? (msg || 'Processando…') : '';
+            }
+
+            function showBatchResults(title, results) {
+                batchResultTitle.textContent = title;
+                batchResultList.innerHTML = results.map(r => {
+                    const cls = r.ok
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300';
+                    const icon = r.ok ? '✓' : '✗';
+                    const detail = r.ok ? (r.status_code ? `HTTP ${r.status_code}` : 'OK') : (r.error || `HTTP ${r.status_code}`);
+                    return `
+                        <div class="${cls} border rounded-md p-2 flex items-start gap-2">
+                            <span class="font-mono font-black">${icon}</span>
+                            <div class="min-w-0">
+                                <p class="font-bold">${escapeHtml(r.label || ('host #' + r.id))}</p>
+                                <p class="text-[10px] opacity-80 break-all">${escapeHtml(String(detail))}</p>
+                            </div>
+                        </div>
+                    `;
+                }).join('') || '<p class="text-slate-500 italic text-[11px]">Nenhum host gerenciado.</p>';
+                batchResultModal.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+            }
+
+            async function runBatch(op) {
+                let url, body = null, confirmMsg, title;
+                if (op === 'poll') {
+                    url = '/api/v1/hosts/batch/poll';
+                    confirmMsg = 'Re-pollar todos os hosts agora?';
+                    title = 'Re-poll em lote';
+                } else if (op === 'restart-api') {
+                    url = '/api/v1/hosts/batch/restart/api';
+                    confirmMsg = 'Reiniciar api_service em TODOS os agents? Polling do master vai falhar por ~5s em cada.';
+                    title = 'Restart API em lote';
+                } else if (op === 'restart-unbound') {
+                    url = '/api/v1/hosts/batch/restart/unbound';
+                    confirmMsg = 'Reiniciar Unbound em TODOS os agents? DNS de cada agent pode parar por ~1s.';
+                    title = 'Restart Unbound em lote';
+                } else if (op === 'upgrade') {
+                    const v = await detectLatestVersion();
+                    if (!v) { alert('Não consegui detectar a versão mais recente — tente Configurações → Updates.'); return; }
+                    url = '/api/v1/hosts/batch/upgrade';
+                    body = JSON.stringify({ version: v });
+                    confirmMsg = `Atualizar TODOS os hosts pra v${v}? Cada agent vai reiniciar.`;
+                    title = `Upgrade em lote → v${v}`;
+                } else {
+                    return;
+                }
+                if (!confirm(confirmMsg)) return;
+                setBatchBusy(true, 'Disparando…');
+                try {
+                    const resp = await fetch(url, {
+                        method: 'POST',
+                        headers: HEADERS,
+                        body,
+                    });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    if (op === 'poll') {
+                        const results = (data.results || []).map(r => ({
+                            id: r.id, label: r.label, ok: r.status === 'ok',
+                            status_code: r.status === 'ok' ? 200 : 0,
+                            error: r.error || r.status,
+                        }));
+                        showBatchResults(title, results);
+                        await load();
+                    } else {
+                        showBatchResults(title, data.results || []);
+                    }
+                } catch (err) {
+                    alert('Erro: ' + err.message);
+                } finally {
+                    setBatchBusy(false);
+                }
+            }
+
+            document.querySelectorAll('.batch-btn').forEach(b => {
+                b.addEventListener('click', () => runBatch(b.getAttribute('data-batch')));
+            });
 
             // Auto-refresh a cada 60s (matching o intervalo do worker)
             setInterval(load, 60000);

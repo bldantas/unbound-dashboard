@@ -239,3 +239,129 @@ async def poll_all() -> list[dict[str, Any]]:
         except Exception as exc:  # noqa: BLE001
             log.warning("managed_hosts.poll_failed", id=r.get("id"), error=str(exc))
     return results
+
+
+# ============================================================
+# Proxy calls — master invoca endpoints específicos do agent
+# ============================================================
+# Diferente do poll, estes não persistem nada no banco do master:
+# são pass-through pra UI mostrar drill-down ou disparar batch ops.
+
+
+async def proxy_get(host_id: int, path: str) -> dict[str, Any]:
+    """
+    GET `<base_url>/<path>` com X-Api-Token do host. Retorna dict com
+    `ok`, `status_code` e (se ok) `data` ou (se !ok) `error`.
+    """
+    host = await get(host_id)
+    if not host:
+        raise HostNotFound(f"Host {host_id} não existe")
+    base_url = host["base_url"].rstrip("/")
+    url = f"{base_url}/{path.lstrip('/')}"
+    try:
+        async with httpx.AsyncClient(timeout=POLL_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"X-Api-Token": host["api_token"]})
+        if resp.status_code == 200:
+            return {"ok": True, "status_code": 200, "data": resp.json()}
+        return {
+            "ok": False,
+            "status_code": resp.status_code,
+            "error": resp.text[:300],
+        }
+    except httpx.ConnectError as exc:
+        return {"ok": False, "status_code": 0, "error": f"Conexão recusada: {exc}"}
+    except httpx.TimeoutException:
+        return {"ok": False, "status_code": 0, "error": f"Timeout após {POLL_TIMEOUT}s"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status_code": 0, "error": f"{type(exc).__name__}: {exc}"}
+
+
+async def proxy_post(
+    host_id: int,
+    path: str,
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """POST `<base_url>/<path>` (com body opcional) usando X-Api-Token."""
+    host = await get(host_id)
+    if not host:
+        raise HostNotFound(f"Host {host_id} não existe")
+    base_url = host["base_url"].rstrip("/")
+    url = f"{base_url}/{path.lstrip('/')}"
+    try:
+        async with httpx.AsyncClient(timeout=POLL_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.post(
+                url,
+                headers={
+                    "X-Api-Token": host["api_token"],
+                    "Content-Type": "application/json",
+                },
+                json=body or {},
+            )
+        if resp.status_code in (200, 201, 202, 204):
+            try:
+                data = resp.json() if resp.content else {}
+            except Exception:  # noqa: BLE001
+                data = {}
+            return {"ok": True, "status_code": resp.status_code, "data": data}
+        return {
+            "ok": False,
+            "status_code": resp.status_code,
+            "error": resp.text[:300],
+        }
+    except httpx.ConnectError as exc:
+        return {"ok": False, "status_code": 0, "error": f"Conexão recusada: {exc}"}
+    except httpx.TimeoutException:
+        return {"ok": False, "status_code": 0, "error": f"Timeout após {POLL_TIMEOUT}s"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status_code": 0, "error": f"{type(exc).__name__}: {exc}"}
+
+
+async def restart_service(host_id: int, service: str) -> dict[str, Any]:
+    """Dispara restart de api|unbound no agent (whitelisted pelo agent)."""
+    return await proxy_post(host_id, f"/api/v1/host/restart/{service}")
+
+
+async def trigger_upgrade(host_id: int, version: str) -> dict[str, Any]:
+    """Dispara self-update no agent pra `version` (sem ack de breaking)."""
+    return await proxy_post(
+        host_id,
+        "/api/v1/updates/apply",
+        body={"version": version, "acknowledge_breaking": False},
+    )
+
+
+async def batch(
+    op: str,
+    *,
+    service: str | None = None,
+    version: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Aplica uma operação em todos os hosts. Sequencial pra evitar
+    avalanche e pra o caller acompanhar fail-fast se quiser.
+
+    Ops: "restart" (service obrigatório), "upgrade" (version obrigatório).
+    """
+    rows = await db_fetchall("SELECT id, label FROM managed_hosts")
+    results: list[dict[str, Any]] = []
+    for r in rows:
+        host_id = int(r["id"])
+        label = r["label"]
+        try:
+            if op == "restart":
+                if not service:
+                    raise ValueError("service obrigatório pra op=restart")
+                res = await restart_service(host_id, service)
+            elif op == "upgrade":
+                if not version:
+                    raise ValueError("version obrigatória pra op=upgrade")
+                res = await trigger_upgrade(host_id, version)
+            else:
+                raise ValueError(f"op desconhecida: {op}")
+            results.append({"id": host_id, "label": label, **res})
+        except Exception as exc:  # noqa: BLE001
+            results.append({
+                "id": host_id, "label": label, "ok": False,
+                "status_code": 0, "error": f"{type(exc).__name__}: {exc}",
+            })
+    return results

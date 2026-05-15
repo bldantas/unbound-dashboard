@@ -1,5 +1,59 @@
 # Changelog
 
+## v2.22.0 — 2026-05-15
+
+### feat(multi-host F6): drill-down + batch ops (fecha o ciclo multi-host)
+
+Sexta e última fase do multi-host. Master agora controla os agents
+remotamente (não só monitora) e oferece visão detalhada por host.
+
+**Backend** (agent):
+
+- `POST /api/v1/host/restart/{service}` — whitelist `api | unbound`.
+  Spawn detachado (`start_new_session=True`) via `sudo systemctl
+  restart`, retorna 202 antes do restart matar o caller.
+- Sudoers ganha `/usr/bin/systemctl restart unbound-dashboard-api`
+  (unbound já tinha via `* unbound`).
+
+**Backend** (master, `app/services/managed_hosts.py`):
+
+- `proxy_get/post(host_id, path)` — chama agent autenticado com
+  X-Api-Token. Retorna `{ok, status_code, data|error}`.
+- `restart_service(host_id, service)` — POST /host/restart/{service}.
+- `trigger_upgrade(host_id, version)` — POST /updates/apply.
+- `batch(op, ...)` — sequencial em todos; fail isolado por host.
+
+**Backend** (master, `app/routers/hosts.py`):
+
+- `GET  /hosts/{id}/info` — proxy /host/info (estático).
+- `POST /hosts/{id}/restart/{service}` — restart 1 host.
+- `POST /hosts/{id}/upgrade` — upgrade 1 host.
+- `POST /hosts/batch/poll` — re-poll todos.
+- `POST /hosts/batch/restart/{service}` — restart em todos.
+- `POST /hosts/batch/upgrade` — upgrade em todos.
+
+**Frontend** (`hosts.php`):
+
+- **Barra de batch ops** acima da grid: Re-poll todos • Atualizar
+  todos • Reiniciar API • Reiniciar Unbound. Cada uma com confirm
+  específico explicando o impacto.
+- **Modal drill-down** abre ao clicar em "▤ Detalhes" no card:
+  - Aba "Info do agent": hostname, FQDN, OS, arch, Python,
+    VERSION, api_version (puxa /hosts/{id}/info ao vivo).
+  - Aba "Status atual": versão, uptime, hit ratio, queries 24h,
+    alertas, users, sessões, duckdb, auth_kind. Botão
+    "↻ Forçar poll" atualiza no momento.
+  - Painel de ações: Reiniciar API • Reiniciar Unbound • Atualizar
+    este • ↗ Abrir UI.
+- **Modal de resultado** mostra OK/falha por host após batch op,
+  com mensagem detalhada quando falha.
+- Detecção automática da última versão via `/updates/check` pra
+  pré-popular o upgrade.
+
+VERSION 2.21.4 → 2.22.0.
+
+---
+
 ## v2.21.4 — 2026-05-15
 
 ### feat(multi-host): card de host com 8 mini-métricas
