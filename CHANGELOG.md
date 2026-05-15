@@ -1,5 +1,31 @@
 # Changelog
 
+## v2.21.4 — 2026-05-15
+
+### feat(multi-host): card de host com 8 mini-métricas
+
+Cards de host em `/hosts.php` agora mostram tudo que o endpoint
+`/api/v1/host/status` já retornava (antes só 4 dos 8 campos
+eram exibidos).
+
+**Grid 4×2 quando status=ok**:
+
+- Linha 1: Versão • Uptime • Hit ratio 24h • Queries 24h
+- Linha 2: Alertas • Users • Sessões • DuckDB
+
+Novos helpers JS:
+
+- `fmtUptime(seconds)` — `5d 12h` / `3h 24m` / `12m`.
+- `fmtNum(n)` — locale pt-BR + null-safe.
+
+DuckDB pinta verde (OK) / vermelho (FAIL); alertas pinta vermelho
+quando > 0. Tooltip do card DuckDB mostra `auth_kind`
+(jwt | api_token) pra debug.
+
+VERSION 2.21.3 → 2.21.4.
+
+---
+
 ## v2.21.3 — 2026-05-15
 
 ### feat(multi-host F5): página `/hosts.php` (UI inventário + ações)

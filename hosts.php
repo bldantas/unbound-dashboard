@@ -163,6 +163,21 @@ $currentPage = 'hosts.php';
                     return `há ${Math.floor(diff/86400)}d`;
                 } catch (_) { return iso; }
             }
+            function fmtUptime(seconds) {
+                if (seconds === null || seconds === undefined) return '—';
+                const s = Math.max(0, Math.floor(Number(seconds) || 0));
+                const d = Math.floor(s / 86400);
+                const h = Math.floor((s % 86400) / 3600);
+                const m = Math.floor((s % 3600) / 60);
+                if (d > 0) return `${d}d ${h}h`;
+                if (h > 0) return `${h}h ${m}m`;
+                return `${m}m`;
+            }
+            function fmtNum(n) {
+                if (n === null || n === undefined) return '—';
+                try { return Number(n).toLocaleString('pt-BR'); }
+                catch (_) { return String(n); }
+            }
 
             async function load() {
                 el.refreshBtn.disabled = true;
@@ -196,10 +211,16 @@ $currentPage = 'hosts.php';
                 el.list.innerHTML = hosts.map(h => {
                     const badge = STATUS_BADGE[h.last_status] || STATUS_BADGE.null;
                     const p = h.last_status_payload || {};
-                    const ratio = (p.hit_ratio_24h !== null && p.hit_ratio_24h !== undefined) ? p.hit_ratio_24h.toFixed(1) + '%' : '—';
-                    const queries = (p.queries_24h !== null && p.queries_24h !== undefined) ? p.queries_24h.toLocaleString('pt-BR') : '—';
+                    const ratio = (p.hit_ratio_24h !== null && p.hit_ratio_24h !== undefined) ? Number(p.hit_ratio_24h).toFixed(1) + '%' : '—';
+                    const queries = fmtNum(p.queries_24h);
                     const version = p.version || '?';
                     const alerts = (p.alerts_active !== null && p.alerts_active !== undefined) ? p.alerts_active : '?';
+                    const uptime = fmtUptime(p.uptime_seconds);
+                    const users = fmtNum(p.users_total);
+                    const sessions = fmtNum(p.sessions_active);
+                    const duckdbOk = p.duckdb_ok === true;
+                    const duckdbLabel = (p.duckdb_ok === true) ? 'OK' : (p.duckdb_ok === false ? 'FAIL' : '—');
+                    const authKind = p.auth_kind || '—';
                     return `
                         <div class="glass-panel">
                             <div class="flex items-start justify-between gap-3 mb-3">
@@ -211,10 +232,14 @@ $currentPage = 'hosts.php';
                             </div>
 
                             ${h.last_status === 'ok' ? `
-                                <div class="grid grid-cols-4 gap-2 mb-3 text-[10px]">
+                                <div class="grid grid-cols-4 gap-2 mb-2 text-[10px]">
                                     <div class="bg-slate-900/5 dark:bg-white/5 p-2 rounded-lg">
                                         <p class="text-slate-500 uppercase font-bold">Versão</p>
-                                        <p class="font-mono font-bold text-slate-900 dark:text-white">v${escapeHtml(version)}</p>
+                                        <p class="font-mono font-bold text-slate-900 dark:text-white truncate">v${escapeHtml(version)}</p>
+                                    </div>
+                                    <div class="bg-slate-900/5 dark:bg-white/5 p-2 rounded-lg">
+                                        <p class="text-slate-500 uppercase font-bold">Uptime</p>
+                                        <p class="font-mono font-bold text-slate-900 dark:text-white">${uptime}</p>
                                     </div>
                                     <div class="bg-slate-900/5 dark:bg-white/5 p-2 rounded-lg">
                                         <p class="text-slate-500 uppercase font-bold">Hit ratio</p>
@@ -224,9 +249,23 @@ $currentPage = 'hosts.php';
                                         <p class="text-slate-500 uppercase font-bold">Queries 24h</p>
                                         <p class="font-mono font-bold text-slate-900 dark:text-white">${queries}</p>
                                     </div>
+                                </div>
+                                <div class="grid grid-cols-4 gap-2 mb-3 text-[10px]">
                                     <div class="bg-slate-900/5 dark:bg-white/5 p-2 rounded-lg">
                                         <p class="text-slate-500 uppercase font-bold">Alertas</p>
                                         <p class="font-mono font-bold ${alerts > 0 ? 'text-red-500' : 'text-slate-900 dark:text-white'}">${alerts}</p>
+                                    </div>
+                                    <div class="bg-slate-900/5 dark:bg-white/5 p-2 rounded-lg">
+                                        <p class="text-slate-500 uppercase font-bold">Users</p>
+                                        <p class="font-mono font-bold text-slate-900 dark:text-white">${users}</p>
+                                    </div>
+                                    <div class="bg-slate-900/5 dark:bg-white/5 p-2 rounded-lg">
+                                        <p class="text-slate-500 uppercase font-bold">Sessões</p>
+                                        <p class="font-mono font-bold text-slate-900 dark:text-white">${sessions}</p>
+                                    </div>
+                                    <div class="bg-slate-900/5 dark:bg-white/5 p-2 rounded-lg" title="Auth: ${escapeAttr(authKind)}">
+                                        <p class="text-slate-500 uppercase font-bold">DuckDB</p>
+                                        <p class="font-mono font-bold ${duckdbOk ? 'text-emerald-500' : 'text-red-500'}">${duckdbLabel}</p>
                                     </div>
                                 </div>
                             ` : `
