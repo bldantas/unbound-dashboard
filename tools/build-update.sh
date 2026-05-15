@@ -92,7 +92,6 @@ copy_dashboard() {
         --exclude='src/data/*.json' \
         --exclude='src/data/official_blocklist.conf' \
         --exclude='test_help.php' \
-        --exclude='tools/teardown_mariadb.sh' \
         --exclude='tools/docker' \
         "$DASHBOARD_DIR/" "$BUILD_DIR/dashboard/"
 
@@ -120,7 +119,6 @@ copy_apiservice() {
         --exclude='.mypy_cache' \
         --exclude='*.bak' \
         --exclude='*.bak-*' \
-        --exclude='tools/teardown_mariadb.sh' \
         "$DASHBOARD_DIR/api_service/" "$BUILD_DIR/api_service/"
 
     log "api_service/ pronto"

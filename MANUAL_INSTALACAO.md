@@ -146,11 +146,44 @@ Use as credenciais do admin criado na etapa 8.
 
 ## 🔄 Atualização
 
-Duas opções: **A)** one-liner do GitHub (rápido, recomendado pra teste/dev) ou **B)** pacote de update versionado (release imutável, recomendado pra prod).
+Três opções:
+- **A) Botão "Atualizar agora" no dashboard** — recomendado pro dia a dia desde v2.17.0. Admin clica e o sistema faz tudo (download, SHA256, backup, apply, restart, rollback se quebrar).
+- **B) One-liner do GitHub** — bom pra primeiro deploy ou recuperação manual via SSH.
+- **C) Pacote de update versionado** — release imutável via `update.sh`. Útil pra ambientes que precisam aplicar offline ou auditar tarballs.
 
 ---
 
-### Opção A — One-liner do GitHub (in-place)
+### Opção A — Botão "Atualizar agora" via UI (recomendado)
+
+Aba **Configurações → Sistema / Atualizações** (admin only):
+
+1. Sistema verifica GitHub Releases a cada 6h via worker `update_checker`. Badge "↑ Update" aparece no sidebar quando há versão nova.
+2. Admin clica **"Verificar atualizações"** pra forçar refresh ou **"Atualizar pra vX.Y.Z"**.
+3. Modal full-screen abre com log live do update streamado via SSE.
+4. Pipeline interno:
+   - Download do tarball + SHA256 do GitHub Release
+   - Validação de checksum
+   - Snapshot `pre-restore-*.tar.gz` (rollback de emergência)
+   - Backup do código + DuckDB + env file
+   - Aplica via `sudo bash tools/update.sh` (sudoers granular)
+   - Restart api_service + health check de 30s
+   - Rollback automático se health check falhar
+5. Banner final colorido + botão "Recarregar página".
+
+**Histórico de backups** na mesma aba — admin pode restaurar qualquer backup anterior clicando "↺ Restaurar" (precisa confirmar digitando `RESTAURAR`).
+
+**Aba "Auditoria"** mostra trilha persistente de todos updates/restores aplicados (quem, quando, de qual versão, IP, status).
+
+**Pré-requisitos pro botão funcionar:**
+- `gh` CLI instalado na máquina build (releases publicadas via `tools/release.sh`)
+- `uv` instalado no servidor (vem com o install.sh atual)
+- Repo público OU `GITHUB_TOKEN` em `/etc/unbound-dashboard/api-v1.env`
+
+**Notificação por email/webhook** quando release nova: configure em **Email / SMTP** e **Webhooks** (checkbox "Notificar nova release").
+
+---
+
+### Opção B — One-liner do GitHub (in-place)
 
 O `install-from-git.sh` é idempotente: rodando numa máquina que já tem o dashboard instalado, ele faz uma **atualização in-place**. O `install.sh` detecta `data/.installed` e:
 
@@ -171,7 +204,7 @@ curl -fsSL https://raw.githubusercontent.com/bldantas/unbound-dashboard/main/too
   | sudo REPO_BRANCH=feature/x bash
 ```
 
-**Rollback rápido** (Opção A) — se algo quebrar:
+**Rollback rápido** (Opção B) — se algo quebrar:
 ```bash
 LAST_BACKUP=$(ls -1d /var/www/html/unbound-dashboard.backup.* | tail -1)
 sudo systemctl stop unbound-dashboard-api
@@ -179,11 +212,11 @@ sudo rsync -a --delete "$LAST_BACKUP/" /var/www/html/unbound-dashboard/
 sudo systemctl start unbound-dashboard-api
 ```
 
-**Trade-off vs Opção B:** o one-liner sempre pega o `HEAD` do branch — não há `VERSION` específica imutável que você consiga "pinar" pra prod. Pra prod, prefira pacotes versionados.
+**Trade-off vs Opção A/C:** o one-liner sempre pega o `HEAD` do branch — não há `VERSION` específica imutável que você consiga "pinar" pra prod. Pra prod, prefira o botão via UI (Opção A) ou pacotes versionados (Opção C).
 
 ---
 
-### Opção B — Pacote de update versionado
+### Opção C — Pacote de update versionado (manual via SSH)
 
 Update cirúrgico que só toca o que mudou entre versões, gera 3 backups dedicados, e produz um artefato auditável (`.tar.gz` com `VERSION` fixa).
 
@@ -237,7 +270,7 @@ O `update.sh`:
 | `SKIP_VENV_SYNC` | `false` | Pula `uv sync` mesmo se `pyproject.toml` mudou |
 | `VERBOSE` | `false` | Saída detalhada |
 
-#### Rollback (Opção B)
+#### Rollback (Opção C)
 
 ```bash
 sudo systemctl stop unbound-dashboard-api

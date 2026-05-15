@@ -13,17 +13,22 @@ A partir da v2.2.0 (2026-05-04), o sistema é híbrido: frontend PHP servindo as
 ├── api/             # Endpoints PHP legados (transição → FastAPI)
 ├── api_service/     # FastAPI app: routers, services, repositories, workers, migrations
 │   ├── app/
-│   │   ├── core/        # config, security (JWT), deps, rate_limit, metrics
-│   │   ├── routers/     # auth, alerts, blocklist, exports, health, history, stats, threats, unbound, users
-│   │   ├── services/    # auth, history, stats, threats, unbound_stats, users
-│   │   ├── repositories/duckdb/  # acesso DuckDB (connection.py + N repos)
-│   │   ├── workers/     # log_watcher, stats_aggregator, alert_checker, json_exporter
-│   │   ├── infrastructure/  # shell, system_health, unbound
-│   │   └── db/          # runner de migrations
-│   ├── migrations/duckdb/   # V*__*.sql
-│   ├── deployments/         # systemd, apache, env example
+│   │   ├── core/        # config (+ GITHUB_TOKEN), security (JWT), deps,
+│   │   │                 # rate_limit, metrics, rbac (4 roles + 11 capabilities)
+│   │   ├── routers/     # auth, alerts, audit, blocklist, exports, health,
+│   │   │                 # history, stats, threats, unbound, updates, users, webhooks
+│   │   ├── services/    # auth, audit, email_notifier, history, jwt_denylist,
+│   │   │                 # sessions, stats, threats, totp, unbound_stats, updater,
+│   │   │                 # users, webhook_notifier
+│   │   ├── repositories/duckdb/  # acesso DuckDB (connection.py com retry + N repos)
+│   │   ├── workers/     # alert_checker, log_watcher, stats_aggregator,
+│   │   │                 # unbound_collector, update_checker (6h GitHub poll)
+│   │   ├── infrastructure/  # redis_client, shell, system_health, unbound
+│   │   └── db/          # runner de migrations idempotente
+│   ├── migrations/duckdb/   # V1..V5: initial, last_login, auth_sessions, totp, update_audit
+│   ├── deployments/         # systemd unit, apache, env example
 │   ├── tools/               # create_admin.py, migrate_mariadb_to_duckdb.py (one-time)
-│   └── tests/               # 60+ testes (pytest + pytest-asyncio)
+│   └── tests/               # 110+ testes (pytest + pytest-asyncio)
 ├── docs/            # Documentação de componentes, APIs e páginas
 ├── includes/        # Partials HTML (sidebar, topbar, head, footer)
 ├── scripts/         # update_blacklist.php (chama api_service via ApiClient)
@@ -108,37 +113,46 @@ O dashboard conta com um sistema de interface moderno e adaptável:
 
 ## 👥 Controle de Acesso por Roles (RBAC)
 
-O sistema implementa controle de acesso baseado em papéis (Role-Based Access Control) com dois perfis:
+O sistema implementa RBAC granular via **capabilities** — centralizado em `api_service/app/core/rbac.py` (Python) com espelho em `src/Auth.php::can()` (PHP). v2.15.0 expandiu de 2 pra 4 papéis.
 
-### Papéis Disponíveis
+### Papéis Disponíveis (4)
 
 | Papel | Descrição |
 |---|---|
-| **admin** | Acesso total a todas as funcionalidades, configurações e ferramentas do sistema |
-| **viewer** | Acesso limitado somente a visualização do Dashboard e Histórico |
+| **admin** | Acesso total: configuração, gestão de usuários, alertas, SMTP/webhooks, updates |
+| **readonly_admin** | Vê tudo (inclui SMTP/webhooks/users) mas não modifica nada |
+| **operator** | NOC: resolve alertas, modifica blocklist, vê threats. Sem acesso a SMTP/webhooks/users |
+| **viewer** | Read-only básico: dashboard, history, threats |
 
-### Matriz de Permissões por Página
+### Capabilities (11) → Roles
 
-| Página | Admin | Viewer | Proteção Backend |
-|---|---|---|---|
-| `index.php` (Dashboard) | ✅ | ✅ | `Auth::check()` |
-| `history.php` (Histórico) | ✅ | ✅ | `Auth::check()` |
-| `logs.php` (Logs) | ✅ | ❌ | `Auth::isAdmin()` com redirect |
-| `alerts.php` (Alertas) | ✅ | ❌ | `Auth::isAdmin()` com redirect |
-| `threats.php` (Ameaças) | ✅ | ❌ | `Auth::isAdmin()` com redirect |
-| `config.php` (Configurações) | ✅ | ❌* | `Auth::isAdmin()` (exceto tab perfil) |
-| `diagnostics.php` (Diagnóstico) | ✅ | ❌ | `Auth::isAdmin()` com redirect |
-| `health.php` (Saúde) | ✅ | ❌ | `Auth::isAdmin()` com redirect |
-| `dns_benchmark.php` (Benchmark) | ✅ | ❌ | `Auth::isAdmin()` com redirect |
-| `exports.php` (Exportações) | ✅ | ❌ | `Auth::isAdmin()` com redirect |
-
-> \* Viewers podem acessar `config.php` apenas na aba **Perfil** para alterar email e senha.
+| Capability | Roles |
+|---|---|
+| `config.write` | admin |
+| `users.manage` | admin |
+| `webhooks.manage` | admin |
+| `smtp.manage` | admin |
+| `alerts.resolve` | admin, operator |
+| `blocklist.write` | admin, operator |
+| `alerts.read` | admin, readonly_admin, operator |
+| `blocklist.read` | admin, readonly_admin, operator |
+| `users.read` | admin, readonly_admin |
+| `config.read_sensitive` | admin, readonly_admin |
+| `dashboard.read` | todos |
 
 ### Implementação
 
-- **Sidebar (`includes/sidebar.php`)**: O menu lateral é renderizado condicionalmente via `$sidebarIsAdmin = \App\Auth::isAdmin()`. Para viewers, apenas os links de **Dashboard** e **Histórico** são exibidos. As seções **Ferramentas** e **Sistema** ficam completamente ocultas.
-- **Proteção Backend**: Cada página restrita verifica `Auth::isAdmin()` no topo do script PHP e redireciona visitantes não-autorizados para `index.php`.
-- **Classe `Auth`** (`src/Auth.php`): Gerencia login, sessão, roles, recuperação de senha e CRUD de usuários. O papel é armazenado em `$_SESSION['role']`.
+- **Backend (Python)**: `require_capability("cap")` dependency em FastAPI endpoints. Ex: `Depends(require_capability("alerts.resolve"))`.
+- **Frontend (PHP)**: `Auth::can('cap')` espelha o mapeamento. Páginas e botões usam essa checagem ao invés do `Auth::isAdmin()` legado.
+- **Catálogo de roles**: `Auth::rolesCatalog()` retorna metadata (label + descrição) usado em dropdowns.
+
+### Outros recursos de segurança
+
+- **2FA TOTP opt-in** (v2.16.0): cada user pode ativar 2FA via app autenticador. Login fica em 2 passos (challenge_token + code TOTP). Admin pode resetar 2FA de outros users.
+- **JWT + denylist Redis** (v2.9.0): user desativado → todos os tokens dele caem imediatamente (sem esperar JWT expirar).
+- **Sliding session** (v2.7.0): refresh silencioso quando JWT está perto de expirar.
+- **Sessões ativas persistentes** (v2.10.0/v2.13.0): tracked em Redis (fast) + DuckDB (sobrevive restart). User vê suas sessões + encerra individualmente na aba Perfil.
+- **Audit log de updates** (v2.19.0): tabela DuckDB `update_audit` registra cada update/restore com user_id, username, IP, from/to_version, status e duração. Aba dedicada "Auditoria".
 
 ---
 

@@ -2,6 +2,7 @@
 data/*.db
 data/*.sqlite
 data/.installed
+data/.users_exists_cache
 data/tmp/*
 !data/tmp/.gitkeep
 data/latest_stats.json

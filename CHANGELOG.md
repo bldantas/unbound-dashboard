@@ -1,5 +1,47 @@
 # Changelog
 
+## v2.20.2 — 2026-05-15
+
+### chore: manutenção — deps atualizadas, docs revisadas, cleanup de código morto
+
+**Deps atualizadas** (via `uv lock --upgrade`):
+
+- fastapi (mantida 0.136.1)
+- pandas 3.0.2 → 3.0.3
+- pydantic 2.13.3 → 2.13.4
+- pydantic-settings 2.14.0 → 2.14.1
+- cryptography 47.0.0 → 48.0.0
+- uvicorn 0.46.0 → 0.47.0
+- ruff 0.15.12 → 0.15.13
+- mypy 1.20.2 → 2.1.0 (dev)
+- idna 3.13 → 3.15
+
+110/110 testes verdes após upgrade.
+
+**Docs revisadas:**
+
+- `SISTEMA.md` — listagem de routers/services/workers/migrations atualizada
+  com tudo que foi adicionado desde v2.2.x. Seção RBAC reescrita pra
+  refletir os 4 papéis + 11 capabilities (era 2 papéis).
+- `MANUAL_INSTALACAO.md` — adicionada **Opção A: Botão "Atualizar agora"
+  via UI** como caminho recomendado pro dia a dia. Opções B (one-liner)
+  e C (pacote manual via SSH) mantidas.
+
+**Cleanup:**
+
+- Removidos 3 scripts legacy do tempo da transição MariaDB → DuckDB:
+  - `api_service/tools/check_dual_write_parity.py`
+  - `api_service/tools/cutover_log_ingester.sh`
+  - `api_service/tools/teardown_mariadb.sh`
+- `tools/build-package.sh` e `tools/build-update.sh` simplificados
+  (excludes específicos pros scripts removidos não são mais necessários).
+- `.gitignore` ganha `data/.users_exists_cache` (arquivo de cache da
+  feature v2.20.1).
+
+VERSION 2.20.1 → 2.20.2.
+
+---
+
 ## v2.20.1 — 2026-05-15
 
 ### fix(stability): retry no DuckDB + cache do `/users/exists`

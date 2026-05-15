@@ -104,7 +104,6 @@ rsync -a --exclude='.venv' \
          --exclude='.mypy_cache' \
          --exclude='*.bak' \
          --exclude='*.bak-*' \
-         --exclude='tools/teardown_mariadb.sh' \
          "$DASHBOARD_DIR/api_service/" "$STAGING/api_service/"
 
 log "api_service copiado"
