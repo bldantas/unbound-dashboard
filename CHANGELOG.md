@@ -1,5 +1,45 @@
 # Changelog
 
+## v2.21.2 — 2026-05-15
+
+### feat(multi-host F3+F4): managed_hosts + worker poller
+
+Terceira e quarta fases do multi-host. Master ganha inventário
+persistente de agents + worker que polleia periodicamente.
+
+**Backend** (`api_service/`):
+
+- **Migration V7** cria `managed_hosts` (id, label, base_url UNIQUE,
+  api_token, notes, added_by, added_at, last_polled_at, last_status_at,
+  last_status, last_status_payload JSON, last_error).
+- `services/managed_hosts.py`:
+  - `list_all()` — sem o api_token (UI safe)
+  - `get(id)` — com api_token (uso interno do poller)
+  - `create()`, `update()` (`api_token=""` preserva original),
+    `delete()`
+  - `poll_host(id)` — HTTP GET `<base_url>/api/v1/host/status` com
+    `X-Api-Token`. Categoriza resultado em ok / auth_failed /
+    unreachable / error. Atualiza banco.
+  - `poll_all()` — sequencial pra evitar avalanche.
+- `routers/hosts.py`: `/api/v1/hosts` CRUD + `POST /{id}/poll`.
+  Capability `config.write`. base_url precisa começar com http(s)://.
+
+**Worker** `app/workers/host_poller.py`:
+
+- Loop 60s chamando `managed_hosts.poll_all()`.
+- Delay inicial 15s.
+- Registrado em `main.py` no supervisor padrão (restart on crash,
+  backoff exponencial).
+- Log estruturado por tick: `host_poller.tick total=N ok=M failed=K`.
+
+**10 testes novos** em `test_managed_hosts.py` (CRUD, duplicate, trim
+trailing slash, token preservation, 4 cenários de poll com httpx mockado).
+125/125 totais.
+
+VERSION 2.21.1 → 2.21.2.
+
+---
+
 ## v2.21.1 — 2026-05-15
 
 ### feat(multi-host F2): endpoint `/api/v1/host/{info,status}` agregado

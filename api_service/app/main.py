@@ -30,6 +30,7 @@ from app.routers import (
     health,
     history,
     host,
+    hosts,
     stats,
     threats,
     updates,
@@ -37,7 +38,14 @@ from app.routers import (
     webhooks,
 )
 from app.routers import unbound as unbound_router
-from app.workers import AlertChecker, LogWatcher, StatsAggregator, UnboundCollector, UpdateChecker
+from app.workers import (
+    AlertChecker,
+    HostPoller,
+    LogWatcher,
+    StatsAggregator,
+    UnboundCollector,
+    UpdateChecker,
+)
 
 log = structlog.get_logger()
 
@@ -93,6 +101,7 @@ async def lifespan(app: FastAPI):
     alert_checker = AlertChecker()
     unbound_collector = UnboundCollector()
     update_checker = UpdateChecker()
+    host_poller = HostPoller()
     _background_tasks.extend(
         [
             asyncio.create_task(_supervised("log_watcher", log_watcher), name="log_watcher"),
@@ -105,6 +114,9 @@ async def lifespan(app: FastAPI):
             ),
             asyncio.create_task(
                 _supervised("update_checker", update_checker), name="update_checker"
+            ),
+            asyncio.create_task(
+                _supervised("host_poller", host_poller), name="host_poller"
             ),
         ]
     )
@@ -119,6 +131,7 @@ async def lifespan(app: FastAPI):
     await alert_checker.stop()
     await unbound_collector.stop()
     await update_checker.stop()
+    await host_poller.stop()
     for task in _background_tasks:
         task.cancel()
     await asyncio.gather(*_background_tasks, return_exceptions=True)
@@ -155,6 +168,7 @@ app.include_router(exports.router)
 app.include_router(health.router)
 app.include_router(history.router)
 app.include_router(host.router)
+app.include_router(hosts.router)
 app.include_router(stats.router)
 app.include_router(threats.router)
 app.include_router(unbound_router.router)
