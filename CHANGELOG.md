@@ -1,5 +1,31 @@
 # Changelog
 
+## v2.21.1 — 2026-05-15
+
+### feat(multi-host F2): endpoint `/api/v1/host/{info,status}` agregado
+
+Segunda fase do multi-host. Agent expõe estado consolidado pro master
+polar (1 request → tudo que o master precisa pra renderizar um card).
+
+**Backend** (`api_service/app/routers/host.py`):
+
+- `GET /api/v1/host/info` — estático: hostname, FQDN, SO, release,
+  Python version, VERSION local, api_version. Cacheável aggressively.
+- `GET /api/v1/host/status` — runtime: VERSION, uptime, alerts_active,
+  users_total, sessions_active, queries_24h, hit_ratio_24h, duckdb_ok.
+  Inclui `auth_kind` (jwt|api_token) pra audit.
+- Ambos exigem `require_auth` (aceita JWT OU `X-Api-Token`).
+- Cada query DuckDB é try/except — uma falha isolada não derruba o
+  endpoint inteiro.
+
+Validado end-to-end: token criado via /api-tokens, usado como
+`X-Api-Token: <raw>` em /host/status → retornou métricas completas
+(821k queries, 2 users, 2 sessões ativas).
+
+VERSION 2.21.0 → 2.21.1.
+
+---
+
 ## v2.21.0 — 2026-05-15
 
 ### feat(multi-host): API tokens long-lived para autenticação master → agent

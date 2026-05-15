@@ -29,6 +29,7 @@ from app.routers import (
     exports,
     health,
     history,
+    host,
     stats,
     threats,
     updates,
@@ -153,6 +154,7 @@ app.include_router(blocklist.router)
 app.include_router(exports.router)
 app.include_router(health.router)
 app.include_router(history.router)
+app.include_router(host.router)
 app.include_router(stats.router)
 app.include_router(threats.router)
 app.include_router(unbound_router.router)
