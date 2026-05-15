@@ -398,8 +398,17 @@ class Auth
      */
     public static function hasUsers(): bool
     {
+        // Cache positivo (existe usuário) por 5min: admin não é deletado
+        // em loop, então é seguro cachear. Cache negativo NÃO é gravado
+        // pra que o wizard de instalação destrave assim que admin for criado.
+        $cached = self::_readUsersExistsCache();
+        if ($cached === true) return true;
         $resp = self::_unauthedGet('/api/v1/users/exists');
-        return is_array($resp) && !empty($resp['exists']);
+        if (is_array($resp) && !empty($resp['exists'])) {
+            self::_writeUsersExistsCache(true);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -417,12 +426,36 @@ class Auth
      */
     public static function hasUsersOrApiDown(): bool
     {
+        // Mesma estratégia de cache que hasUsers() — economiza ~1000 chamadas/dia
+        $cached = self::_readUsersExistsCache();
+        if ($cached === true) return true;
         $resp = self::_unauthedGet('/api/v1/users/exists');
         if (is_array($resp)) {
-            return !empty($resp['exists']);
+            $exists = !empty($resp['exists']);
+            if ($exists) self::_writeUsersExistsCache(true);
+            return $exists;
         }
         // API não respondeu — confia na flag local de instalação completa.
         return file_exists(__DIR__ . '/../data/.installed');
+    }
+
+    /** Lê cache file de "tem usuários?". TTL 5min. Retorna true/false/null (miss). */
+    private static function _readUsersExistsCache(): ?bool
+    {
+        $path = __DIR__ . '/../data/.users_exists_cache';
+        if (!is_file($path)) return null;
+        $mtime = @filemtime($path);
+        if ($mtime === false || (time() - $mtime) > 300) return null;
+        $content = @file_get_contents($path);
+        if ($content === false) return null;
+        return trim($content) === '1' ? true : null;
+    }
+
+    /** Grava cache file. Falha silenciosa (ex: permissão). */
+    private static function _writeUsersExistsCache(bool $exists): void
+    {
+        if (!$exists) return;  // não cachear negativos (ver hasUsers docstring)
+        @file_put_contents(__DIR__ . '/../data/.users_exists_cache', '1');
     }
 
     public static function check(): void

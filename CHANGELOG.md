@@ -1,5 +1,38 @@
 # Changelog
 
+## v2.20.1 — 2026-05-15
+
+### fix(stability): retry no DuckDB + cache do `/users/exists`
+
+Auditoria de warnings em prod (24h):
+
+- `_duckdb.BinderException: Unique file handle conflict` em 2/1165 calls
+  ao `/api/v1/users/exists` — race entre múltiplos readers simultâneos
+  abrindo `duckdb.connect(db_path)` no mesmo file.
+- 1165 calls/24h ao `/users/exists` (~48/h) — endpoint é hit em todo
+  page-load do `login.php`, frequência muito alta pra check que muda
+  raramente.
+
+**Fixes:**
+
+1. `repositories/duckdb/connection.py` — `_sync_fetchall`/`_sync_fetchone`
+   ganham retry exponencial (50ms, 100ms, 200ms, 400ms, 800ms) em caso
+   de erros transientes do DuckDB:
+   - "unique file handle conflict"
+   - "cannot attach"
+   - "could not set lock"
+2. `Auth::hasUsers()` e `Auth::hasUsersOrApiDown()` — cache positivo em
+   arquivo `data/.users_exists_cache` (TTL 5min). Cache negativo NÃO
+   é gravado pra que o wizard de instalação destrave imediatamente
+   após criar o admin. Reduz calls ao endpoint em ~99%.
+
+Stress test pós-fix: 30 requests concorrentes em `/users/exists` sem
+nenhuma BinderException no log.
+
+VERSION 2.20.0 → 2.20.1.
+
+---
+
 ## v2.20.0 — 2026-05-15
 
 ### feat(notify): email + webhook quando nova release é detectada
