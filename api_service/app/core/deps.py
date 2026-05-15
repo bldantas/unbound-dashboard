@@ -1,4 +1,4 @@
-"""Dependências FastAPI compartilhadas — auth (Bearer JWT) e RBAC."""
+"""Dependências FastAPI compartilhadas — auth (Bearer JWT ou API token) e RBAC."""
 
 from __future__ import annotations
 
@@ -11,17 +11,27 @@ from app.core.security import JWTError, decode_token
 from app.services import sessions
 from app.services.jwt_denylist import is_token_hash_revoked, is_user_revoked
 
-_bearer = HTTPBearer(auto_error=True)
+# auto_error=False — temos auth alternativa (X-Api-Token) então não levantamos
+# 401 imediato se o Bearer estiver ausente; tentamos o api token antes.
+_bearer = HTTPBearer(auto_error=False)
 
 
 async def require_auth(
     request: Request,
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)] = None,
 ) -> dict:
     """
-    Exige JWT válido e não-revogado. Retorna o payload.
+    Aceita JWT (Authorization: Bearer ...) OU API Token (X-Api-Token: ...).
+    Retorna um payload normalizado em ambos os casos:
+      - JWT → payload do decode (sub, role, iat, exp, ...)
+      - API token → {"sub": "api-token", "role": "admin", "auth_kind": "api_token",
+                     "api_token_id": N, "api_token_label": "..."}
 
-    Validações:
+    API tokens são considerados "admin" pra fins de RBAC — geram acesso
+    pleno ao agent. Granularidade futura pode mudar isso (capabilities
+    por token).
+
+    Validações (JWT path):
     1. Assinatura + `exp` (via decode_token)
     2. Denylist per-user: se `iat` < `revoked_at`, rejeita 401.
        Usado quando admin desativa conta — corta todas as sessões do user.
@@ -30,6 +40,34 @@ async def require_auth(
 
     Side-effect: registra a sessão em Redis pra "Sessões Ativas" UI.
     """
+    # === API Token path (header X-Api-Token) ===
+    api_token = request.headers.get("x-api-token")
+    if api_token:
+        from app.services import api_tokens
+
+        xff = request.headers.get("x-forwarded-for", "")
+        source_ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
+        meta = await api_tokens.verify(api_token, source_ip=source_ip)
+        if meta is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="API token inválido ou revogado",
+            )
+        return {
+            "sub": "api-token",
+            "role": "admin",
+            "auth_kind": "api_token",
+            "api_token_id": meta["id"],
+            "api_token_label": meta["label"],
+        }
+
+    # === JWT path (header Authorization: Bearer ...) ===
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization ausente — use Bearer JWT ou X-Api-Token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     token = credentials.credentials
     try:
         payload = decode_token(token)

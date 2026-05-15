@@ -1,5 +1,50 @@
 # Changelog
 
+## v2.21.0 — 2026-05-15
+
+### feat(multi-host): API tokens long-lived para autenticação master → agent
+
+Primeira fase da feature **multi-host** — um master orquestrando vários
+agents. Esta release adiciona a infra de auth no lado do agent.
+
+**Backend** (`api_service/`):
+
+- **Migration V6** cria `api_tokens` (id, label, token_hash SHA256 UNIQUE,
+  created_by, created_at, last_used_at, last_used_ip, revoked_at).
+- `services/api_tokens.py`:
+  - `generate_raw_token()` — 256 bits via `secrets.token_urlsafe`
+  - `create(label, created_by)` — retorna `(id, raw)`. Raw aparece UMA vez.
+  - `verify(raw, source_ip)` — valida hash + atualiza last_used_at/ip
+  - `list_active(include_revoked)` — sem o hash (só metadata)
+  - `revoke(id)` — soft delete via `revoked_at`
+- `core/deps.py::require_auth` agora aceita **2 formas de auth**:
+  - `Authorization: Bearer <jwt>` (caminho user normal)
+  - `X-Api-Token: <token>` (novo, pra master ↔ agent)
+  - Auto_error=False no HTTPBearer; tenta API token primeiro.
+- `core/rbac.py`: nova capability `tokens.manage` (admin only).
+- `routers/api_tokens.py`: GET / POST / DELETE em `/api/v1/api-tokens`.
+- Auth via API token retorna payload sintético: `{sub: "api-token",
+  role: "admin", auth_kind: "api_token", api_token_id, api_token_label}`.
+
+**UI** (`config.php`):
+
+- Nova aba **"API Tokens"** (admin only).
+- Botão "Gerar novo token" abre modal pedindo label.
+- Token criado abre modal "Token gerado" mostrando o **raw_token UMA
+  vez** com botão "Copiar pra área de transferência".
+- Lista cards com: label, ID, data de criação, último uso + IP.
+- Botão "Revogar" por card com `confirm()`.
+
+**Testes**: 5 novos em `test_api_tokens.py` (gen, create+verify+revoke,
+invalid input, listing flags, last_used update). 115/115 verdes.
+
+Próximas fases: endpoint agregado de status no agent, master managed_hosts
+table, worker host_poller, UI /hosts.php no master, batch ops.
+
+VERSION 2.20.2 → 2.21.0 (minor — feature nova + schema change).
+
+---
+
 ## v2.20.2 — 2026-05-15
 
 ### chore: manutenção — deps atualizadas, docs revisadas, cleanup de código morto

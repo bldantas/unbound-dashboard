@@ -27,6 +27,7 @@ CAPABILITIES: dict[str, frozenset[str]] = {
     "users.manage":         frozenset({"admin"}),
     "webhooks.manage":      frozenset({"admin"}),
     "smtp.manage":          frozenset({"admin"}),
+    "tokens.manage":        frozenset({"admin"}),  # API tokens p/ master multi-host
 
     # Operações de NOC — operator + admin
     "alerts.resolve":       frozenset({"admin", "operator"}),

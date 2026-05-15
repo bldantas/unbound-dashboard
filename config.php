@@ -559,7 +559,7 @@ function field($key, $label, $desc = '', $def = '')
                 <aside class="w-full lg:w-72 flex-shrink-0">
                     <nav class="glass-panel !p-2 rounded-3xl border border-slate-200 dark:border-white/5 space-y-1">
                         <?php $tabs = $isAdmin
-                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'email' => 'Email / SMTP', 'webhooks' => 'Webhooks de Alertas', 'updates' => 'Sistema / Atualizações', 'auditoria' => 'Auditoria', 'usuarios' => 'Gestão de Usuários', 'perfil' => 'Meu Perfil']
+                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'email' => 'Email / SMTP', 'webhooks' => 'Webhooks de Alertas', 'updates' => 'Sistema / Atualizações', 'auditoria' => 'Auditoria', 'api_tokens' => 'API Tokens', 'usuarios' => 'Gestão de Usuários', 'perfil' => 'Meu Perfil']
                             : ['perfil' => 'Meu Perfil'];
                         $activeTab = in_array($requestedTab, array_keys($tabs)) ? $requestedTab : array_key_first($tabs);
                         foreach ($tabs as $id => $label): ?>
@@ -1443,6 +1443,70 @@ function field($key, $label, $desc = '', $def = '')
                     </div>
                     <?php endif; ?>
 
+                    <!-- tab-api_tokens — API tokens long-lived pra master multi-host (capability tokens.manage) -->
+                    <?php if ($isAdmin): ?>
+                    <div id="tab-api_tokens" class="tab-content <?= $activeTab === 'api_tokens' ? 'active' : '' ?> space-y-6">
+
+                        <div class="glass-panel">
+                            <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
+                                <div class="flex-1 min-w-[260px]">
+                                    <h2 class="text-lg font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                                        <svg class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/></svg>
+                                        API Tokens (multi-host)
+                                    </h2>
+                                    <p class="text-sm text-slate-500 mt-1">
+                                        Tokens long-lived pra autenticação master → agent. Diferente do JWT (sessão de user),
+                                        estes são gerados aqui e copiados pro <em>master</em> de um deployment multi-host.
+                                    </p>
+                                </div>
+                                <button type="button" id="api-token-new-btn" class="glass-btn !bg-purple-600 !text-white text-[10px] uppercase font-black flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+                                    Gerar novo token
+                                </button>
+                            </div>
+
+                            <div id="api-tokens-list" class="space-y-2">
+                                <p class="text-xs text-slate-500 italic">Carregando…</p>
+                            </div>
+                        </div>
+
+                        <!-- Modal: gerar token novo -->
+                        <div id="api-token-new-modal" class="hidden fixed inset-0 z-[115] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+                            <div class="glass-panel max-w-md w-full !p-6 border-purple-500/30 shadow-2xl shadow-purple-500/20">
+                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4">Gerar novo API token</h3>
+                                <p class="text-xs text-slate-500 mb-4">
+                                    Use uma label clara pra identificar o uso (ex: "master-orchestrator", "monitoring-readonly").
+                                    O token <strong>aparece UMA vez</strong>; copie e cole no master imediatamente.
+                                </p>
+                                <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Label</label>
+                                <input type="text" id="api-token-label-input" autocomplete="off" maxlength="100" class="glass-input w-full font-mono text-sm mb-4" placeholder="master-orchestrator">
+                                <div class="flex justify-end gap-2">
+                                    <button type="button" id="api-token-cancel-btn" class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
+                                    <button type="button" id="api-token-create-btn" class="glass-btn !bg-purple-600 !text-white text-[10px] uppercase font-black" disabled>Gerar</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modal: mostrar token recém-criado (UMA vez) -->
+                        <div id="api-token-reveal-modal" class="hidden fixed inset-0 z-[115] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+                            <div class="glass-panel max-w-lg w-full !p-6 border-emerald-500/30 shadow-2xl shadow-emerald-500/20">
+                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 flex items-center gap-2">
+                                    <span class="text-emerald-500">✓</span> Token gerado
+                                </h3>
+                                <p class="text-xs text-amber-700 dark:text-amber-300 font-bold mb-4">
+                                    ⚠ Este token só aparece AGORA. Copie e guarde em local seguro — depois disso, só pode revogar e gerar outro.
+                                </p>
+                                <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Token (clique pra selecionar)</label>
+                                <pre id="api-token-reveal-value" onclick="this.select && this.select(); document.execCommand && document.execCommand('selectAll'); window.getSelection().selectAllChildren(this);" class="bg-slate-900/95 text-emerald-300 rounded-xl border border-emerald-500/30 p-4 text-[11px] font-mono break-all cursor-text select-all mb-4"></pre>
+                                <div class="flex justify-end gap-2">
+                                    <button type="button" id="api-token-copy-btn" class="glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black">Copiar pra área de transferência</button>
+                                    <button type="button" id="api-token-reveal-close-btn" class="glass-btn text-[10px] uppercase font-black">Fechar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
                     <!-- Modal global de update — fora do tab-updates pra cobrir tela inteira -->
                     <div id="updates-console-panel" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="updates-modal-title">
                         <div class="glass-panel w-full max-w-3xl max-h-[90vh] flex flex-col !p-0 overflow-hidden border-slate-200 dark:border-white/5 shadow-2xl shadow-cyan-500/20">
@@ -2204,7 +2268,7 @@ function field($key, $label, $desc = '', $def = '')
             document.getElementById('tabField').value = tabId;
 
             // Abas que têm forms próprios (não usam o "Sincronizar Todas") — esconder o botão.
-            const tabsWithOwnForms = ['usuarios', 'ntp', 'perfil', 'email', 'webhooks', 'updates', 'auditoria'];
+            const tabsWithOwnForms = ['usuarios', 'ntp', 'perfil', 'email', 'webhooks', 'updates', 'auditoria', 'api_tokens'];
             document.getElementById('btnSaveFloating').classList.toggle('hidden', tabsWithOwnForms.includes(tabId));
 
             const actionMap = {
@@ -3009,6 +3073,155 @@ function field($key, $label, $desc = '', $def = '')
             obs.observe(tabAudit, { attributes: true, attributeFilter: ['class'] });
             if (tabAudit.classList.contains('active')) {
                 firstLoad = true;
+                load();
+            }
+        })();
+
+        // ============================================================
+        // Aba "API Tokens" — multi-host master ↔ agent auth
+        // ============================================================
+        (function () {
+            const jwtMeta = document.querySelector('meta[name="api-jwt"]');
+            const JWT = jwtMeta ? jwtMeta.content : '';
+            const HEADERS = JWT ? { 'Authorization': 'Bearer ' + JWT, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+
+            const list      = document.getElementById('api-tokens-list');
+            const newBtn    = document.getElementById('api-token-new-btn');
+            const newModal  = document.getElementById('api-token-new-modal');
+            const labelInp  = document.getElementById('api-token-label-input');
+            const cancelBtn = document.getElementById('api-token-cancel-btn');
+            const createBtn = document.getElementById('api-token-create-btn');
+            const revealModal = document.getElementById('api-token-reveal-modal');
+            const revealValue = document.getElementById('api-token-reveal-value');
+            const copyBtn   = document.getElementById('api-token-copy-btn');
+            const revealCloseBtn = document.getElementById('api-token-reveal-close-btn');
+            if (!list) return;
+
+            function fmtDate(iso) {
+                if (!iso) return '—';
+                try { return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+                catch (_) { return iso; }
+            }
+
+            async function load() {
+                list.innerHTML = '<p class="text-xs text-slate-500 italic">Carregando…</p>';
+                try {
+                    const resp = await fetch('/api/v1/api-tokens', { headers: HEADERS });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    render(data.tokens || []);
+                } catch (err) {
+                    list.innerHTML = `<p class="text-xs text-red-500">Erro: ${err.message}</p>`;
+                }
+            }
+
+            function render(tokens) {
+                if (!tokens.length) {
+                    list.innerHTML = '<p class="text-xs text-slate-500 italic py-4">Nenhum token criado ainda. Clique em "Gerar novo token" pra começar.</p>';
+                    return;
+                }
+                list.innerHTML = tokens.map(t => `
+                    <div class="flex items-center justify-between gap-3 p-3 bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2">
+                                <p class="font-mono text-xs font-bold text-slate-900 dark:text-white">${t.label}</p>
+                                <span class="text-[9px] font-black uppercase tracking-widest text-slate-500">#${t.id}</span>
+                            </div>
+                            <p class="text-[10px] text-slate-500">
+                                Criado ${fmtDate(t.created_at)}
+                                ${t.last_used_at ? ` · Último uso ${fmtDate(t.last_used_at)}` : ' · Nunca usado'}
+                                ${t.last_used_ip ? ` (${t.last_used_ip})` : ''}
+                            </p>
+                        </div>
+                        <button type="button" data-id="${t.id}" data-label="${t.label}" class="revoke-btn glass-btn !py-1 !px-3 text-[10px] uppercase font-black bg-red-500/15 text-red-600 dark:text-red-400">Revogar</button>
+                    </div>
+                `).join('');
+                list.querySelectorAll('.revoke-btn').forEach(btn => {
+                    btn.addEventListener('click', () => revokeToken(btn.getAttribute('data-id'), btn.getAttribute('data-label')));
+                });
+            }
+
+            async function revokeToken(id, label) {
+                if (!confirm(`Revogar token "${label}"? Master que usa este token vai perder acesso imediatamente.`)) return;
+                try {
+                    const resp = await fetch('/api/v1/api-tokens/' + id, { method: 'DELETE', headers: HEADERS });
+                    if (!resp.ok && resp.status !== 204) throw new Error(`HTTP ${resp.status}`);
+                    load();
+                } catch (err) {
+                    alert('Erro ao revogar: ' + err.message);
+                }
+            }
+
+            function openNew() {
+                labelInp.value = '';
+                createBtn.disabled = true;
+                newModal.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+                labelInp.focus();
+            }
+            function closeNew() {
+                newModal.classList.add('hidden');
+                document.body.style.overflow = '';
+            }
+            function closeReveal() {
+                revealModal.classList.add('hidden');
+                document.body.style.overflow = '';
+                revealValue.textContent = '';  // clear from DOM
+                load();
+            }
+
+            newBtn.addEventListener('click', openNew);
+            cancelBtn.addEventListener('click', closeNew);
+            labelInp.addEventListener('input', () => {
+                createBtn.disabled = labelInp.value.trim().length < 1;
+            });
+            createBtn.addEventListener('click', async () => {
+                const label = labelInp.value.trim();
+                if (!label) return;
+                createBtn.disabled = true;
+                cancelBtn.disabled = true;
+                try {
+                    const resp = await fetch('/api/v1/api-tokens', {
+                        method: 'POST',
+                        headers: HEADERS,
+                        body: JSON.stringify({ label }),
+                    });
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+                    closeNew();
+                    // Mostra o token
+                    revealValue.textContent = data.raw_token;
+                    revealModal.classList.remove('hidden');
+                    document.body.style.overflow = 'hidden';
+                } catch (err) {
+                    alert('Erro ao gerar token: ' + err.message);
+                } finally {
+                    createBtn.disabled = false;
+                    cancelBtn.disabled = false;
+                }
+            });
+            copyBtn.addEventListener('click', () => {
+                const txt = revealValue.textContent;
+                if (!txt) return;
+                navigator.clipboard.writeText(txt).then(() => {
+                    copyBtn.textContent = '✓ Copiado!';
+                    setTimeout(() => copyBtn.textContent = 'Copiar pra área de transferência', 2000);
+                });
+            });
+            revealCloseBtn.addEventListener('click', closeReveal);
+
+            // Lazy-load ao abrir aba
+            const tabApiTokens = document.getElementById('tab-api_tokens');
+            let firstApiTokenLoad = false;
+            const obsApiTokens = new MutationObserver(() => {
+                if (!firstApiTokenLoad && tabApiTokens.classList.contains('active')) {
+                    firstApiTokenLoad = true;
+                    load();
+                }
+            });
+            obsApiTokens.observe(tabApiTokens, { attributes: true, attributeFilter: ['class'] });
+            if (tabApiTokens.classList.contains('active')) {
+                firstApiTokenLoad = true;
                 load();
             }
         })();
