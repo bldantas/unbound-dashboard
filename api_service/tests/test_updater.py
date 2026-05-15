@@ -444,3 +444,48 @@ async def test_restore_backup_not_found(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, "BACKUP_DIR", tmp_path)
     with pytest.raises(updater.BackupNotFound):
         await updater.restore_backup("20260101_000000")
+
+
+def test_user_from_payload_jwt_int_sub():
+    """JWT comum: sub é int, helper devolve (user_id, None) pra audit pegar
+    o username via lookup."""
+    from app.routers.updates import _user_from_payload
+
+    uid, hint = _user_from_payload({"sub": 5, "role": "admin"})
+    assert uid == 5 and hint is None
+
+
+def test_user_from_payload_jwt_str_sub():
+    """JWT decodificado às vezes traz sub como string — int() converte."""
+    from app.routers.updates import _user_from_payload
+
+    uid, hint = _user_from_payload({"sub": "7"})
+    assert uid == 7 and hint is None
+
+
+def test_user_from_payload_api_token():
+    """
+    Regressão pro 500 que rompia o /updates/apply quando o master chamava
+    via X-Api-Token: o payload sintético tem sub='api-token' (str), e o
+    código antigo fazia int() direto, levantando ValueError → 500.
+    """
+    from app.routers.updates import _user_from_payload
+
+    payload = {
+        "sub": "api-token",
+        "role": "admin",
+        "auth_kind": "api_token",
+        "api_token_id": 1,
+        "api_token_label": "master-prod",
+    }
+    uid, hint = _user_from_payload(payload)
+    assert uid is None
+    assert hint == "api-token:master-prod"
+
+
+def test_user_from_payload_malformed():
+    """Sub não-numérico e não-marcado como api-token → (None, None) — não explode."""
+    from app.routers.updates import _user_from_payload
+
+    uid, hint = _user_from_payload({"sub": "nonsense"})
+    assert uid is None and hint is None

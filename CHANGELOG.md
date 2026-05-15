@@ -1,5 +1,31 @@
 # Changelog
 
+## v2.22.2 — 2026-05-15
+
+### fix(multi-host): /updates/apply 500 quando master autenticava via API token
+
+Botão "Atualizar todos" no master batia no agent e o agent retornava
+"Internal Server Error" no modal de resultado.
+
+**Causa**: `app/routers/updates.py` fazia `int(payload["sub"])` direto.
+Pra JWT, `sub` é int (user_id). Pra API token (auth alternativa pro
+multi-host), o payload sintético tem `sub="api-token"` — `int()`
+explodia com ValueError → 500.
+
+**Fix**: novo helper `_user_from_payload(payload)` que retorna
+`(user_id, username_hint)` lidando com os dois casos:
+
+- JWT: `(int(sub), None)` — username lookup via banco.
+- API token: `(None, "api-token:<label>")` — pro audit ter actor
+  identificável (label do token usado).
+
+Aplicado em `/updates/apply` e `/updates/restore`. 4 testes de
+regressão novos em `test_updater.py`.
+
+VERSION 2.22.1 → 2.22.2.
+
+---
+
 ## v2.22.1 — 2026-05-15
 
 ### fix(multi-host): batch ops davam HTTP 422 (route order)

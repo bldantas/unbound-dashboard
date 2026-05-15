@@ -37,6 +37,24 @@ async def _username_from_payload(user_id: int | None) -> str | None:
         return None
 
 
+def _user_from_payload(payload: dict) -> tuple[int | None, str | None]:
+    """
+    Extrai (user_id, username_hint) de qualquer payload aceito por require_auth.
+    - JWT: sub é int (user_id), username vem do banco.
+    - API token: sub="api-token", retorna user_id=None e username="api-token:<label>"
+      pro audit ter um actor identificável.
+    """
+    if payload.get("auth_kind") == "api_token":
+        label = payload.get("api_token_label") or "?"
+        return None, f"api-token:{label}"
+    sub = payload.get("sub", 0)
+    try:
+        user_id = int(sub)
+    except (TypeError, ValueError):
+        return None, None
+    return (user_id or None), None
+
+
 @router.get("/check")
 async def check(_: Annotated[dict, Depends(require_capability("config.write"))]) -> dict:
     """
@@ -69,8 +87,8 @@ async def apply(
       - spawn `sudo bash update.sh <tar>` detachado
       - registra job em Redis + audit trail no DuckDB
     """
-    user_id = int(payload.get("sub", 0)) or None
-    username = await _username_from_payload(user_id)
+    user_id, username_hint = _user_from_payload(payload)
+    username = username_hint or await _username_from_payload(user_id)
     xff = request.headers.get("x-forwarded-for", "")
     ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
     try:
@@ -256,8 +274,8 @@ async def restore_backup(
     Reusa lock global — só uma operação por vez. Job_id retornado pode
     ser usado pra acompanhar status/log via endpoints existentes.
     """
-    user_id = int(payload.get("sub", 0)) or None
-    username = await _username_from_payload(user_id)
+    user_id, username_hint = _user_from_payload(payload)
+    username = username_hint or await _username_from_payload(user_id)
     xff = request.headers.get("x-forwarded-for", "")
     ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
     try:
