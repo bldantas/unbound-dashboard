@@ -1,5 +1,47 @@
 # Changelog
 
+## v2.19.0 — 2026-05-15
+
+### feat(audit): trilha de auditoria de updates/restores + aba dedicada
+
+Cada update ou restore aplicado via UI agora deixa rastro persistente.
+Aba nova "Auditoria" mostra histórico completo: quem clicou, quando,
+de qual versão pra qual, IP de origem e resultado.
+
+**Backend:**
+
+- Migration **V5** cria `update_audit` no DuckDB (PK auto, job_id único,
+  campos: kind, user_id, username, ip, from/to_version, backup_timestamp,
+  acknowledge_breaking, status, started_at, finished_at).
+- `services/audit_service.py` com `record_start()` e `record_finish()`.
+  Falha silenciosa — auditoria não derruba o caller.
+- `updater.apply_update` e `restore_backup` ganham parâmetros opcionais
+  `user_id`/`username`/`ip` e chamam `audit_service.record_start` após
+  registrar o job em Redis.
+- `_monitor_job` chama `audit_service.record_finish(job_id, status)`
+  ao detectar status terminal.
+- `routers/audit.py`: `GET /api/v1/audit/updates?limit=N` — capability
+  `users.read` (admin + readonly_admin enxergam).
+- `routers/updates.py` extrai `user_id` do JWT, busca username via
+  `user_repo`, captura IP via `X-Forwarded-For` ou `request.client.host`.
+
+**UI** (`config.php` nova aba "Auditoria"):
+
+- Tabela responsiva com 7 colunas: Quando, Tipo (↑ Update / ↺ Restore),
+  Quem, IP, Versão (from→to ou backup_timestamp), Status (badge colorido),
+  Duração.
+- Botão "Recarregar" no header.
+- Lazy-load quando aba abre.
+- Status badges: Succeeded (verde), Rolled back (amarelo),
+  Rollback failed/Failed (vermelho), Running (azul).
+
+Test do `test_migrate.py` atualizado pra refletir 5 migrations.
+110/110 verdes.
+
+VERSION 2.18.0 → 2.19.0 (minor — schema change + aba nova).
+
+---
+
 ## v2.18.0 — 2026-05-14
 
 ### feat(updates): Histórico de backups na UI + restore manual

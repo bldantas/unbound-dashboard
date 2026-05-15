@@ -557,7 +557,7 @@ function field($key, $label, $desc = '', $def = '')
                 <aside class="w-full lg:w-72 flex-shrink-0">
                     <nav class="glass-panel !p-2 rounded-3xl border border-slate-200 dark:border-white/5 space-y-1">
                         <?php $tabs = $isAdmin
-                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'email' => 'Email / SMTP', 'webhooks' => 'Webhooks de Alertas', 'updates' => 'Sistema / Atualizações', 'usuarios' => 'Gestão de Usuários', 'perfil' => 'Meu Perfil']
+                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'email' => 'Email / SMTP', 'webhooks' => 'Webhooks de Alertas', 'updates' => 'Sistema / Atualizações', 'auditoria' => 'Auditoria', 'usuarios' => 'Gestão de Usuários', 'perfil' => 'Meu Perfil']
                             : ['perfil' => 'Meu Perfil'];
                         $activeTab = in_array($requestedTab, array_keys($tabs)) ? $requestedTab : array_key_first($tabs);
                         foreach ($tabs as $id => $label): ?>
@@ -1378,6 +1378,47 @@ function field($key, $label, $desc = '', $def = '')
                     </div>
                     <?php endif; ?>
 
+                    <!-- tab-auditoria — trilha de auditoria de updates/restores (capability users.read) -->
+                    <?php if ($isAdmin): ?>
+                    <div id="tab-auditoria" class="tab-content <?= $activeTab === 'auditoria' ? 'active' : '' ?> space-y-6">
+                        <div class="glass-panel">
+                            <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
+                                <div>
+                                    <h2 class="text-lg font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                                        <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                        Auditoria de Updates
+                                    </h2>
+                                    <p class="text-sm text-slate-500 mt-1">Trilha completa de updates e restores aplicados via UI — quem, quando, qual versão, qual resultado.</p>
+                                </div>
+                                <button type="button" id="audit-refresh-btn" class="glass-btn text-[10px] uppercase font-black flex items-center gap-2" title="Recarregar histórico">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+                                    Recarregar
+                                </button>
+                            </div>
+
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-xs">
+                                    <thead>
+                                        <tr class="border-b border-slate-200 dark:border-white/10 text-[10px] uppercase tracking-widest text-slate-500 font-black">
+                                            <th class="py-2 px-2 text-left">Quando</th>
+                                            <th class="py-2 px-2 text-left">Tipo</th>
+                                            <th class="py-2 px-2 text-left">Quem</th>
+                                            <th class="py-2 px-2 text-left">IP</th>
+                                            <th class="py-2 px-2 text-left">Versão</th>
+                                            <th class="py-2 px-2 text-left">Status</th>
+                                            <th class="py-2 px-2 text-right">Duração</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="audit-tbody">
+                                        <tr><td colspan="7" class="py-6 text-center text-slate-500 italic text-xs">Carregando…</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="text-[10px] text-slate-500 mt-3" id="audit-summary"></p>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
                     <!-- Modal global de update — fora do tab-updates pra cobrir tela inteira -->
                     <div id="updates-console-panel" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="updates-modal-title">
                         <div class="glass-panel w-full max-w-3xl max-h-[90vh] flex flex-col !p-0 overflow-hidden border-slate-200 dark:border-white/5 shadow-2xl shadow-cyan-500/20">
@@ -2139,7 +2180,7 @@ function field($key, $label, $desc = '', $def = '')
             document.getElementById('tabField').value = tabId;
 
             // Abas que têm forms próprios (não usam o "Sincronizar Todas") — esconder o botão.
-            const tabsWithOwnForms = ['usuarios', 'ntp', 'perfil', 'email', 'webhooks', 'updates'];
+            const tabsWithOwnForms = ['usuarios', 'ntp', 'perfil', 'email', 'webhooks', 'updates', 'auditoria'];
             document.getElementById('btnSaveFloating').classList.toggle('hidden', tabsWithOwnForms.includes(tabId));
 
             const actionMap = {
@@ -2850,6 +2891,101 @@ function field($key, $label, $desc = '', $def = '')
                 firstCheckDone = true;
                 checkUpdates();
                 loadBackups();
+            }
+        })();
+
+        // ============================================================
+        // Aba "Auditoria" — trilha de updates/restores
+        // ============================================================
+        (function () {
+            const jwtMeta = document.querySelector('meta[name="api-jwt"]');
+            const JWT = jwtMeta ? jwtMeta.content : '';
+            const HEADERS = JWT ? { 'Authorization': 'Bearer ' + JWT } : {};
+
+            const tbody = document.getElementById('audit-tbody');
+            const summary = document.getElementById('audit-summary');
+            const refreshBtn = document.getElementById('audit-refresh-btn');
+            if (!tbody) return;  // aba não renderizada
+
+            const STATUS_BADGE = {
+                running:          { label: 'Running',          color: 'bg-blue-500/15 text-blue-600 dark:text-blue-300 border-blue-500/30' },
+                succeeded:        { label: '✓ Succeeded',      color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30' },
+                rolled_back:     { label: '⚠ Rolled back',    color: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30' },
+                rollback_failed:{ label: '✗ Rollback failed', color: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30' },
+                failed:          { label: '✗ Failed',          color: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30' },
+            };
+
+            function fmtDate(ts) {
+                if (!ts) return '—';
+                try { return new Date(ts * 1000).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+                catch (_) { return String(ts); }
+            }
+            function fmtDuration(secs) {
+                if (secs === null || secs === undefined) return '—';
+                if (secs < 60) return `${secs}s`;
+                if (secs < 3600) return `${Math.floor(secs/60)}m${secs%60}s`;
+                return `${Math.floor(secs/3600)}h${Math.floor((secs%3600)/60)}m`;
+            }
+
+            async function load() {
+                refreshBtn.disabled = true;
+                tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500 italic text-xs">Carregando…</td></tr>';
+                try {
+                    const resp = await fetch('/api/v1/audit/updates?limit=50', { headers: HEADERS });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    render(data.audit || []);
+                } catch (err) {
+                    tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-red-500 text-xs">Erro: ${err.message}</td></tr>`;
+                } finally {
+                    refreshBtn.disabled = false;
+                }
+            }
+
+            function render(entries) {
+                if (!entries.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500 italic text-xs">Nenhuma operação registrada ainda.</td></tr>';
+                    summary.textContent = '';
+                    return;
+                }
+                tbody.innerHTML = entries.map(e => {
+                    const badge = STATUS_BADGE[e.status] || { label: e.status, color: 'bg-slate-500/15 text-slate-500 border-slate-500/30' };
+                    const versionCell = e.kind === 'restore'
+                        ? `restore <span class="font-mono">${e.backup_timestamp || '?'}</span>`
+                        : `v${e.from_version || '?'} → v${e.to_version || '?'}` + (e.acknowledge_breaking ? ' ⚠' : '');
+                    const kindBadge = e.kind === 'restore'
+                        ? '<span class="text-[9px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-400">↺ Restore</span>'
+                        : '<span class="text-[9px] font-black uppercase tracking-widest text-cyan-600 dark:text-cyan-400">↑ Update</span>';
+                    return `
+                        <tr class="border-b border-slate-200/50 dark:border-white/5 hover:bg-slate-50/40 dark:hover:bg-white/5">
+                            <td class="py-2.5 px-2 text-slate-700 dark:text-slate-300 whitespace-nowrap">${fmtDate(e.started_at)}</td>
+                            <td class="py-2.5 px-2">${kindBadge}</td>
+                            <td class="py-2.5 px-2 font-mono">${e.username || '?'}</td>
+                            <td class="py-2.5 px-2 text-slate-500 font-mono text-[10px]">${e.ip || '?'}</td>
+                            <td class="py-2.5 px-2 font-mono text-[11px]">${versionCell}</td>
+                            <td class="py-2.5 px-2"><span class="inline-block px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-widest ${badge.color}">${badge.label}</span></td>
+                            <td class="py-2.5 px-2 text-right text-slate-500 font-mono text-[10px]">${fmtDuration(e.duration_seconds)}</td>
+                        </tr>
+                    `;
+                }).join('');
+                summary.textContent = `${entries.length} operação(ões) listadas`;
+            }
+
+            refreshBtn.addEventListener('click', load);
+
+            // Carrega quando a aba abrir
+            const tabAudit = document.getElementById('tab-auditoria');
+            let firstLoad = false;
+            const obs = new MutationObserver(() => {
+                if (!firstLoad && tabAudit.classList.contains('active')) {
+                    firstLoad = true;
+                    load();
+                }
+            });
+            obs.observe(tabAudit, { attributes: true, attributeFilter: ['class'] });
+            if (tabAudit.classList.contains('active')) {
+                firstLoad = true;
+                load();
             }
         })();
 

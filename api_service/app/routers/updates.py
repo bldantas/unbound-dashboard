@@ -25,6 +25,18 @@ from app.services import updater
 router = APIRouter(prefix="/api/v1/updates", tags=["updates"])
 
 
+async def _username_from_payload(user_id: int | None) -> str | None:
+    """Busca username pelo user_id pra registrar no audit (JWT só tem sub)."""
+    if not user_id:
+        return None
+    try:
+        from app.repositories.duckdb import user_repo
+        user = await user_repo.find_by_id(user_id)
+        return str(user["username"]) if user else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @router.get("/check")
 async def check(_: Annotated[dict, Depends(require_capability("config.write"))]) -> dict:
     """
@@ -43,7 +55,8 @@ class ApplyRequest(BaseModel):
 @router.post("/apply", status_code=status.HTTP_202_ACCEPTED)
 async def apply(
     body: ApplyRequest,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    request: Request,
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
     """
     Dispara o update. Não bloqueia — retorna job_id imediato pra cliente
@@ -54,12 +67,19 @@ async def apply(
       - refresh release do GitHub (anti-replay)
       - download + verifica SHA256
       - spawn `sudo bash update.sh <tar>` detachado
-      - registra job em Redis
+      - registra job em Redis + audit trail no DuckDB
     """
+    user_id = int(payload.get("sub", 0)) or None
+    username = await _username_from_payload(user_id)
+    xff = request.headers.get("x-forwarded-for", "")
+    ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
     try:
         job_id = await updater.apply_update(
             version=body.version,
             acknowledge_breaking=body.acknowledge_breaking,
+            user_id=user_id,
+            username=username,
+            ip=ip,
         )
     except updater.UpdateLocked as exc:
         raise HTTPException(
@@ -228,15 +248,20 @@ class RestoreRequest(BaseModel):
 @router.post("/restore", status_code=status.HTTP_202_ACCEPTED)
 async def restore_backup(
     body: RestoreRequest,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    request: Request,
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
     """
     Dispara restore de um backup específico (criado por update.sh anterior).
     Reusa lock global — só uma operação por vez. Job_id retornado pode
     ser usado pra acompanhar status/log via endpoints existentes.
     """
+    user_id = int(payload.get("sub", 0)) or None
+    username = await _username_from_payload(user_id)
+    xff = request.headers.get("x-forwarded-for", "")
+    ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
     try:
-        job_id = await updater.restore_backup(body.timestamp)
+        job_id = await updater.restore_backup(body.timestamp, user_id=user_id, username=username, ip=ip)
     except updater.InvalidTimestamp as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
     except updater.BackupNotFound as exc:

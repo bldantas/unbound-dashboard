@@ -22,6 +22,7 @@ from app.core.rate_limit import limiter
 from app.db import run_migrations
 from app.routers import (
     alerts,
+    audit,
     auth,
     blocklist,
     exports,
@@ -144,6 +145,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 setup_metrics(app)
 
 app.include_router(alerts.router)
+app.include_router(audit.router)
 app.include_router(auth.router)
 app.include_router(blocklist.router)
 app.include_router(exports.router)

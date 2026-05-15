@@ -438,7 +438,14 @@ def _spawn_update_process(tarball_path: Path, job_id: str, log_path: Path) -> in
     return proc.pid
 
 
-async def apply_update(version: str, acknowledge_breaking: bool = False) -> str:
+async def apply_update(
+    version: str,
+    acknowledge_breaking: bool = False,
+    *,
+    user_id: int | None = None,
+    username: str | None = None,
+    ip: str | None = None,
+) -> str:
     """
     Pipeline completo: valida → download → spawn → registra job.
     Retorna job_id pro caller poder consultar status / log.
@@ -484,6 +491,7 @@ async def apply_update(version: str, acknowledge_breaking: bool = False) -> str:
         # 6. Registra job no Redis
         await _save_job_state(
             job_id,
+            kind="update",
             status="running",
             from_version=current_local,
             to_version=latest,
@@ -491,6 +499,19 @@ async def apply_update(version: str, acknowledge_breaking: bool = False) -> str:
             log_path=str(log_path),
             tarball=str(tarball_path),
             started_at=int(time.time()),
+        )
+
+        # 6b. Audit trail no DuckDB (best-effort)
+        from app.services import audit_service
+        await audit_service.record_start(
+            job_id=job_id,
+            kind="update",
+            user_id=user_id,
+            username=username,
+            ip=ip,
+            from_version=current_local,
+            to_version=latest,
+            acknowledge_breaking=acknowledge_breaking,
         )
 
         # 7. Monitor em background — atualiza status quando processo terminar
@@ -551,6 +572,9 @@ async def _monitor_job(job_id: str, pid: int, log_path: Path, to_version: str) -
 
     status = _resolve_final_status(log_path, to_version, marker_found)
     await _save_job_state(job_id, status=status, finished_at=int(time.time()))
+    # Audit trail: atualiza entry com status final
+    from app.services import audit_service
+    await audit_service.record_finish(job_id, status)
     await release_lock()
     log.info("updater.job_finished", job_id=job_id, status=status, marker_found=marker_found)
 
@@ -671,7 +695,13 @@ def _spawn_restore_process(timestamp: str, job_id: str, log_path: Path) -> int:
     return proc.pid
 
 
-async def restore_backup(timestamp: str) -> str:
+async def restore_backup(
+    timestamp: str,
+    *,
+    user_id: int | None = None,
+    username: str | None = None,
+    ip: str | None = None,
+) -> str:
     """
     Pipeline de restore manual de um backup específico.
     Reusa o lock global `udash:update:running` — só um update/restore
@@ -713,16 +743,29 @@ async def restore_backup(timestamp: str) -> str:
         except Exception:  # noqa: BLE001
             pass
 
+        current_local = _read_local_version()
         await _save_job_state(
             job_id,
             kind="restore",
             status="running",
-            from_version=_read_local_version(),
+            from_version=current_local,
             to_version=to_version_guess,
             backup_timestamp=timestamp,
             pid=pid,
             log_path=str(log_path),
             started_at=int(time.time()),
+        )
+
+        from app.services import audit_service
+        await audit_service.record_start(
+            job_id=job_id,
+            kind="restore",
+            user_id=user_id,
+            username=username,
+            ip=ip,
+            from_version=current_local,
+            to_version=to_version_guess,
+            backup_timestamp=timestamp,
         )
 
         asyncio.create_task(_monitor_job(job_id, pid, log_path, to_version_guess))
