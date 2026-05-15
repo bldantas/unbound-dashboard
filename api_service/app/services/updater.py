@@ -51,7 +51,11 @@ UPDATES_DIR = Path("/var/lib/unbound-dashboard/updates")
 LOG_DIR = Path("/var/log/unbound-dashboard")
 UPDATE_SCRIPT = "/var/www/html/unbound-dashboard/tools/update.sh"
 RUN_UPDATE_WRAPPER = "/var/www/html/unbound-dashboard/tools/run-update.sh"
+RESTORE_SCRIPT = "/var/www/html/unbound-dashboard/tools/restore-backup.sh"
 VERSION_FILE = Path("/var/www/html/unbound-dashboard/VERSION")
+BACKUP_DIR = Path("/var/backups/unbound-dashboard")
+BACKUPS_LIST_LIMIT = 10
+_BACKUP_TS_RE = re.compile(r"^dashboard-(\d{8}_\d{6})\.tar\.gz$")
 
 REDIS_LATEST_KEY = "udash:update:latest"
 REDIS_LOCK_KEY = "udash:update:running"
@@ -203,19 +207,16 @@ async def fetch_latest_release(force_refresh: bool = False) -> dict[str, Any]:
     return payload
 
 
-async def check_for_updates(force_refresh: bool = False) -> dict[str, Any]:
+async def check_for_updates() -> dict[str, Any]:
     """
     Compara última release com VERSION local. Retorna:
         {current, latest, has_update, is_major_bump, release_url, body,
          published_at, tag_name, assets}
     Ou {current, has_update: false, error: ...} se GitHub off.
-
-    `force_refresh=True` bypassa cache Redis e bate direto no GitHub.
-    Usado pelo botão "Verificar atualizações" da UI.
     """
     current = _read_local_version()
     try:
-        rel = await fetch_latest_release(force_refresh=force_refresh)
+        rel = await fetch_latest_release()
     except GitHubUnavailable as exc:
         return {
             "current": current,
@@ -606,3 +607,127 @@ def _infer_status_from_log(log_path: Path) -> str:
     if "Update concluído" in tail and "DRY-RUN" not in tail:
         return "succeeded"
     return "failed"
+
+
+# ============================================================
+# Histórico de backups + restore
+# ============================================================
+
+
+def list_backups(limit: int = BACKUPS_LIST_LIMIT) -> list[dict[str, Any]]:
+    """
+    Lista os últimos `limit` backups criados por `update.sh` em
+    /var/backups/unbound-dashboard/. Retorna mais recentes primeiro.
+
+    Cada entry:
+        {timestamp, created_at, size_bytes, has_duckdb, has_env}
+    """
+    if not BACKUP_DIR.exists():
+        return []
+
+    entries = []
+    for path in BACKUP_DIR.glob("dashboard-*.tar.gz"):
+        m = _BACKUP_TS_RE.match(path.name)
+        if not m:
+            continue
+        ts = m.group(1)
+        stat = path.stat()
+        # Verifica se há DuckDB + env associados pelo mesmo timestamp
+        db_path = BACKUP_DIR / f"duckdb-{ts}.duckdb"
+        env_path = BACKUP_DIR / f"api-v1.env-{ts}"
+        entries.append({
+            "timestamp": ts,
+            "created_at": int(stat.st_mtime),
+            "size_bytes": stat.st_size,
+            "has_duckdb": db_path.exists(),
+            "has_env": env_path.exists(),
+            "duckdb_size_bytes": db_path.stat().st_size if db_path.exists() else 0,
+        })
+
+    # Mais recente primeiro (timestamp string sort funciona pra YYYYMMDD_HHMMSS)
+    entries.sort(key=lambda e: e["timestamp"], reverse=True)
+    return entries[:limit]
+
+
+class BackupNotFound(UpdaterError):
+    pass
+
+
+class InvalidTimestamp(UpdaterError):
+    pass
+
+
+def _spawn_restore_process(timestamp: str, job_id: str, log_path: Path) -> int:
+    """Spawna `sudo bash restore-backup.sh <job_id> <timestamp>` detachado."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.touch()
+    proc = subprocess.Popen(  # noqa: S603
+        ["sudo", "-n", "/usr/bin/bash", RESTORE_SCRIPT, job_id, timestamp],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return proc.pid
+
+
+async def restore_backup(timestamp: str) -> str:
+    """
+    Pipeline de restore manual de um backup específico.
+    Reusa o lock global `udash:update:running` — só um update/restore
+    por vez.
+
+    Levanta:
+      - UpdateLocked
+      - BackupNotFound
+      - InvalidTimestamp
+    """
+    if not re.match(r"^\d{8}_\d{6}$", timestamp):
+        raise InvalidTimestamp(f"Timestamp inválido: {timestamp}")
+
+    backup_path = BACKUP_DIR / f"dashboard-{timestamp}.tar.gz"
+    if not backup_path.exists():
+        raise BackupNotFound(f"Backup não existe: {backup_path}")
+
+    job_id = uuid.uuid4().hex[:12]
+    if not await acquire_lock(job_id):
+        current = await get_running_job_id()
+        raise UpdateLocked(f"Job {current} já em andamento")
+
+    try:
+        log_path = LOG_DIR / f"update-{job_id}.log"
+        pid = _spawn_restore_process(timestamp, job_id, log_path)
+
+        # Pra inferir to_version corretamente após o restore, tentamos
+        # extrair o VERSION de dentro do tarball (sem extrair tudo)
+        import tarfile
+        to_version_guess = "?"
+        try:
+            with tarfile.open(backup_path, "r:gz") as tf:
+                for name in tf.getnames():
+                    if name.endswith("/VERSION"):
+                        f = tf.extractfile(name)
+                        if f is not None:
+                            to_version_guess = f.read().decode().strip()
+                        break
+        except Exception:  # noqa: BLE001
+            pass
+
+        await _save_job_state(
+            job_id,
+            kind="restore",
+            status="running",
+            from_version=_read_local_version(),
+            to_version=to_version_guess,
+            backup_timestamp=timestamp,
+            pid=pid,
+            log_path=str(log_path),
+            started_at=int(time.time()),
+        )
+
+        asyncio.create_task(_monitor_job(job_id, pid, log_path, to_version_guess))
+        log.info("updater.restore_started", job_id=job_id, timestamp=timestamp, pid=pid)
+        return job_id
+    except Exception:
+        await release_lock()
+        raise

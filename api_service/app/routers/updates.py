@@ -26,18 +26,13 @@ router = APIRouter(prefix="/api/v1/updates", tags=["updates"])
 
 
 @router.get("/check")
-async def check(
-    _: Annotated[dict, Depends(require_capability("config.write"))],
-    force: bool = False,
-) -> dict:
+async def check(_: Annotated[dict, Depends(require_capability("config.write"))]) -> dict:
     """
     Consulta GitHub Releases pela última versão publicada. Resposta
     sempre 200 — se GitHub off, retorna {error: ...} e has_update=false.
-
-    Cache: 5min Redis por default. `?force=1` bypassa o cache (usado pelo
-    botão "Verificar atualizações" da UI pra refresh manual imediato).
+    Cache de 5min em Redis pra não bater GitHub a cada refresh do UI.
     """
-    return await updater.check_for_updates(force_refresh=force)
+    return await updater.check_for_updates()
 
 
 class ApplyRequest(BaseModel):
@@ -215,6 +210,40 @@ async def _tail_log_generator(request: Request, job_id: str):
             return
 
         await asyncio.sleep(POLL_INTERVAL)
+
+
+@router.get("/backups")
+async def list_backups(
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Lista os últimos backups disponíveis pra restore manual."""
+    items = updater.list_backups()
+    return {"backups": items, "count": len(items)}
+
+
+class RestoreRequest(BaseModel):
+    timestamp: str = Field(min_length=15, max_length=15, description="YYYYMMDD_HHMMSS")
+
+
+@router.post("/restore", status_code=status.HTTP_202_ACCEPTED)
+async def restore_backup(
+    body: RestoreRequest,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """
+    Dispara restore de um backup específico (criado por update.sh anterior).
+    Reusa lock global — só uma operação por vez. Job_id retornado pode
+    ser usado pra acompanhar status/log via endpoints existentes.
+    """
+    try:
+        job_id = await updater.restore_backup(body.timestamp)
+    except updater.InvalidTimestamp as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    except updater.BackupNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+    except updater.UpdateLocked as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+    return {"job_id": job_id, "status": "running"}
 
 
 @router.get("/log/{job_id}")

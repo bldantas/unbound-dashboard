@@ -1,5 +1,60 @@
 # Changelog
 
+## v2.18.0 — 2026-05-14
+
+### feat(updates): Histórico de backups na UI + restore manual
+
+Polimento da feature de self-update. Agora a aba "Sistema / Atualizações"
+mostra os **últimos 10 backups** disponíveis, e admin pode **restaurar
+qualquer um** clicando direto na UI.
+
+**Backend** (`api_service/`):
+
+- `services/updater.list_backups()` — lê `/var/backups/unbound-dashboard/`,
+  parsea timestamps `dashboard-YYYYMMDD_HHMMSS.tar.gz`, retorna ordenado
+  por mais recente. Marca se há DuckDB e env file associados.
+- `services/updater.restore_backup(timestamp)` — valida timestamp, spawna
+  `sudo bash restore-backup.sh <job_id> <timestamp>`. Reusa lock global
+  `udash:update:running` — só uma operação por vez.
+- 2 endpoints novos (capability `config.write`):
+  - `GET /api/v1/updates/backups` — lista os últimos 10
+  - `POST /api/v1/updates/restore {timestamp}` — dispara restore
+
+**Novo `tools/restore-backup.sh`** — standalone (não depende de update.sh
+em andamento). Fluxo:
+
+1. Valida timestamp + backup existe
+2. Cria **snapshot pré-restore** em `pre-restore-<ts>.tar.gz` (rollback de emergência)
+3. Para api_service
+4. `tar xzf` o backup em `/var/www/html/` (path correto, sem o bug do `-C /`)
+5. `uv sync` pra reconstruir `.venv` (que não está no backup)
+6. Restaura DuckDB e env file se existirem
+7. Restart api_service + health check 30s
+8. Exit 0 (ok) / 1 (erro) / 2 (health failed)
+
+**Sudoers** ganha entrada pro `restore-backup.sh` com glob restrito
+(arg2 = timestamp começa com dígito).
+
+**UI** (`config.php` aba Sistema / Atualizações):
+
+- Card "Histórico de backups" ao final da aba, lista cada backup com:
+  - Timestamp + data formatada
+  - Tamanho do código + DuckDB
+  - Tag colorida indicando DB/env presentes
+  - Botão "↺ Restaurar"
+- **Modal de confirmação** (z-115) — admin precisa digitar `RESTAURAR`
+  num input antes do botão habilitar. Anti-clique-acidental.
+- Após confirmar, **reusa o modal de update** pra mostrar log live + status
+  final do restore (succeeded/rolled_back/etc).
+- Backups recarregam quando aba abre.
+
+**8 testes novos** em `tests/test_updater.py` (list_backups + restore_backup
+edge cases). 110/110 verdes.
+
+VERSION 2.17.16 → 2.18.0 (minor — feature nova com UI dedicada).
+
+---
+
 ## v2.17.16 — 2026-05-14
 
 ### fix(update.sh): `uv sync` incondicional pra blindar `.venv`

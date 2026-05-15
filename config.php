@@ -1332,7 +1332,51 @@ function field($key, $label, $desc = '', $def = '')
                             <p class="mt-3"><a id="updates-release-url" href="#" target="_blank" rel="noopener" class="text-cyan-600 dark:text-cyan-400 underline text-xs">Ver no GitHub</a></p>
                         </div>
 
+                        <!-- Histórico de backups -->
+                        <div class="glass-panel" id="updates-backups-panel">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V7M3 7l9-4 9 4M3 7l9 4 9-4M12 11v8"/></svg>
+                                    Histórico de backups
+                                </h3>
+                                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest" id="updates-backups-count">Últimos 10</span>
+                            </div>
+                            <p class="text-[11px] text-slate-500 mb-4">
+                                Cada update gera um backup automático antes de aplicar. Você pode restaurar qualquer um — o sistema reinicia automaticamente.
+                                Restore é destrutivo: precisa confirmar digitando <code class="bg-slate-900/10 dark:bg-white/10 px-1 rounded text-[10px]">RESTAURAR</code>.
+                            </p>
+                            <div id="updates-backups-list" class="space-y-2">
+                                <p class="text-xs text-slate-500 italic">Carregando…</p>
+                            </div>
+                        </div>
+
                     </div>
+
+                    <!-- Modal de confirmação de restore -->
+                    <?php if ($isAdmin): ?>
+                    <div id="restore-confirm-modal" class="hidden fixed inset-0 z-[115] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+                        <div class="glass-panel max-w-md w-full !p-6 border-red-500/30 shadow-2xl shadow-red-500/20">
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="shrink-0 w-10 h-10 rounded-full bg-red-500/20 text-red-500 flex items-center justify-center">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.732 0 2.814-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+                                </div>
+                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Confirmar restore</h3>
+                            </div>
+                            <p class="text-xs text-slate-700 dark:text-slate-300 mb-3">
+                                Restaurar o backup de <strong id="restore-confirm-ts" class="font-mono"></strong>?
+                            </p>
+                            <p class="text-[11px] text-amber-700 dark:text-amber-300 mb-4">
+                                Vai sobrescrever código, banco DuckDB e env file. Sistema reinicia automaticamente. Um snapshot do estado atual é gravado em <code class="bg-slate-900/10 dark:bg-white/10 px-1 rounded text-[10px]">/var/backups/.../pre-restore-*.tar.gz</code>.
+                            </p>
+                            <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Digite <code class="text-red-600 dark:text-red-400">RESTAURAR</code> pra confirmar</label>
+                            <input type="text" id="restore-confirm-input" autocomplete="off" class="glass-input w-full font-mono text-sm mb-4" placeholder="RESTAURAR">
+                            <div class="flex justify-end gap-2">
+                                <button type="button" id="restore-confirm-cancel" class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
+                                <button type="button" id="restore-confirm-go" class="glass-btn !bg-red-600 !text-white text-[10px] uppercase font-black" disabled>Restaurar</button>
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
 
                     <!-- Modal global de update — fora do tab-updates pra cobrir tela inteira -->
                     <div id="updates-console-panel" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="updates-modal-title">
@@ -2344,6 +2388,13 @@ function field($key, $label, $desc = '', $def = '')
                 jobVersion:     document.getElementById('updates-job-version'),
                 jobId:          document.getElementById('updates-job-id'),
                 finalBanner:    document.getElementById('updates-final-banner'),
+                backupsList:    document.getElementById('updates-backups-list'),
+                backupsCount:   document.getElementById('updates-backups-count'),
+                restoreModal:   document.getElementById('restore-confirm-modal'),
+                restoreTs:      document.getElementById('restore-confirm-ts'),
+                restoreInput:   document.getElementById('restore-confirm-input'),
+                restoreCancel:  document.getElementById('restore-confirm-cancel'),
+                restoreGo:      document.getElementById('restore-confirm-go'),
                 modalSpinner:   document.getElementById('updates-modal-spinner'),
                 modalFinalIcon: document.getElementById('updates-modal-final-icon'),
                 modalTitle:     document.getElementById('updates-modal-title'),
@@ -2366,16 +2417,12 @@ function field($key, $label, $desc = '', $def = '')
                 el.banner.classList.add('hidden');
             }
 
-            async function checkUpdates(force = true) {
-                // force=true por default — chamadas explícitas do user clicando "Verificar"
-                // forçam refresh do cache Redis. O check inicial (auto ao abrir aba) também
-                // força porque o user provavelmente quer ver dado fresco.
+            async function checkUpdates() {
                 el.refreshBtn.disabled = true;
                 el.refreshBtn.classList.add('is-checking');
                 if (el.lastCheck) el.lastCheck.textContent = 'Verificando…';
                 try {
-                    const url = '/api/v1/updates/check' + (force ? '?force=1' : '');
-                    const resp = await fetch(url, { headers: HEADERS });
+                    const resp = await fetch('/api/v1/updates/check', { headers: HEADERS });
                     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                     const data = await resp.json();
                     lastCheck = data;
@@ -2406,6 +2453,112 @@ function field($key, $label, $desc = '', $def = '')
             }
             // Refresca o label a cada 30s pra ficar coerente sem polling do backend
             setInterval(updateLastCheckLabel, 30000);
+
+            // ============================================================
+            // Histórico de backups + restore manual
+            // ============================================================
+            async function loadBackups() {
+                if (!el.backupsList) return;
+                try {
+                    const resp = await fetch('/api/v1/updates/backups', { headers: HEADERS });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    renderBackups(data.backups || []);
+                } catch (err) {
+                    el.backupsList.innerHTML = `<p class="text-xs text-red-500">Erro ao listar backups: ${err.message}</p>`;
+                }
+            }
+
+            function renderBackups(backups) {
+                if (!backups.length) {
+                    el.backupsList.innerHTML = '<p class="text-xs text-slate-500 italic">Nenhum backup ainda. Aplicar um update gera o primeiro.</p>';
+                    el.backupsCount.textContent = '0 backups';
+                    return;
+                }
+                el.backupsCount.textContent = `${backups.length} backup${backups.length > 1 ? 's' : ''}`;
+                el.backupsList.innerHTML = backups.map(b => {
+                    const date = new Date(b.created_at * 1000);
+                    const dateStr = date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    const sizeMB = (b.size_bytes / 1024 / 1024).toFixed(1);
+                    const dbSizeMB = b.has_duckdb ? (b.duckdb_size_bytes / 1024 / 1024).toFixed(1) : null;
+                    const dbTag = b.has_duckdb ? `<span class="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">+ DuckDB ${dbSizeMB}MB</span>` : '';
+                    const envTag = b.has_env ? `<span class="text-[9px] font-bold text-cyan-600 dark:text-cyan-400 uppercase">+ Env</span>` : '';
+                    return `
+                        <div class="flex items-center justify-between gap-3 p-3 bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5">
+                            <div class="flex-1 min-w-0">
+                                <p class="font-mono text-xs font-bold text-slate-900 dark:text-white">${b.timestamp}</p>
+                                <p class="text-[10px] text-slate-500">${dateStr} · ${sizeMB} MB de código</p>
+                                <div class="flex gap-2 mt-1">${dbTag} ${envTag}</div>
+                            </div>
+                            <button type="button" data-ts="${b.timestamp}" class="restore-btn glass-btn !bg-amber-500/15 !text-amber-700 dark:!text-amber-400 !border-amber-500/30 text-[10px] uppercase font-black" title="Restaurar este backup">
+                                ↺ Restaurar
+                            </button>
+                        </div>
+                    `;
+                }).join('');
+                // Wire restore buttons
+                el.backupsList.querySelectorAll('.restore-btn').forEach(btn => {
+                    btn.addEventListener('click', () => openRestoreConfirm(btn.getAttribute('data-ts')));
+                });
+            }
+
+            function openRestoreConfirm(ts) {
+                el.restoreTs.textContent = ts;
+                el.restoreInput.value = '';
+                el.restoreGo.disabled = true;
+                el.restoreModal.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+                el.restoreInput.focus();
+            }
+
+            function closeRestoreConfirm() {
+                el.restoreModal.classList.add('hidden');
+                document.body.style.overflow = '';
+            }
+
+            if (el.restoreInput) {
+                el.restoreInput.addEventListener('input', () => {
+                    el.restoreGo.disabled = el.restoreInput.value.trim() !== 'RESTAURAR';
+                });
+            }
+            if (el.restoreCancel) el.restoreCancel.addEventListener('click', closeRestoreConfirm);
+            if (el.restoreGo) {
+                el.restoreGo.addEventListener('click', async () => {
+                    const ts = el.restoreTs.textContent;
+                    if (!ts) return;
+                    el.restoreGo.disabled = true;
+                    el.restoreCancel.disabled = true;
+                    try {
+                        const resp = await fetch('/api/v1/updates/restore', {
+                            method: 'POST',
+                            headers: HEADERS,
+                            body: JSON.stringify({ timestamp: ts }),
+                        });
+                        const data = await resp.json();
+                        if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+                        closeRestoreConfirm();
+                        // Abre o mesmo modal de update pra acompanhar log + status
+                        el.jobId.textContent = `job ${data.job_id} (restore)`;
+                        el.jobVersion.textContent = `restore → ${ts}`;
+                        el.consoleEl.textContent = '';
+                        el.finalBanner.classList.add('hidden');
+                        el.modalFinalIcon.classList.add('hidden');
+                        el.modalSpinner.classList.remove('hidden');
+                        el.modalTitle.textContent = 'Restaurando backup';
+                        el.modalClose.classList.add('hidden');
+                        el.modalFooter.classList.remove('hidden');
+                        el.consolePanel.classList.remove('hidden');
+                        document.body.style.overflow = 'hidden';
+                        window.__updateRunning = true;
+                        streamLog(data.job_id);
+                    } catch (err) {
+                        alert('Erro ao iniciar restore: ' + err.message);
+                        el.restoreGo.disabled = false;
+                        el.restoreCancel.disabled = false;
+                    }
+                });
+            }
+
 
             function renderState(d) {
                 el.current.textContent = 'v' + (d.current || '?');
@@ -2688,6 +2841,7 @@ function field($key, $label, $desc = '', $def = '')
                 if (!firstCheckDone && tabUpdates.classList.contains('active')) {
                     firstCheckDone = true;
                     checkUpdates();
+                    loadBackups();
                 }
             });
             observer.observe(tabUpdates, { attributes: true, attributeFilter: ['class'] });
@@ -2695,6 +2849,7 @@ function field($key, $label, $desc = '', $def = '')
             if (tabUpdates.classList.contains('active')) {
                 firstCheckDone = true;
                 checkUpdates();
+                loadBackups();
             }
         })();
 

@@ -348,3 +348,99 @@ def test_validate_job_id():
 
     with pytest.raises(HTTPException):
         _validate_job_id("0123456789abcdef")  # 16 chars
+
+
+# ============================================================
+# Histórico de backups + restore
+# ============================================================
+
+
+def test_list_backups_empty(monkeypatch, tmp_path):
+    from app.services import updater
+
+    monkeypatch.setattr(updater, "BACKUP_DIR", tmp_path)
+    assert updater.list_backups() == []
+
+
+def test_list_backups_sorted_recent_first(monkeypatch, tmp_path):
+    from app.services import updater
+
+    monkeypatch.setattr(updater, "BACKUP_DIR", tmp_path)
+
+    for ts in ("20260513_120000", "20260514_100000", "20260514_080000"):
+        (tmp_path / f"dashboard-{ts}.tar.gz").write_bytes(b"x" * 100)
+
+    items = updater.list_backups()
+    assert [i["timestamp"] for i in items] == [
+        "20260514_100000",  # mais recente primeiro
+        "20260514_080000",
+        "20260513_120000",
+    ]
+
+
+def test_list_backups_includes_metadata(monkeypatch, tmp_path):
+    from app.services import updater
+
+    monkeypatch.setattr(updater, "BACKUP_DIR", tmp_path)
+
+    ts = "20260514_120000"
+    (tmp_path / f"dashboard-{ts}.tar.gz").write_bytes(b"y" * 500)
+    (tmp_path / f"duckdb-{ts}.duckdb").write_bytes(b"z" * 1000)
+    (tmp_path / f"api-v1.env-{ts}").write_text("JWT_SECRET=x\n")
+
+    items = updater.list_backups()
+    assert len(items) == 1
+    item = items[0]
+    assert item["timestamp"] == ts
+    assert item["size_bytes"] == 500
+    assert item["has_duckdb"] is True
+    assert item["has_env"] is True
+    assert item["duckdb_size_bytes"] == 1000
+
+
+def test_list_backups_limit(monkeypatch, tmp_path):
+    from app.services import updater
+
+    monkeypatch.setattr(updater, "BACKUP_DIR", tmp_path)
+
+    for i in range(20):
+        ts = f"20260514_{i:02d}0000"
+        (tmp_path / f"dashboard-{ts}.tar.gz").write_bytes(b"x")
+
+    items = updater.list_backups(limit=5)
+    assert len(items) == 5
+
+
+def test_list_backups_ignores_malformed_names(monkeypatch, tmp_path):
+    from app.services import updater
+
+    monkeypatch.setattr(updater, "BACKUP_DIR", tmp_path)
+
+    (tmp_path / "dashboard-20260514_120000.tar.gz").write_bytes(b"x")
+    (tmp_path / "dashboard-bad-format.tar.gz").write_bytes(b"x")
+    (tmp_path / "random-file.tar.gz").write_bytes(b"x")
+    (tmp_path / "pre-restore-20260514_120000.tar.gz").write_bytes(b"x")  # snapshot do restore-backup, não conta
+
+    items = updater.list_backups()
+    assert len(items) == 1
+    assert items[0]["timestamp"] == "20260514_120000"
+
+
+@pytest.mark.asyncio
+async def test_restore_backup_invalid_timestamp(monkeypatch):
+    from app.services import updater
+
+    with pytest.raises(updater.InvalidTimestamp):
+        await updater.restore_backup("not-a-timestamp")
+
+    with pytest.raises(updater.InvalidTimestamp):
+        await updater.restore_backup("../../etc/passwd")
+
+
+@pytest.mark.asyncio
+async def test_restore_backup_not_found(monkeypatch, tmp_path):
+    from app.services import updater
+
+    monkeypatch.setattr(updater, "BACKUP_DIR", tmp_path)
+    with pytest.raises(updater.BackupNotFound):
+        await updater.restore_backup("20260101_000000")
