@@ -1,5 +1,35 @@
 # Changelog
 
+## v2.22.3 — 2026-05-15
+
+### chore(hosts.php): padronização — adeus `confirm()` / `alert()` do navegador
+
+Em `/hosts.php` a maioria das confirmações e mensagens de erro
+ainda usavam `window.confirm()` e `window.alert()` nativos, com
+visual quebrando o resto da UI.
+
+**Substituição** por 2 modais genéricos no padrão glass-panel:
+
+- `customConfirm(title, body, opts)` — promessa retornando bool.
+  Opts: `variant` (info|warning|danger|error), `okLabel`,
+  `cancelLabel`. Botão OK pinta de acordo com variant.
+- `customAlert(title, body, variant)` — promessa que resolve
+  quando o usuário fecha. Variant adiciona ícone+cor:
+  - `info` (cyan, `i`)
+  - `success` (emerald, `✓`)
+  - `warning` (amber, `!`)
+  - `error` / `danger` (red, `✗`/`!`)
+
+**Bonus**: ESC fecha qualquer um dos modais; click no backdrop também.
+Focus automático no botão primário pra Enter funcionar.
+
+19 chamadas refatoradas (todas em `hosts.php`). UX agora consistente
+com o resto do app.
+
+VERSION 2.22.2 → 2.22.3.
+
+---
+
 ## v2.22.2 — 2026-05-15
 
 ### fix(multi-host): /updates/apply 500 quando master autenticava via API token

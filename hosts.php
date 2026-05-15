@@ -98,6 +98,39 @@ $currentPage = 'hosts.php';
         </div>
     </main>
 
+    <!-- Modal genérico: confirmação -->
+    <div id="generic-confirm-modal" class="hidden fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+        <div class="glass-panel max-w-md w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl">
+            <div class="flex items-start gap-3 mb-4">
+                <div id="generic-confirm-icon" class="shrink-0 w-10 h-10 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center text-lg font-black">!</div>
+                <div class="min-w-0">
+                    <h3 id="generic-confirm-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Confirmar</h3>
+                    <p id="generic-confirm-body" class="text-[12px] text-slate-600 dark:text-slate-400 mt-1 break-words"></p>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button type="button" id="generic-confirm-cancel" class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
+                <button type="button" id="generic-confirm-ok" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal genérico: notificação (alert) -->
+    <div id="generic-alert-modal" class="hidden fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+        <div class="glass-panel max-w-md w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl">
+            <div class="flex items-start gap-3 mb-4">
+                <div id="generic-alert-icon" class="shrink-0 w-10 h-10 rounded-full bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 flex items-center justify-center text-lg font-black">i</div>
+                <div class="min-w-0">
+                    <h3 id="generic-alert-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Aviso</h3>
+                    <p id="generic-alert-body" class="text-[12px] text-slate-600 dark:text-slate-400 mt-1 break-words"></p>
+                </div>
+            </div>
+            <div class="flex justify-end">
+                <button type="button" id="generic-alert-ok" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">OK</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: drill-down de 1 host (info + status) -->
     <div id="host-detail-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
         <div class="glass-panel max-w-3xl w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -212,6 +245,107 @@ $currentPage = 'hosts.php';
             };
 
             let editingId = null;  // null=create, int=edit
+
+            // ============================================================
+            // Modais genéricos (confirm + alert) — substituem dialogs nativos
+            // ============================================================
+            const ICON_VARIANTS = {
+                info:    { glyph: 'i', cls: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400' },
+                success: { glyph: '✓', cls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
+                warning: { glyph: '!', cls: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
+                error:   { glyph: '✗', cls: 'bg-red-500/15 text-red-600 dark:text-red-400' },
+                danger:  { glyph: '!', cls: 'bg-red-500/15 text-red-600 dark:text-red-400' },
+            };
+
+            const confirmModal = {
+                root:    document.getElementById('generic-confirm-modal'),
+                title:   document.getElementById('generic-confirm-title'),
+                body:    document.getElementById('generic-confirm-body'),
+                icon:    document.getElementById('generic-confirm-icon'),
+                okBtn:   document.getElementById('generic-confirm-ok'),
+                cancel:  document.getElementById('generic-confirm-cancel'),
+                pending: null,
+            };
+            const alertModal = {
+                root:    document.getElementById('generic-alert-modal'),
+                title:   document.getElementById('generic-alert-title'),
+                body:    document.getElementById('generic-alert-body'),
+                icon:    document.getElementById('generic-alert-icon'),
+                okBtn:   document.getElementById('generic-alert-ok'),
+                pending: null,
+            };
+
+            function applyIcon(iconEl, variant) {
+                const v = ICON_VARIANTS[variant] || ICON_VARIANTS.info;
+                iconEl.textContent = v.glyph;
+                iconEl.className = 'shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-lg font-black ' + v.cls;
+            }
+
+            function customConfirm(title, body, opts) {
+                opts = opts || {};
+                return new Promise(resolve => {
+                    confirmModal.title.textContent = title || 'Confirmar';
+                    confirmModal.body.textContent  = body  || '';
+                    applyIcon(confirmModal.icon, opts.variant || 'warning');
+                    confirmModal.okBtn.textContent = opts.okLabel || 'Confirmar';
+                    confirmModal.cancel.textContent = opts.cancelLabel || 'Cancelar';
+                    confirmModal.okBtn.classList.remove('!bg-cyan-600', '!bg-red-600', '!bg-amber-600');
+                    confirmModal.okBtn.classList.add(opts.variant === 'danger' || opts.variant === 'error'
+                        ? '!bg-red-600'
+                        : (opts.variant === 'warning' ? '!bg-amber-600' : '!bg-cyan-600'));
+                    confirmModal.pending = resolve;
+                    confirmModal.root.classList.remove('hidden');
+                    document.body.style.overflow = 'hidden';
+                    setTimeout(() => confirmModal.okBtn.focus(), 30);
+                });
+            }
+            function closeConfirm(value) {
+                if (!confirmModal.pending) return;
+                const fn = confirmModal.pending;
+                confirmModal.pending = null;
+                confirmModal.root.classList.add('hidden');
+                if (alertModal.root.classList.contains('hidden')) document.body.style.overflow = '';
+                fn(value);
+            }
+            confirmModal.okBtn.addEventListener('click', () => closeConfirm(true));
+            confirmModal.cancel.addEventListener('click', () => closeConfirm(false));
+            confirmModal.root.addEventListener('click', (e) => { if (e.target === confirmModal.root) closeConfirm(false); });
+
+            function customAlert(title, body, variant) {
+                return new Promise(resolve => {
+                    alertModal.title.textContent = title || 'Aviso';
+                    alertModal.body.textContent  = body  || '';
+                    applyIcon(alertModal.icon, variant || 'info');
+                    alertModal.okBtn.classList.remove('!bg-cyan-600', '!bg-red-600', '!bg-emerald-600', '!bg-amber-600');
+                    alertModal.okBtn.classList.add(
+                        variant === 'error' || variant === 'danger' ? '!bg-red-600' :
+                        variant === 'success' ? '!bg-emerald-600' :
+                        variant === 'warning' ? '!bg-amber-600' : '!bg-cyan-600'
+                    );
+                    alertModal.pending = resolve;
+                    alertModal.root.classList.remove('hidden');
+                    document.body.style.overflow = 'hidden';
+                    setTimeout(() => alertModal.okBtn.focus(), 30);
+                });
+            }
+            function closeAlert() {
+                if (!alertModal.pending) return;
+                const fn = alertModal.pending;
+                alertModal.pending = null;
+                alertModal.root.classList.add('hidden');
+                if (confirmModal.root.classList.contains('hidden')) document.body.style.overflow = '';
+                fn();
+            }
+            alertModal.okBtn.addEventListener('click', closeAlert);
+            alertModal.root.addEventListener('click', (e) => { if (e.target === alertModal.root) closeAlert(); });
+
+            // ESC fecha qualquer um dos dois
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    if (confirmModal.pending) closeConfirm(false);
+                    else if (alertModal.pending) closeAlert();
+                }
+            });
 
             const STATUS_BADGE = {
                 ok:          { label: '● Online',       color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30' },
@@ -389,7 +523,7 @@ $currentPage = 'hosts.php';
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                         await load();
                     } catch (err) {
-                        alert('Erro ao polar: ' + err.message);
+                        await customAlert('Erro ao polar', err.message, 'error');
                         btn.disabled = false;
                         btn.textContent = '↻ Poll';
                     }
@@ -397,13 +531,18 @@ $currentPage = 'hosts.php';
                     openEditModal(id);
                 } else if (action === 'delete') {
                     const label = btn.getAttribute('data-label');
-                    if (!confirm(`Remover host "${label}"? Master para de polar mas o agent não é afetado.`)) return;
+                    const ok = await customConfirm(
+                        'Remover host',
+                        `Remover "${label}" do inventário? Master para de polar — o agent em si não é afetado.`,
+                        { variant: 'danger', okLabel: 'Remover' }
+                    );
+                    if (!ok) return;
                     try {
                         const resp = await fetch(`/api/v1/hosts/${id}`, { method: 'DELETE', headers: HEADERS });
                         if (!resp.ok && resp.status !== 204) throw new Error(`HTTP ${resp.status}`);
                         await load();
                     } catch (err) {
-                        alert('Erro ao remover: ' + err.message);
+                        await customAlert('Erro ao remover', err.message, 'error');
                     }
                 }
             }
@@ -446,7 +585,7 @@ $currentPage = 'hosts.php';
                     document.body.style.overflow = 'hidden';
                     validateForm();
                 } catch (err) {
-                    alert('Erro ao carregar dados: ' + err.message);
+                    await customAlert('Erro ao carregar dados', err.message, 'error');
                 }
             }
 
@@ -497,7 +636,7 @@ $currentPage = 'hosts.php';
                     closeModal();
                     await load();
                 } catch (err) {
-                    alert('Erro: ' + err.message);
+                    await customAlert('Erro ao salvar', err.message, 'error');
                 } finally {
                     el.fSubmit.disabled = false;
                     el.fCancel.disabled = false;
@@ -544,7 +683,7 @@ $currentPage = 'hosts.php';
                 const resp = await fetch('/api/v1/hosts', { headers: HEADERS });
                 const data = await resp.json();
                 const h = (data.hosts || []).find(x => String(x.id) === String(id));
-                if (!h) { alert('Host não encontrado'); return; }
+                if (!h) { await customAlert('Não encontrado', 'Host não está mais no inventário.', 'warning'); return; }
 
                 currentDetailHost = h;
                 detailEl.title.textContent = h.label;
@@ -645,7 +784,7 @@ $currentPage = 'hosts.php';
                     const h = (data.hosts || []).find(x => x.id === currentDetailHost.id);
                     if (h) { currentDetailHost = h; renderStatusTab(h); }
                 } catch (err) {
-                    alert('Erro: ' + err.message);
+                    await customAlert('Erro ao polar', err.message, 'error');
                 } finally {
                     detailEl.statusReload.disabled = false;
                     detailEl.statusReload.textContent = '↻ Forçar poll';
@@ -654,19 +793,37 @@ $currentPage = 'hosts.php';
 
             detailEl.btnRestartApi.addEventListener('click', async () => {
                 if (!currentDetailHost) return;
-                if (!confirm(`Reiniciar api_service em "${currentDetailHost.label}"? Polling do master vai falhar por ~5s.`)) return;
+                const ok = await customConfirm(
+                    'Reiniciar api_service',
+                    `Reiniciar api_service em "${currentDetailHost.label}"? Polling do master vai falhar por ~5s.`,
+                    { variant: 'warning', okLabel: 'Reiniciar' }
+                );
+                if (!ok) return;
                 await singleHostAction(currentDetailHost.id, 'restart/api', 'API reiniciada');
             });
             detailEl.btnRestartUnbound.addEventListener('click', async () => {
                 if (!currentDetailHost) return;
-                if (!confirm(`Reiniciar Unbound em "${currentDetailHost.label}"? DNS pode parar por ~1s.`)) return;
+                const ok = await customConfirm(
+                    'Reiniciar Unbound',
+                    `Reiniciar Unbound em "${currentDetailHost.label}"? DNS pode parar por ~1s.`,
+                    { variant: 'warning', okLabel: 'Reiniciar' }
+                );
+                if (!ok) return;
                 await singleHostAction(currentDetailHost.id, 'restart/unbound', 'Unbound reiniciado');
             });
             detailEl.btnUpgrade.addEventListener('click', async () => {
                 if (!currentDetailHost) return;
                 const v = await detectLatestVersion();
-                if (!v) { alert('Não consegui detectar a versão mais recente — tente Configurações → Updates.'); return; }
-                if (!confirm(`Atualizar "${currentDetailHost.label}" pra v${v}?`)) return;
+                if (!v) {
+                    await customAlert('Versão não detectada', 'Não consegui detectar a versão mais recente — tente Configurações → Updates.', 'warning');
+                    return;
+                }
+                const ok = await customConfirm(
+                    'Atualizar host',
+                    `Atualizar "${currentDetailHost.label}" pra v${v}? O agent vai reiniciar.`,
+                    { variant: 'warning', okLabel: 'Atualizar' }
+                );
+                if (!ok) return;
                 try {
                     const resp = await fetch(`/api/v1/hosts/${currentDetailHost.id}/upgrade`, {
                         method: 'POST', headers: HEADERS,
@@ -674,10 +831,10 @@ $currentPage = 'hosts.php';
                     });
                     const data = await resp.json();
                     if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
-                    if (data.ok) alert(`Update disparado em "${currentDetailHost.label}".`);
-                    else alert(`Falha: ${data.error || 'erro desconhecido'}`);
+                    if (data.ok) await customAlert('Update disparado', `Self-update rodando em "${currentDetailHost.label}".`, 'success');
+                    else await customAlert('Falha no upgrade', data.error || 'erro desconhecido', 'error');
                 } catch (err) {
-                    alert('Erro: ' + err.message);
+                    await customAlert('Erro', err.message, 'error');
                 }
             });
 
@@ -686,10 +843,10 @@ $currentPage = 'hosts.php';
                     const resp = await fetch(`/api/v1/hosts/${id}/${path}`, { method: 'POST', headers: HEADERS });
                     const data = await resp.json();
                     if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
-                    if (data.ok) alert(successMsg + '.');
-                    else alert(`Falha: ${data.error || 'erro desconhecido'}`);
+                    if (data.ok) await customAlert('Pronto', successMsg + '.', 'success');
+                    else await customAlert('Falha', data.error || 'erro desconhecido', 'error');
                 } catch (err) {
-                    alert('Erro: ' + err.message);
+                    await customAlert('Erro', err.message, 'error');
                 }
             }
 
@@ -744,30 +901,43 @@ $currentPage = 'hosts.php';
             }
 
             async function runBatch(op) {
-                let url, body = null, confirmMsg, title;
+                let url, body = null, confirmTitle, confirmMsg, title, okLabel = 'Confirmar', variant = 'warning';
                 if (op === 'poll') {
                     url = '/api/v1/hosts/batch/poll';
+                    confirmTitle = 'Re-pollar todos';
                     confirmMsg = 'Re-pollar todos os hosts agora?';
                     title = 'Re-poll em lote';
+                    okLabel = 'Re-polar';
+                    variant = 'info';
                 } else if (op === 'restart-api') {
                     url = '/api/v1/hosts/batch/restart/api';
+                    confirmTitle = 'Reiniciar API em todos';
                     confirmMsg = 'Reiniciar api_service em TODOS os agents? Polling do master vai falhar por ~5s em cada.';
                     title = 'Restart API em lote';
+                    okLabel = 'Reiniciar todos';
                 } else if (op === 'restart-unbound') {
                     url = '/api/v1/hosts/batch/restart/unbound';
+                    confirmTitle = 'Reiniciar Unbound em todos';
                     confirmMsg = 'Reiniciar Unbound em TODOS os agents? DNS de cada agent pode parar por ~1s.';
                     title = 'Restart Unbound em lote';
+                    okLabel = 'Reiniciar todos';
                 } else if (op === 'upgrade') {
                     const v = await detectLatestVersion();
-                    if (!v) { alert('Não consegui detectar a versão mais recente — tente Configurações → Updates.'); return; }
+                    if (!v) {
+                        await customAlert('Versão não detectada', 'Não consegui detectar a versão mais recente — tente Configurações → Updates.', 'warning');
+                        return;
+                    }
                     url = '/api/v1/hosts/batch/upgrade';
                     body = JSON.stringify({ version: v });
-                    confirmMsg = `Atualizar TODOS os hosts pra v${v}? Cada agent vai reiniciar.`;
+                    confirmTitle = 'Atualizar todos';
+                    confirmMsg = `Atualizar TODOS os hosts pra v${v}? Cada agent vai reiniciar durante o update.`;
                     title = `Upgrade em lote → v${v}`;
+                    okLabel = `Atualizar pra v${v}`;
                 } else {
                     return;
                 }
-                if (!confirm(confirmMsg)) return;
+                const ok = await customConfirm(confirmTitle, confirmMsg, { variant, okLabel });
+                if (!ok) return;
                 setBatchBusy(true, 'Disparando…');
                 try {
                     const resp = await fetch(url, {
@@ -789,7 +959,7 @@ $currentPage = 'hosts.php';
                         showBatchResults(title, data.results || []);
                     }
                 } catch (err) {
-                    alert('Erro: ' + err.message);
+                    await customAlert('Erro', err.message, 'error');
                 } finally {
                     setBatchBusy(false);
                 }
