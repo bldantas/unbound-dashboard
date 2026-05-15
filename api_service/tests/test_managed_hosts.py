@@ -200,3 +200,27 @@ async def test_poll_host_not_found(fresh_db):
 
     with pytest.raises(managed_hosts.HostNotFound):
         await managed_hosts.poll_host(9999)
+
+
+def test_batch_routes_declared_before_parametric():
+    """
+    Regressão pra HTTP 422 no UI "Atualizar todos":
+    FastAPI casa rotas na ordem de declaração. Se `/batch/upgrade`
+    ficasse depois de `/{host_id}/upgrade`, o request iria pra
+    parametrizada, tentaria parsear `host_id="batch"` como int e
+    falharia com 422.
+    """
+    from app.routers import hosts
+
+    paths = [r.path for r in hosts.router.routes]
+    for batch_path, parametric_path in [
+        ("/api/v1/hosts/batch/poll", "/api/v1/hosts/{host_id}/poll"),
+        ("/api/v1/hosts/batch/restart/{service}", "/api/v1/hosts/{host_id}/restart/{service}"),
+        ("/api/v1/hosts/batch/upgrade", "/api/v1/hosts/{host_id}/upgrade"),
+    ]:
+        assert batch_path in paths, f"rota {batch_path} sumiu"
+        assert parametric_path in paths, f"rota {parametric_path} sumiu"
+        assert paths.index(batch_path) < paths.index(parametric_path), (
+            f"{batch_path} precisa vir ANTES de {parametric_path} "
+            "(senão FastAPI casa 'batch' como host_id e dá 422)"
+        )

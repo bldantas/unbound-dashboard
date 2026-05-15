@@ -114,6 +114,57 @@ async def delete_host(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado")
 
 
+class UpgradeRequest(BaseModel):
+    version: str = Field(min_length=5, max_length=20, description="Semver sem 'v' (ex: 2.21.4)")
+
+
+# ============================================================
+# Batch ops — aplica em todos os hosts (sequencial).
+# IMPORTANTE: estas rotas DEVEM ficar ANTES das `/{host_id}/...`
+# porque FastAPI casa na ordem de declaração — `/batch/upgrade`
+# tentaria parsear `host_id="batch"` (int) e retornaria 422.
+# ============================================================
+
+
+@router.post("/batch/poll", status_code=status.HTTP_200_OK)
+async def batch_poll(
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Força poll imediato em todos os hosts. Atualiza banco."""
+    results = await managed_hosts.poll_all()
+    return {"results": results, "count": len(results)}
+
+
+@router.post("/batch/restart/{service}", status_code=status.HTTP_202_ACCEPTED)
+async def batch_restart(
+    service: str,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Restart em todos os hosts. Sequencial — fail isolado por host."""
+    if service not in _ALLOWED_RESTART_SERVICES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Serviço inválido: {service}. Permitidos: {sorted(_ALLOWED_RESTART_SERVICES)}",
+        )
+    results = await managed_hosts.batch("restart", service=service)
+    return {"results": results, "count": len(results), "service": service}
+
+
+@router.post("/batch/upgrade", status_code=status.HTTP_202_ACCEPTED)
+async def batch_upgrade(
+    body: UpgradeRequest,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Upgrade em todos os hosts pra `version`. Sequencial."""
+    results = await managed_hosts.batch("upgrade", version=body.version)
+    return {"results": results, "count": len(results), "version": body.version}
+
+
+# ============================================================
+# Operações por host (parametrizadas)
+# ============================================================
+
+
 @router.post("/{host_id}/poll")
 async def poll_now(
     host_id: int,
@@ -157,10 +208,6 @@ async def restart_host_service(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
 
 
-class UpgradeRequest(BaseModel):
-    version: str = Field(min_length=5, max_length=20, description="Semver sem 'v' (ex: 2.21.4)")
-
-
 @router.post("/{host_id}/upgrade", status_code=status.HTTP_202_ACCEPTED)
 async def upgrade_host(
     host_id: int,
@@ -172,42 +219,3 @@ async def upgrade_host(
         return await managed_hosts.trigger_upgrade(host_id, body.version)
     except managed_hosts.HostNotFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
-
-
-# ============================================================
-# Batch ops — aplica em todos os hosts (sequencial)
-# ============================================================
-
-
-@router.post("/batch/poll", status_code=status.HTTP_200_OK)
-async def batch_poll(
-    _: Annotated[dict, Depends(require_capability("config.write"))],
-) -> dict:
-    """Força poll imediato em todos os hosts. Atualiza banco."""
-    results = await managed_hosts.poll_all()
-    return {"results": results, "count": len(results)}
-
-
-@router.post("/batch/restart/{service}", status_code=status.HTTP_202_ACCEPTED)
-async def batch_restart(
-    service: str,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
-) -> dict:
-    """Restart em todos os hosts. Sequencial — fail isolado por host."""
-    if service not in _ALLOWED_RESTART_SERVICES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Serviço inválido: {service}. Permitidos: {sorted(_ALLOWED_RESTART_SERVICES)}",
-        )
-    results = await managed_hosts.batch("restart", service=service)
-    return {"results": results, "count": len(results), "service": service}
-
-
-@router.post("/batch/upgrade", status_code=status.HTTP_202_ACCEPTED)
-async def batch_upgrade(
-    body: UpgradeRequest,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
-) -> dict:
-    """Upgrade em todos os hosts pra `version`. Sequencial."""
-    results = await managed_hosts.batch("upgrade", version=body.version)
-    return {"results": results, "count": len(results), "version": body.version}

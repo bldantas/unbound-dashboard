@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.22.1 — 2026-05-15
+
+### fix(multi-host): batch ops davam HTTP 422 (route order)
+
+Botões "Atualizar todos" / "Re-poll todos" / "Reiniciar API|Unbound"
+em `/hosts.php` retornavam HTTP 422.
+
+**Causa**: as rotas `/hosts/batch/{poll,restart,upgrade}` foram
+declaradas DEPOIS de `/hosts/{host_id}/{poll,restart,upgrade}`.
+FastAPI casa rotas na ordem de declaração — então um request pra
+`/batch/upgrade` ia pra `/{host_id}/upgrade`, tentava parsear
+`host_id="batch"` como int e falhava com 422 antes do auth.
+
+**Fix**: reordenado em `app/routers/hosts.py` — batch routes ANTES das
+parametrizadas. Novo teste de regressão em `test_managed_hosts.py`
+checa a ordem.
+
+VERSION 2.22.0 → 2.22.1.
+
+---
+
 ## v2.22.0 — 2026-05-15
 
 ### feat(multi-host F6): drill-down + batch ops (fecha o ciclo multi-host)
