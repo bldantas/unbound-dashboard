@@ -1,5 +1,40 @@
 # Changelog
 
+## v2.21.3 — 2026-05-15
+
+### feat(multi-host F5): página `/hosts.php` (UI inventário + ações)
+
+Quinta fase do multi-host. Master ganha página dedicada pra
+gerenciar a frota de agents.
+
+**Frontend** (`hosts.php`):
+
+- 4 stat cards no topo (Total / Online / Auth falhou / Inalcançáveis).
+- Grid de cards por host com badge de status (ok / auth_failed /
+  unreachable / error / unknown) e cores Tailwind.
+- Quando `last_status=ok`, card mostra mini-métricas: versão,
+  hit ratio 24h, queries 24h, alertas ativos.
+- Quando `last_status` ≠ ok, painel de erro com `last_error`.
+- Ações por card: ↻ Poll agora • Editar • ↗ Abrir UI • Remover.
+- Botões topo: Refresh manual • Adicionar Host.
+- Modal de add/edit:
+  - Campos: label, base_url (immutable em edit), api_token
+    (placeholder "Manter token atual" se edit), notes.
+  - Validação client-side (label non-empty, URL http(s)://, token
+    ≥20 chars no create).
+- Auto-refresh da lista a cada 60s.
+- Gate `Auth::can('config.write')`; sem permissão mostra panel
+  "Acesso negado" e cabeçalho sem botões.
+
+**Sidebar** (`includes/sidebar.php`):
+
+- Novo link "Hosts" na seção "Sistema", acima de "Configurações".
+- Ícone (house outline) + gate `Auth::can('config.write')`.
+
+VERSION 2.21.2 → 2.21.3.
+
+---
+
 ## v2.21.2 — 2026-05-15
 
 ### feat(multi-host F3+F4): managed_hosts + worker poller
