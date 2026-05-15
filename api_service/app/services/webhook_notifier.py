@@ -154,6 +154,60 @@ async def notify(alert_type: str, severity: str, message: str) -> dict[str, Any]
         return {"sent": False, "reason": "exception", "http_status": None}
 
 
+async def notify_new_release(release: dict[str, Any]) -> dict[str, Any]:
+    """
+    Notifica via webhook que uma nova release foi detectada pelo
+    `update_checker`. Distinto de `notify()` (alertas críticos):
+    severity_min e cooldown de alertas NÃO se aplicam aqui.
+
+    Bypassa enabled/url separados? Não — reusa a mesma config de webhook.
+    Se webhook_enabled=false, nada acontece.
+    """
+    cfg = await _load_config()
+    if not cfg["enabled"]:
+        return {"sent": False, "reason": "disabled"}
+    if not cfg["url"]:
+        return {"sent": False, "reason": "no_url"}
+
+    tag = release.get("tag_name", "?")
+    url = release.get("html_url", "")
+    message = (
+        f"📦 Nova versão disponível: {tag}\n"
+        f"Aplicar via UI → Configurações → Sistema / Atualizações\n"
+        f"{url}"
+    )
+
+    # Payload formatado por tipo de webhook (Slack/Discord/Teams/Generic)
+    if cfg["type"] == "slack":
+        payload = {"text": message}
+    elif cfg["type"] == "teams":
+        payload = {"text": message}
+    elif cfg["type"] == "discord":
+        payload = {"content": message[:1900]}
+    else:
+        payload = {
+            "type": "release_available",
+            "tag": tag,
+            "html_url": url,
+            "body": release.get("body", "")[:1000],
+            "published_at": release.get("published_at", ""),
+            "source": "unbound-dashboard",
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT) as client:
+            resp = await client.post(cfg["url"], json=payload)
+        ok = 200 <= resp.status_code < 300
+        if ok:
+            log.info("webhook.release_notified", tag=tag, webhook_type=cfg["type"])
+            return {"sent": True, "reason": "ok"}
+        log.warning("webhook.release_notify_failed", tag=tag, http_status=resp.status_code)
+        return {"sent": False, "reason": f"http_{resp.status_code}"}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("webhook.release_notify_exception", tag=tag, error=str(exc))
+        return {"sent": False, "reason": "exception", "error": str(exc)}
+
+
 async def send_test(custom_message: str | None = None) -> dict[str, Any]:
     """
     Dispara um envio de teste — usado pelo UI ("Enviar teste").

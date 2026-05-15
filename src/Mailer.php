@@ -23,6 +23,8 @@ class Mailer
     private const SETTINGS = [
         'smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_encryption',
         'smtp_user', 'smtp_password', 'smtp_from', 'smtp_from_name',
+        // Notificação automática quando worker detecta nova release
+        'notify_email_on_release',
     ];
 
     private array $config = [];
@@ -48,6 +50,7 @@ class Mailer
             'smtp_password'   => '',
             'smtp_from'       => '',
             'smtp_from_name'  => 'Unbound Dashboard',
+            'notify_email_on_release' => false,
         ];
 
         $jwt = $_SESSION['api_jwt'] ?? '';
@@ -60,7 +63,7 @@ class Mailer
             $key = $row['setting_key'] ?? '';
             if (in_array($key, self::SETTINGS, true)) {
                 $val = $row['setting_value'] ?? '';
-                if ($key === 'smtp_enabled') {
+                if ($key === 'smtp_enabled' || $key === 'notify_email_on_release') {
                     $config[$key] = in_array(strtolower(trim((string)$val)), ['1', 'true', 'yes', 'on'], true);
                 } elseif ($key === 'smtp_port') {
                     $config[$key] = max(1, min(65535, (int)$val ?: 587));

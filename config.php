@@ -188,6 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'smtp_user'       => trim($_POST['smtp_user'] ?? ''),
             'smtp_from'       => trim($_POST['smtp_from'] ?? ''),
             'smtp_from_name'  => trim($_POST['smtp_from_name'] ?? 'Unbound Dashboard'),
+            'notify_email_on_release' => isset($_POST['notify_email_on_release']) ? '1' : '0',
         ];
         // Só sobrescreve a senha se o user digitou algo novo (campo vem vazio
         // se ele não tocou — evita perda acidental).
@@ -228,6 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'url'          => trim($_POST['webhook_url'] ?? ''),
             'type'         => in_array($_POST['webhook_type'] ?? '', ['slack','discord','teams','generic'], true) ? $_POST['webhook_type'] : 'generic',
             'severity_min' => in_array($_POST['webhook_severity_min'] ?? '', ['warning','critical'], true) ? $_POST['webhook_severity_min'] : 'critical',
+            'notify_on_release' => isset($_POST['webhook_notify_on_release']),
         ];
         $res = \App\ApiClient::put('/api/v1/webhooks/config', $jwt, $payload);
         $message = $res['ok'] ? 'Webhook salvo.' : 'Falha ao salvar webhook: ' . ($res['reason'] ?? 'erro');
@@ -1065,6 +1067,17 @@ function field($key, $label, $desc = '', $def = '')
                                     </div>
                                 </div>
 
+                                <!-- Notificações de release nova -->
+                                <div class="pt-4 border-t border-slate-900/10 dark:border-white/5">
+                                    <label class="flex items-start gap-3 cursor-pointer">
+                                        <input type="checkbox" name="notify_email_on_release" value="1" <?= !empty($smtpConfig['notify_email_on_release']) ? 'checked' : '' ?> class="w-5 h-5 mt-0.5">
+                                        <span>
+                                            <span class="text-xs font-bold text-slate-900 dark:text-white">Notificar nova release por email</span>
+                                            <span class="block text-[10px] text-slate-500 mt-0.5">Quando o worker detectar uma nova versão no GitHub, envia email pra todos admins ativos com email cadastrado. Frequência: até 1x por versão.</span>
+                                        </span>
+                                    </label>
+                                </div>
+
                                 <div class="flex justify-end pt-4 border-t border-slate-900/10 dark:border-white/5">
                                     <button type="submit" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">Salvar Configuração</button>
                                 </div>
@@ -1219,6 +1232,17 @@ function field($key, $label, $desc = '', $def = '')
                                         mas não derrubam o worker (timeout 5s).
                                     </p>
                                 </div>
+                            </div>
+
+                            <!-- Notificação de nova release -->
+                            <div class="pt-4 border-t border-slate-900/10 dark:border-white/5">
+                                <label class="flex items-start gap-3 cursor-pointer">
+                                    <input type="checkbox" name="webhook_notify_on_release" value="1" <?= !empty($whCfg['notify_on_release']) ? 'checked' : '' ?> class="w-5 h-5 mt-0.5">
+                                    <span>
+                                        <span class="text-xs font-bold text-slate-900 dark:text-white">Notificar nova release via webhook</span>
+                                        <span class="block text-[10px] text-slate-500 mt-0.5">Quando o worker detectar uma nova versão no GitHub, dispara webhook (Slack/Discord/Teams/Genérico). Independe do severity_min — releases são sempre informativas. Até 1x por versão.</span>
+                                    </span>
+                                </label>
                             </div>
 
                             <div class="flex justify-end">

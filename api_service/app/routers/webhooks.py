@@ -22,6 +22,7 @@ class WebhookConfig(BaseModel):
     url: str = ""
     type: str = "generic"
     severity_min: str = "critical"
+    notify_on_release: bool = False
 
 
 @router.get("/config")
@@ -31,6 +32,7 @@ async def get_config(_: Annotated[dict, Depends(require_admin)]) -> WebhookConfi
         url=await settings_repo.get("webhook_url", "") or "",
         type=(await settings_repo.get("webhook_type", "generic") or "generic"),
         severity_min=(await settings_repo.get("webhook_severity_min", "critical") or "critical"),
+        notify_on_release=await settings_repo.get_bool("notify_webhook_on_release", False),
     )
 
 
@@ -39,6 +41,7 @@ class WebhookUpdate(BaseModel):
     url: str = Field(default="", max_length=512)
     type: str = "generic"
     severity_min: str = "critical"
+    notify_on_release: bool = False
 
 
 @router.put("/config", status_code=status.HTTP_204_NO_CONTENT)
@@ -66,6 +69,7 @@ async def update_config(
         {"setting_key": "webhook_url", "setting_value": body.url},
         {"setting_key": "webhook_type", "setting_value": body.type},
         {"setting_key": "webhook_severity_min", "setting_value": body.severity_min},
+        {"setting_key": "notify_webhook_on_release", "setting_value": "true" if body.notify_on_release else "false"},
     ])
 
 

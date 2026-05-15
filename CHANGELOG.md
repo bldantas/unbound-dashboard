@@ -1,5 +1,55 @@
 # Changelog
 
+## v2.20.0 — 2026-05-15
+
+### feat(notify): email + webhook quando nova release é detectada
+
+`update_checker` worker, ao detectar nova versão no GitHub, agora notifica
+admins automaticamente. Configurável separadamente por email e webhook.
+
+**Backend:**
+
+- Novo `services/email_notifier.py` — cliente SMTP minimal via stdlib
+  (smtplib + email.mime). Lê config do DuckDB settings table (mesmas
+  chaves que o PHP Mailer.php usa). Busca admins ativos com email
+  preenchido e envia pra cada.
+- `services/webhook_notifier.notify_new_release(release)` — análogo
+  ao `notify()` mas pra release. Reusa o webhook configurado mas
+  bypassa cooldown/severity_min (release é sempre informativa, 1x
+  por versão).
+- `workers/update_checker._maybe_notify_new_release()`:
+  - Confere se há tag nova (vs `udash:update:notified_tag` em Redis)
+  - Confere se VERSION local é menor que `latest` (não notifica de
+    versões "antigas")
+  - Lê settings `notify_email_on_release` e `notify_webhook_on_release`
+  - Dispara email/webhook conforme habilitado
+  - Marca como notificada SÓ se efetivamente enviou (anti-silenciar
+    permanente em caso de SMTP off no momento)
+
+**Novas settings persistidas (sem migration — usa tabela existente):**
+
+- `notify_email_on_release` (bool, default false)
+- `notify_webhook_on_release` (bool, default false)
+
+**UI:**
+
+- Aba **Email / SMTP** ganha checkbox "Notificar nova release por
+  email" no formulário de config (persiste via `Mailer::saveConfig`
+  existente). `Mailer::SETTINGS` adicionado pra incluir a flag.
+- Aba **Webhooks de Alertas** ganha checkbox "Notificar nova release
+  via webhook". Endpoint `/api/v1/webhooks/config` PUT aceita
+  `notify_on_release` no payload, persiste em
+  `notify_webhook_on_release`.
+
+**Anti-spam:** mesma tag notifica 1x só (TTL 30 dias em Redis). Reset
+manual via `redis-cli del udash:update:notified_tag` se necessário.
+
+110/110 testes verdes.
+
+VERSION 2.19.0 → 2.20.0 (minor — feature nova).
+
+---
+
 ## v2.19.0 — 2026-05-15
 
 ### feat(audit): trilha de auditoria de updates/restores + aba dedicada
