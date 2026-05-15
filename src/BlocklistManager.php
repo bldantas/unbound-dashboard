@@ -36,4 +36,31 @@ class BlocklistManager
         ]);
         return (bool) ($resp['ok'] ?? false);
     }
+
+    /**
+     * Estado da fonte: ativa (auto-update roda) ou pausada.
+     * Setting persistida via /api/v1/exports/settings. Default: ativa.
+     */
+    public function isBlacklistSourceEnabled(): bool
+    {
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($jwt === '') return true;
+        $resp = ApiClient::get('/api/v1/exports/settings', $jwt);
+        if (!$resp['ok'] || !is_array($resp['data'])) return true;
+        foreach ($resp['data'] as $row) {
+            if (($row['setting_key'] ?? '') === 'blacklist_source_enabled') {
+                return ((string) ($row['setting_value'] ?? '1')) !== '0';
+            }
+        }
+        return true;
+    }
+
+    public function saveBlacklistSourceEnabled(bool $enabled): bool
+    {
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        $resp = ApiClient::post('/api/v1/exports/settings/bulk', $jwt, [
+            ['setting_key' => 'blacklist_source_enabled', 'setting_value' => $enabled ? '1' : '0'],
+        ]);
+        return (bool) ($resp['ok'] ?? false);
+    }
 }

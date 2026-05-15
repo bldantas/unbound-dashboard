@@ -93,6 +93,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $blocklistManager->saveBlocklistSource($_POST['blacklist_source']);
         }
 
+        // Toggle: fonte ativa/pausada — checkbox vem como 'yes' quando marcado, ausente quando não.
+        $blocklistManager->saveBlacklistSourceEnabled(($_POST['blacklist_source_enabled'] ?? 'no') === 'yes');
+
         $configManager->saveSettings($settings);
         $res = $configManager->applyConfig(['blocked_domains' => $domains]);
         $message = $res['success'] ? "Filtros de Bloqueio atualizados." : "Erro ao aplicar bloqueios: " . $res['message'];
@@ -371,6 +374,7 @@ if (!empty($currentTz) && !in_array($currentTz, $timezoneOptions, true)) {
 }
 $sbSettings = $sourceBalanceManager->getSettings();
 $currentBlocklistSource = $blocklistManager->getBlocklistSource();
+$blacklistSourceEnabled = $blocklistManager->isBlacklistSourceEnabled();
 \App\ShellHelper::exec('/usr/bin/systemctl', ['is-active', 'unbound'], $statusOut, $tmpRet, false);
 $isUnboundActive = trim($statusOut[0] ?? '') === 'active';
 $sbInstances = [];
@@ -716,6 +720,17 @@ function field($key, $label, $desc = '', $def = '')
                                     </select>
                                     <p class="text-[9px] text-slate-600 font-bold italic mt-2">A lista selecionada será baixada quando a atualização da blacklist for acionada.</p>
                                 </div>
+
+                                <!-- Toggle: liga/desliga o auto-update da fonte (cron + botão "Atualizar Agora") -->
+                                <label class="bg-blue-600/5 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-6 rounded-3xl flex items-center justify-between cursor-pointer mb-8">
+                                    <div class="flex items-center gap-4">
+                                        <input type="checkbox" name="blacklist_source_enabled" value="yes" <?= $blacklistSourceEnabled ? 'checked' : '' ?> class="w-6 h-6 text-emerald-600 bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-white/10 rounded-lg">
+                                        <div>
+                                            <span class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Fonte da Blacklist Principal Ativa</span>
+                                            <p class="text-[10px] text-slate-500 font-medium mt-1">Quando desligada, o cron de auto-update e o botão "Atualizar Agora" ficam inertes. Dados atuais ficam preservados no banco.</p>
+                                        </div>
+                                    </div>
+                                </label>
 
                                 <hr class="border-white/10 my-8">
 

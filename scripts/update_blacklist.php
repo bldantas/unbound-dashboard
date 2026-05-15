@@ -25,16 +25,27 @@ if ($jwt === '') {
     exit(1);
 }
 
-// Lê fonte da blocklist via /api/v1/exports/settings
+// Lê fonte + estado da blocklist via /api/v1/exports/settings
 $source = 'stevenblack';
+$enabled = '1';
 $resp = ApiClient::get('/api/v1/exports/settings', $jwt);
 if ($resp['ok'] && is_array($resp['data'])) {
     foreach ($resp['data'] as $row) {
-        if (($row['setting_key'] ?? '') === 'blacklist_source') {
+        $k = $row['setting_key'] ?? '';
+        if ($k === 'blacklist_source') {
             $source = $row['setting_value'] ?? 'stevenblack';
-            break;
+        } elseif ($k === 'blacklist_source_enabled') {
+            $enabled = (string) ($row['setting_value'] ?? '1');
         }
     }
+}
+
+// Gate global — se admin desativou, esse script é no-op (vale tanto pro cron
+// quanto pro botão "Atualizar Agora", que invoca o mesmo script).
+if ($enabled === '0') {
+    setProgress('disabled', 0);
+    echo "[!] Fonte da blacklist está DESATIVADA nas configurações — pulando.\n";
+    exit(0);
 }
 
 if ($source === 'hagezi_normal') {

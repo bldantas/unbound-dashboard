@@ -3,11 +3,13 @@ require_once dirname(__DIR__) . '/src/Auth.php';
 require_once dirname(__DIR__) . '/src/UnboundManager.php';
 require_once dirname(__DIR__) . '/src/ApiClient.php';
 require_once dirname(__DIR__) . '/src/ShellHelper.php';
+require_once dirname(__DIR__) . '/src/BlocklistManager.php';
 
 use App\Auth;
 use App\ShellHelper;
 use App\UnboundManager;
 use App\ApiClient;
+use App\BlocklistManager;
 
 Auth::check();
 if (!\App\Auth::isAdmin()) { http_response_code(403); echo json_encode(['success' => false, 'message' => 'Acesso Negado']); exit; }
@@ -17,11 +19,39 @@ header('Content-Type: application/json');
 $action = $_POST['action'] ?? '';
 
 if ($action === 'update_blacklist') {
+    // Gate: respeita o setting blacklist_source_enabled. Mesmo que o frontend
+    // já desabilite o botão, validamos server-side pra cobrir API direta.
+    $bm = new BlocklistManager();
+    if (!$bm->isBlacklistSourceEnabled()) {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'message' => 'Fonte da blacklist está desativada — ative em Configurações antes de atualizar.']);
+        exit;
+    }
     // Passa o JWT da sessão atual via env var pro script CLI usar nas chamadas FastAPI.
     $jwt = $_SESSION['api_jwt'] ?? '';
     $cmd = 'API_JWT=' . escapeshellarg($jwt) . ' php ' . escapeshellarg(dirname(__DIR__) . '/scripts/update_blacklist.php') . ' > /dev/null 2>&1 &';
     \App\ShellHelper::shell($cmd, $tmpOutput, $tmpReturn);
     echo json_encode(['success' => true, 'message' => 'Sincronização iniciada em segundo plano. Poderá levar até 1 minuto.']);
+    exit;
+}
+
+if ($action === 'toggle_blacklist_source') {
+    // Liga/desliga a fonte. Aceita {enabled: "1"|"0"} ou alterna o atual.
+    $bm = new BlocklistManager();
+    $raw = $_POST['enabled'] ?? null;
+    if ($raw === null) {
+        $newState = !$bm->isBlacklistSourceEnabled();
+    } else {
+        $newState = ((string) $raw) === '1';
+    }
+    $ok = $bm->saveBlacklistSourceEnabled($newState);
+    echo json_encode([
+        'success' => $ok,
+        'enabled' => $newState,
+        'message' => $ok
+            ? ($newState ? 'Fonte ativada — próximo cron e botão Atualizar voltam a funcionar.' : 'Fonte pausada — auto-update parado. Dados atuais preservados.')
+            : 'Falha ao salvar setting.',
+    ]);
     exit;
 }
 

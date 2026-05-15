@@ -10,6 +10,7 @@ $currentPage = 'blocklist.php';
 // Source ativa + metadata da blocklist
 $bm = new BlocklistManager();
 $blocklistSource = $bm->getBlocklistSource(); // stevenblack | hagezi_normal | hagezi_pro
+$blocklistEnabled = $bm->isBlacklistSourceEnabled();
 $sourceLabels = [
     'stevenblack'   => ['name' => 'StevenBlack',       'desc' => 'Hosts unificado (Adware/Malware/Trackers)'],
     'hagezi_normal' => ['name' => 'Hagezi Normal',     'desc' => 'Multi NORMAL'],
@@ -48,12 +49,17 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
         <div class="page-container">
 
             <!-- Source info panel -->
-            <div class="glass-panel border-l-4 border-orange-500 mb-6 border-slate-200 dark:border-white/5">
+            <div class="glass-panel border-l-4 <?= $blocklistEnabled ? 'border-orange-500' : 'border-slate-400 dark:border-slate-700' ?> mb-6 border-slate-200 dark:border-white/5">
                 <div class="flex items-center justify-between gap-4 flex-wrap">
-                    <div>
-                        <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Origem Ativa</p>
+                    <div class="min-w-0">
+                        <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+                            Origem Ativa
+                            <?php if (!$blocklistEnabled): ?>
+                                <span class="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[9px] font-black uppercase tracking-widest">Fonte pausada</span>
+                            <?php endif; ?>
+                        </p>
                         <p class="text-sm font-bold text-slate-900 dark:text-white">
-                            <span class="text-orange-500 dark:text-orange-400"><?= htmlspecialchars($sourceMeta['name']) ?></span>
+                            <span class="<?= $blocklistEnabled ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 line-through' ?>"><?= htmlspecialchars($sourceMeta['name']) ?></span>
                             <span class="text-slate-500 dark:text-slate-400 font-medium"> · <?= htmlspecialchars($sourceMeta['desc']) ?></span>
                         </p>
                         <p class="text-[11px] text-slate-500 mt-1">
@@ -66,12 +72,26 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
                         </p>
                     </div>
                     <?php if (\App\Auth::can('blocklist.write')): ?>
-                        <button type="button" id="btnUpdateBlocklist"
-                                class="glass-btn !bg-orange-600 !text-white text-[10px] uppercase font-black flex items-center gap-2"
-                                title="Re-baixa a fonte ativa e regenera o arquivo">
-                            <svg id="iconRefresh" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                            <span id="btnUpdateBlocklistLabel">Atualizar Agora</span>
-                        </button>
+                        <div class="flex items-center gap-3 flex-wrap">
+                            <!-- Toggle: ativa/pausa o auto-update da fonte -->
+                            <label for="toggleSourceEnabled" class="inline-flex items-center gap-2 cursor-pointer select-none" title="Quando off, o cron de hora-em-hora e o botão Atualizar ficam inertes. Dados atuais ficam preservados.">
+                                <span class="text-[10px] font-black uppercase tracking-widest <?= $blocklistEnabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500' ?>" id="toggleSourceLabel">
+                                    <?= $blocklistEnabled ? 'Fonte ATIVA' : 'Fonte PAUSADA' ?>
+                                </span>
+                                <span class="relative inline-block w-11 h-6">
+                                    <input type="checkbox" id="toggleSourceEnabled" class="peer sr-only" <?= $blocklistEnabled ? 'checked' : '' ?>>
+                                    <span class="block w-11 h-6 rounded-full bg-slate-300 dark:bg-slate-700 peer-checked:bg-emerald-500 transition-colors"></span>
+                                    <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
+                                </span>
+                            </label>
+                            <button type="button" id="btnUpdateBlocklist"
+                                    class="glass-btn !bg-orange-600 !text-white text-[10px] uppercase font-black flex items-center gap-2 <?= $blocklistEnabled ? '' : 'opacity-40 cursor-not-allowed' ?>"
+                                    <?= $blocklistEnabled ? '' : 'disabled' ?>
+                                    title="<?= $blocklistEnabled ? 'Re-baixa a fonte ativa e regenera o arquivo' : 'Fonte pausada — ative o toggle pra rodar' ?>">
+                                <svg id="iconRefresh" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                                <span id="btnUpdateBlocklistLabel">Atualizar Agora</span>
+                            </button>
+                        </div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -614,6 +634,33 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
                 btnUpdate.disabled = false;
                 label.textContent = 'Atualizar Agora';
                 icon && icon.classList.remove('animate-spin');
+            }
+        });
+    }
+
+    // -- Toggle "Fonte ativa" (admin only) --
+    const toggleEnabled = document.getElementById('toggleSourceEnabled');
+    if (toggleEnabled) {
+        toggleEnabled.addEventListener('change', async () => {
+            const target = toggleEnabled.checked;
+            toggleEnabled.disabled = true;
+            try {
+                const fd = new FormData();
+                fd.append('action', 'toggle_blacklist_source');
+                fd.append('enabled', target ? '1' : '0');
+                const res = await fetch('api/service_control.php', { method: 'POST', body: fd, cache: 'no-store' });
+                const json = await res.json().catch(() => ({}));
+                if (window.AppUI && typeof window.AppUI.toast === 'function') {
+                    window.AppUI.toast(json.message || (target ? 'Fonte ativada.' : 'Fonte pausada.'), json.success ? 'success' : 'error');
+                }
+                // Reload pra refletir badges / botão atualizado e o gate server-side
+                setTimeout(() => location.reload(), 600);
+            } catch (err) {
+                toggleEnabled.checked = !target;  // rollback do switch
+                toggleEnabled.disabled = false;
+                if (window.AppUI && typeof window.AppUI.toast === 'function') {
+                    window.AppUI.toast('Falha ao alterar fonte: ' + err.message, 'error');
+                }
             }
         });
     }

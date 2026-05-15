@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.23.0 — 2026-05-15
+
+### feat(blocklist): toggle pra ativar/pausar a Fonte da Blacklist Principal
+
+Novo controle pra admin pausar o auto-update da Blacklist Principal
+(StevenBlack / Hagezi) sem perder os dados atuais.
+
+**Setting**: `blacklist_source_enabled` (default `"1"` — ativa).
+Persistido via `/api/v1/exports/settings/bulk`.
+
+**Comportamento quando pausada**:
+
+- Cron `scripts/update_blacklist.php` checa o setting no boot e
+  faz no-op (log + exit 0).
+- Botão "Atualizar Agora" em `/blocklist.php` fica desabilitado
+  visualmente, e o handler em `api/service_control.php` valida
+  server-side (409 se chamado direto).
+- Banner em `/blocklist.php` mostra badge "Fonte pausada" + nome
+  da fonte com line-through; toggle switch ao lado fica em off.
+
+**UI** — toggle sincronizado em 2 lugares:
+
+- `/blocklist.php`: switch on/off no banner "Origem Ativa", muda
+  estado via AJAX (`action=toggle_blacklist_source`) e recarrega
+  a página pra refletir badges e o gate server-side.
+- Configurações → Lista de Bloqueios: checkbox grande estilo
+  Anablock, salva junto com `save_rpz`. Texto explica que dados
+  atuais ficam preservados.
+
+**BlocklistManager**: 2 métodos novos — `isBlacklistSourceEnabled()`
++ `saveBlacklistSourceEnabled(bool)`.
+
+VERSION 2.22.3 → 2.23.0.
+
+---
+
 ## v2.22.3 — 2026-05-15
 
 ### chore(hosts.php): padronização — adeus `confirm()` / `alert()` do navegador
