@@ -66,7 +66,7 @@ async def check(_: Annotated[dict, Depends(require_capability("config.write"))])
 
 
 class ApplyRequest(BaseModel):
-    version: str = Field(min_length=5, max_length=20, description="Versão semver sem 'v' (ex: 2.17.0)")
+    version: str = Field(min_length=5, max_length=20, description="Versão semver sem 'v' (ex: 2.17.0) OU sentinel 'latest'")
     acknowledge_breaking: bool = Field(default=False, description="Obrigatório em major bumps")
 
 

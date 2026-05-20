@@ -115,7 +115,10 @@ async def delete_host(
 
 
 class UpgradeRequest(BaseModel):
-    version: str = Field(min_length=5, max_length=20, description="Semver sem 'v' (ex: 2.21.4)")
+    version: str = Field(
+        min_length=5, max_length=20,
+        description="Semver sem 'v' (ex: 2.21.4) OU sentinel 'latest' (cada agent resolve via seu próprio /updates/check — evita race entre caches de master/agent).",
+    )
 
 
 # ============================================================

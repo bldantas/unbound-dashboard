@@ -322,7 +322,14 @@ async def restart_service(host_id: int, service: str) -> dict[str, Any]:
 
 
 async def trigger_upgrade(host_id: int, version: str) -> dict[str, Any]:
-    """Dispara self-update no agent pra `version` (sem ack de breaking)."""
+    """
+    Dispara self-update no agent pra `version` (sem ack de breaking).
+
+    `version` pode ser uma versão exata ("2.23.0") OU o sentinel "latest" —
+    nesse último caso, cada agent resolve via seu próprio /updates/check,
+    evitando race entre o cache do master e o do agent quando uma release
+    sai durante o batch loop.
+    """
     return await proxy_post(
         host_id,
         "/api/v1/updates/apply",

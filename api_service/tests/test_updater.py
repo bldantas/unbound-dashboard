@@ -254,6 +254,65 @@ async def test_apply_blocks_version_mismatch(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_apply_accepts_latest_sentinel(monkeypatch, tmp_path):
+    """
+    Sentinel "latest" pula a comparação estrita de versão — usado pelo master
+    multi-host pra evitar race entre o cache do master e o do agent. Regressão
+    pro caso onde master sabia v2.X mas agent já via v2.X+1.
+    """
+    from app.services import updater
+
+    async def _fake_fetch(force_refresh=False):
+        return {
+            "tag_name": "v2.99.0",
+            "name": "v2.99.0",
+            "body": "",
+            "published_at": "",
+            "html_url": "",
+            "assets": [
+                {"name": "unbound-dashboard-update-v2.99.0-x.tar.gz", "browser_download_url": "http://x/tar"},
+                {"name": "unbound-dashboard-update-v2.99.0-x.tar.gz.sha256", "browser_download_url": "http://x/sha"},
+            ],
+        }
+
+    async def _fake_acquire(job_id):
+        return True
+
+    async def _fake_release():
+        pass
+
+    async def _fake_dl(release):
+        return tmp_path / "fake.tar.gz"
+
+    async def _fake_save(job_id, **kw):
+        return None
+
+    def _fake_spawn(tar, jid, log):
+        return 12345
+
+    async def _fake_record(**kw):
+        return None
+
+    async def _fake_monitor(*a, **kw):
+        return None
+
+    monkeypatch.setattr(updater, "fetch_latest_release", _fake_fetch)
+    monkeypatch.setattr(updater, "acquire_lock", _fake_acquire)
+    monkeypatch.setattr(updater, "release_lock", _fake_release)
+    monkeypatch.setattr(updater, "_read_local_version", lambda: "2.98.0")
+    monkeypatch.setattr(updater, "download_and_verify", _fake_dl)
+    monkeypatch.setattr(updater, "_save_job_state", _fake_save)
+    monkeypatch.setattr(updater, "_spawn_update_process", _fake_spawn)
+    monkeypatch.setattr(updater, "_monitor_job", _fake_monitor)
+    from app.services import audit_service
+    monkeypatch.setattr(audit_service, "record_start", _fake_record)
+
+    # "latest" deve passar mesmo sem bater string-a-string com o tag do GitHub
+    job_id = await updater.apply_update("latest")
+    assert isinstance(job_id, str) and len(job_id) == 12
+
+
+@pytest.mark.asyncio
 async def test_apply_blocks_when_locked(monkeypatch):
     from app.services import updater
 

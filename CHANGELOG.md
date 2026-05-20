@@ -1,5 +1,37 @@
 # Changelog
 
+## v2.23.1 — 2026-05-15
+
+### fix(multi-host): sentinel "latest" pra eliminar race no upgrade orquestrado
+
+Botões "Atualizar todos" / "Atualizar este" do multi-host podiam falhar
+com `VersionMismatch` quando o cache do master e o cache do agent
+divergiam (uma release sair entre as duas consultas ao GitHub).
+
+**Mudança no contrato** de `POST /api/v1/updates/apply`:
+
+- `version` agora aceita `"latest"` (sentinel) além de semver exato.
+- Quando `"latest"`, agent pula a comparação estrita e resolve a versão
+  via seu próprio `fetch_latest_release(force_refresh=True)` — cada
+  host instala o que ele considera latest no momento.
+- Vantagem: race-free. Trade-off: durante uma batch, se sair release
+  no meio, agents que iniciaram cedo pegam vX e os que iniciaram tarde
+  pegam vX+1. Aceitável (próximo tick alinha).
+
+**UI** (`hosts.php`): "Atualizar todos" e "Atualizar este (modal)"
+agora mandam `{version: "latest"}`. O confirm continua mostrando a
+versão detectada NO MASTER pra contexto, mas explicita: "agent resolve
+a versão via GitHub no momento".
+
+Single-host UI (`config.php` → Updates → Apply) **não muda** — continua
+mandando o tag exato selecionado pelo usuário.
+
+Novo teste `test_apply_accepts_latest_sentinel`. 131/131 passing.
+
+VERSION 2.23.0 → 2.23.1.
+
+---
+
 ## v2.23.0 — 2026-05-15
 
 ### feat(blocklist): toggle pra ativar/pausar a Fonte da Blacklist Principal

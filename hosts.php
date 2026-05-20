@@ -813,21 +813,20 @@ $currentPage = 'hosts.php';
             });
             detailEl.btnUpgrade.addEventListener('click', async () => {
                 if (!currentDetailHost) return;
+                // Mostra a versão detectada NO MASTER pra contexto, mas manda "latest"
+                // pro agent resolver via /updates/check próprio (race-free).
                 const v = await detectLatestVersion();
-                if (!v) {
-                    await customAlert('Versão não detectada', 'Não consegui detectar a versão mais recente — tente Configurações → Updates.', 'warning');
-                    return;
-                }
+                const versionHint = v ? `v${v}` : 'última disponível';
                 const ok = await customConfirm(
                     'Atualizar host',
-                    `Atualizar "${currentDetailHost.label}" pra v${v}? O agent vai reiniciar.`,
+                    `Atualizar "${currentDetailHost.label}" pra ${versionHint}? O agent resolve a versão via GitHub no momento e reinicia.`,
                     { variant: 'warning', okLabel: 'Atualizar' }
                 );
                 if (!ok) return;
                 try {
                     const resp = await fetch(`/api/v1/hosts/${currentDetailHost.id}/upgrade`, {
                         method: 'POST', headers: HEADERS,
-                        body: JSON.stringify({ version: v }),
+                        body: JSON.stringify({ version: 'latest' }),
                     });
                     const data = await resp.json();
                     if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
@@ -922,17 +921,17 @@ $currentPage = 'hosts.php';
                     title = 'Restart Unbound em lote';
                     okLabel = 'Reiniciar todos';
                 } else if (op === 'upgrade') {
+                    // Detecta a versão NO MASTER só pra mostrar contexto no confirm.
+                    // Em fio, manda "latest" — cada agent resolve via /updates/check próprio
+                    // (evita race entre cache de master e de cada agent).
                     const v = await detectLatestVersion();
-                    if (!v) {
-                        await customAlert('Versão não detectada', 'Não consegui detectar a versão mais recente — tente Configurações → Updates.', 'warning');
-                        return;
-                    }
+                    const versionHint = v ? `v${v}` : 'última versão disponível';
                     url = '/api/v1/hosts/batch/upgrade';
-                    body = JSON.stringify({ version: v });
+                    body = JSON.stringify({ version: 'latest' });
                     confirmTitle = 'Atualizar todos';
-                    confirmMsg = `Atualizar TODOS os hosts pra v${v}? Cada agent vai reiniciar durante o update.`;
-                    title = `Upgrade em lote → v${v}`;
-                    okLabel = `Atualizar pra v${v}`;
+                    confirmMsg = `Atualizar TODOS os hosts pra ${versionHint}? Cada agent resolve a versão via GitHub no momento e reinicia.`;
+                    title = `Upgrade em lote → ${versionHint}`;
+                    okLabel = v ? `Atualizar pra v${v}` : 'Atualizar todos';
                 } else {
                     return;
                 }

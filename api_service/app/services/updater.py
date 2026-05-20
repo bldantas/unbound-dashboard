@@ -450,6 +450,13 @@ async def apply_update(
     Pipeline completo: valida → download → spawn → registra job.
     Retorna job_id pro caller poder consultar status / log.
 
+    `version` aceita:
+      - Sentinel `"latest"` — resolve via GitHub no momento. Usado pelo
+        master multi-host pra evitar race entre o cache do master e o
+        cache do agent (cada agent instala o que ELE considera latest).
+      - Versão semver exata (ex: `"2.23.0"`) — precisa bater com o
+        latest do GitHub. Usado pela UI single-host (config → Updates).
+
     Levanta:
       - UpdateLocked          : outro update já rodando
       - VersionMismatch       : version pedida ≠ latest no GitHub
@@ -468,7 +475,8 @@ async def apply_update(
         # 2. Refresh forçado pra evitar race com cache de 5min
         release = await fetch_latest_release(force_refresh=True)
         latest = release["tag_name"].lstrip("v")
-        if latest != version:
+        # Sentinel "latest" pula a comparação — usa o que o agent acabou de ver no GitHub.
+        if version != "latest" and latest != version:
             raise VersionMismatch(
                 f"Versão pedida v{version} ≠ última publicada v{latest}"
             )
