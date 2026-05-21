@@ -572,10 +572,70 @@ class UnboundConfigManager
      * Aplica a configuração checando a sintaxe e usando elevação de privilégio via sudo.
      * Retorna array com success: booleano e message: texto do erro ou sucesso.
      */
+    /**
+     * Checa se alguma das portas pedidas já tem outro processo escutando.
+     * Retorna lista de mensagens de conflito. Vazio = tudo OK.
+     *
+     * Filtra o próprio unbound do resultado (porque ele DEVE estar escutando
+     * em 53 e tudo bem se já há listener nas portas DoT/DoH atuais — só
+     * vamos re-bind). Loopback é ignorado (TLS local não conflita com web).
+     */
+    private function _findPortConflicts(array $ports): array
+    {
+        if (empty($ports)) return [];
+        $ssOut = []; $ret = 0;
+        // `ss -ltnp` mostra pid/process — precisa de privilégio elevado pra
+        // ver processos de outros donos, mas tudo bem mostrar só a porta.
+        \App\ShellHelper::exec('/usr/bin/ss', ['-ltnp'], $ssOut, $ret, false);
+        if ($ret !== 0) return []; // sem ss, melhor permitir do que falhar fechado
+
+        $conflicts = [];
+        foreach ($ports as $label => $portNum) {
+            $portNum = (int) $portNum;
+            if ($portNum <= 0) continue;
+            foreach ($ssOut as $line) {
+                // Match na coluna Local Address:Port — pega o lado esquerdo do espaço
+                // Formato: "LISTEN 0 4096 10.0.0.1:443 0.0.0.0:* users:((\"apache2\",pid=...))"
+                if (!preg_match('/\s+([\d\.\*\[\]:a-f]+):(\d+)\s+/i', $line, $m)) continue;
+                if ((int) $m[2] !== $portNum) continue;
+                $bindAddr = $m[1];
+                // Skip se é o próprio unbound — extrai o nome do processo da linha
+                if (preg_match('/users:\(\("([^"]+)"/', $line, $procMatch)) {
+                    if ($procMatch[1] === 'unbound') continue;
+                    $conflicts[] = "porta $portNum ({$label}) já está ocupada por '{$procMatch[1]}' em {$bindAddr}";
+                } else {
+                    $conflicts[] = "porta $portNum ({$label}) já está em uso em {$bindAddr}";
+                }
+            }
+        }
+        return array_values(array_unique($conflicts));
+    }
+
     public function applyConfig(array $newParams): array
     {
         if (PHP_OS_FAMILY === 'Windows') {
             return ['success' => true, 'message' => 'Configuração simulada e salva com sucesso no Windows!'];
+        }
+
+        // Pré-flight: se o user pediu pra habilitar DoT/DoH, checa se algum
+        // OUTRO processo já está escutando nas portas configuradas. Sem isso,
+        // o Unbound aceita o config e morre no startup com "Address already
+        // in use" (foi o que aconteceu quando user tentou DoH=443 com Apache
+        // já servindo o dashboard em 443).
+        $tlsEnabledRequest = ($newParams['tls-enabled'] ?? null) === 'yes';
+        if ($tlsEnabledRequest) {
+            $portsToTest = [
+                'DoT'  => (int) ($newParams['tls-port']   ?? 0),
+                'DoH'  => (int) ($newParams['https-port'] ?? 0),
+            ];
+            $conflicts = $this->_findPortConflicts($portsToTest);
+            if (!empty($conflicts)) {
+                return [
+                    'success' => false,
+                    'message' => 'Conflito de porta: ' . implode('; ', $conflicts) .
+                        '. Mude pra uma porta livre (ex: 8443 pra DoH se Apache ocupa 443) ou pare o serviço conflitante antes de habilitar.',
+                ];
+            }
         }
 
         if (isset($newParams['blocked_domains'])) {

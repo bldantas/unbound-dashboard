@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.30.2 — 2026-05-21
+
+### fix(tls): detectar conflito de porta antes de aplicar (Unbound caía)
+
+Quando o user habilita DoT/DoH com porta padrão 443 mas o Apache (que
+serve o próprio dashboard via HTTPS) já está nessa porta, o Unbound
+aceitava o config e morria no startup:
+
+```
+error: can't bind socket: Address already in use for X port 443
+fatal error: could not open ports
+```
+
+Loop de restart 5x até systemd desistir e o serviço DNS ficar **fora
+do ar**. Isso aconteceu agora em produção.
+
+**Fix preventivo** em `applyConfig`:
+
+- Antes de gerar a config, se `tls-enabled=yes`, roda `ss -ltnp` e
+  checa cada porta TLS/DoH pedida contra processos já escutando.
+- Se outro processo (que não seja `unbound`) está na porta:
+  refuse o apply com mensagem específica:
+  > Conflito de porta: porta 443 (DoH) já está ocupada por 'apache2' em *.
+  > Mude pra uma porta livre (ex: 8443 pra DoH se Apache ocupa 443) ou
+  > pare o serviço conflitante antes de habilitar.
+
+Smoke ao vivo: tentar DoH=443 com Apache ativo → **bloqueado** com
+mensagem clara. Tentar DoH=8443 → passou.
+
+Recomendação pra quem usa DoH no mesmo host do dashboard web: mudar
+a porta DoH pra **8443** ou outro número alto livre.
+
+VERSION 2.30.1 → 2.30.2.
+
+---
+
 ## v2.30.1 — 2026-05-21
 
 ### fix(tls): toggle DoT/DoH não desligava + duplicação no general.conf
