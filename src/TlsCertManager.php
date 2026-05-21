@@ -208,6 +208,113 @@ class TlsCertManager
         return $this->_installFromTmp("Certificado enviado e instalado.");
     }
 
+    const LE_LIVE_DIR = '/etc/letsencrypt/live';
+    const LE_MARKER   = '/etc/unbound/certs/.le-lineage';
+    const LE_HOOK_SRC = __DIR__ . '/../system/letsencrypt/unbound-dashboard-deploy.sh';
+    const LE_HOOK_DST = '/etc/letsencrypt/renewal-hooks/deploy/unbound-dashboard.sh';
+
+    /**
+     * Lista lineages disponíveis em /etc/letsencrypt/live/ (precisa sudo
+     * porque o dir é 0700 root:root). Filtra README e arquivos não-dir.
+     */
+    public function listLetsEncryptLineages(): array
+    {
+        $out = []; $ret = 0;
+        ShellHelper::exec('/usr/bin/ls', [self::LE_LIVE_DIR], $out, $ret, true);
+        if ($ret !== 0) return [];
+        $lineages = [];
+        foreach ($out as $line) {
+            $line = trim($line);
+            if ($line === '' || $line === 'README' || str_starts_with($line, '.')) continue;
+            // Tem que ter ponto (dominio) e fullchain.pem (validade mínima)
+            if (strpos($line, '.') === false) continue;
+            $lineages[] = $line;
+        }
+        sort($lineages);
+        return $lineages;
+    }
+
+    /**
+     * Importa cert de uma lineage Let's Encrypt: instala fullchain/privkey
+     * nos paths managed do dashboard, escreve marker pro deploy hook saber
+     * qual lineage tratar nas renovações, e instala o hook se ainda não está.
+     */
+    public function importFromLetsEncrypt(string $lineage): array
+    {
+        $lineage = trim($lineage);
+        if (!preg_match('/^[a-zA-Z0-9._-]+\.[a-zA-Z]{2,}$/', $lineage)) {
+            return ['success' => false, 'message' => 'Nome de lineage inválido.'];
+        }
+
+        $fullchain = self::LE_LIVE_DIR . "/{$lineage}/fullchain.pem";
+        $privkey   = self::LE_LIVE_DIR . "/{$lineage}/privkey.pem";
+
+        // Garante /etc/unbound/certs (sudoers permite)
+        $mkOut = []; $mkRet = 0;
+        ShellHelper::exec('/usr/bin/mkdir', ['-p', self::MANAGED_DIR], $mkOut, $mkRet, true);
+        if ($mkRet !== 0) {
+            return ['success' => false, 'message' => 'Falha ao criar /etc/unbound/certs: ' . implode(' ', $mkOut)];
+        }
+
+        // Instala cert público (modo 0644, world-readable)
+        $iOut = []; $iRet = 0;
+        ShellHelper::exec(
+            '/usr/bin/install',
+            ['-o', 'unbound', '-g', 'unbound', '-m', '0644', $fullchain, self::MANAGED_CRT],
+            $iOut, $iRet, true
+        );
+        if ($iRet !== 0) {
+            return ['success' => false, 'message' => "Falha ao copiar fullchain.pem de {$lineage}: " . implode(' ', $iOut)
+                . ' (verifique se a lineage existe e o certbot já emitiu o cert)'];
+        }
+
+        // Key privada (modo 0640, só unbound)
+        $iOut2 = []; $iRet2 = 0;
+        ShellHelper::exec(
+            '/usr/bin/install',
+            ['-o', 'unbound', '-g', 'unbound', '-m', '0640', $privkey, self::MANAGED_KEY],
+            $iOut2, $iRet2, true
+        );
+        if ($iRet2 !== 0) {
+            return ['success' => false, 'message' => "Falha ao copiar privkey.pem de {$lineage}: " . implode(' ', $iOut2)];
+        }
+
+        // Marker pra deploy hook saber qual lineage processar nas renovações
+        $tmpMarker = __DIR__ . '/data/tmp/unbound_le_lineage';
+        file_put_contents($tmpMarker, $lineage . "\n");
+        $mOut = []; $mRet = 0;
+        ShellHelper::exec(
+            '/usr/bin/install',
+            ['-o', 'unbound', '-g', 'unbound', '-m', '0644', $tmpMarker, self::LE_MARKER],
+            $mOut, $mRet, true
+        );
+        if ($mRet !== 0) {
+            // Marker não-fatal — cert já foi instalado, só vai precisar re-importar após renovação
+            $markerWarn = ' Aviso: marker pra auto-renovação não foi instalado.';
+        } else {
+            $markerWarn = '';
+        }
+
+        // Instala deploy hook do certbot (idempotente — sobrescreve sempre com o atual)
+        $hOut = []; $hRet = 0;
+        ShellHelper::exec(
+            '/usr/bin/install',
+            ['-m', '0755', realpath(self::LE_HOOK_SRC), self::LE_HOOK_DST],
+            $hOut, $hRet, true
+        );
+        $hookWarn = $hRet !== 0
+            ? ' Aviso: deploy hook não foi instalado em ' . self::LE_HOOK_DST . ' — auto-renovação pode falhar.'
+            : '';
+
+        return [
+            'success'  => true,
+            'message'  => "Cert do lineage '{$lineage}' importado." . $markerWarn . $hookWarn,
+            'lineage'  => $lineage,
+            'crt_path' => self::MANAGED_CRT,
+            'key_path' => self::MANAGED_KEY,
+        ];
+    }
+
     /**
      * Remove os arquivos managed (não toca em paths externos tipo /etc/letsencrypt).
      */

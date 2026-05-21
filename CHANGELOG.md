@@ -1,5 +1,59 @@
 # Changelog
 
+## v2.31.0 — 2026-05-21
+
+### feat(tls): botão "Importar Let's Encrypt" — detecta + copia + auto-renova
+
+Antes pra usar cert LE no DoT/DoH precisava sequência manual de comandos:
+`install`, marker file, deploy hook, etc (documentado no v2.30.6). Agora
+tudo via UI.
+
+**Backend** (`TlsCertManager`):
+
+- `listLetsEncryptLineages()` — roda `sudo ls /etc/letsencrypt/live/`,
+  filtra dirs válidos (têm ponto = domínio), retorna ordenado.
+- `importFromLetsEncrypt($lineage)`:
+  - `install` do `fullchain.pem` → `/etc/unbound/certs/dashboard.crt`
+    (0644 unbound:unbound)
+  - `install` do `privkey.pem` → `/etc/unbound/certs/dashboard.key`
+    (0640 unbound:unbound)
+  - Escreve marker `/etc/unbound/certs/.le-lineage` com o nome da
+    lineage (pro deploy hook saber qual processar nas renovações)
+  - Instala o hook em `/etc/letsencrypt/renewal-hooks/deploy/`
+- Constantes: `LE_LIVE_DIR`, `LE_MARKER`, `LE_HOOK_SRC`, `LE_HOOK_DST`.
+
+**Deploy hook reescrito** (`system/letsencrypt/unbound-dashboard-deploy.sh`):
+
+- Em vez de `DASHBOARD_DOMAIN` hardcoded, agora **lê o marker file**
+  e age só pra essa lineage. Permite trocar a lineage pela UI sem
+  editar o script.
+
+**Sudoers** ganha 6 entries novas:
+
+- `ls /etc/letsencrypt/live` (com e sem trailing slash)
+- `install -o unbound -g unbound -m 0644 /etc/letsencrypt/live/*/fullchain.pem` → managed crt
+- `install -o unbound -g unbound -m 0640 /etc/letsencrypt/live/*/privkey.pem` → managed key
+- `install -o unbound -g unbound -m 0644 <tmp>/unbound_le_lineage` → `/etc/unbound/certs/.le-lineage`
+- `install -m 0755 system/letsencrypt/unbound-dashboard-deploy.sh` → renewal-hooks/deploy/
+
+**UI** no tab-tls:
+
+- Novo botão azul "🔁 Importar Let's Encrypt" — só aparece se há
+  lineages detectadas em `/etc/letsencrypt/live/`.
+- Modal com radio buttons listando cada lineage (primeira selecionada
+  por default).
+- Após import: applyConfig auto-preenche `tls-service-pem`/`-key`
+  no `unbound.conf`. User só precisa reiniciar Unbound.
+
+**Handler** `tls_import_letsencrypt` em config.php.
+
+Smoke ao vivo: detectou 2 lineages (anablock + dashboard), importou
+dashboard.redeconexaonet.com com sucesso, marker + hook instalados.
+
+VERSION 2.30.8 → 2.31.0.
+
+---
+
 ## v2.30.8 — 2026-05-21
 
 ### chore(ui): customConfirm/customAlert reutilizável + adeus dialogs nativos do config.php

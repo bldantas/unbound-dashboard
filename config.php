@@ -155,6 +155,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message .= ' Caminhos auto-preenchidos no Unbound.';
             }
         }
+    } elseif ($action === 'tls_import_letsencrypt') {
+        $lineage = trim((string)($_POST['le_lineage'] ?? ''));
+        $res = $tlsCertManager->importFromLetsEncrypt($lineage);
+        $message = $res['message'];
+        $messageType = $res['success'] ? 'success' : 'error';
+        // Auto-aplica paths no unbound.conf (mesmo padrão do tls_generate_cert)
+        if ($res['success']) {
+            $configManager->applyConfig([
+                'tls-service-pem' => \App\TlsCertManager::MANAGED_CRT,
+                'tls-service-key' => \App\TlsCertManager::MANAGED_KEY,
+            ]);
+            $message .= ' Caminhos atualizados no Unbound. Reinicie o serviço pra ativar.';
+        }
     } elseif ($action === 'tls_remove_cert') {
         $res = $tlsCertManager->removeCert();
         $message = $res['message'];
@@ -422,6 +435,7 @@ foreach (($currentConfig['interfaces'] ?? []) as $_iface) {
 // Fallback se config não trouxer (instala recente sem nada)
 if (empty($_tlsTestIps)) $_tlsTestIps = ['127.0.0.1'];
 
+$tlsLeLineages = $tlsCertManager->listLetsEncryptLineages();
 $tlsServiceStatus = $tlsCertManager->getServiceStatus(
     (int) ($currentConfig['tls-port'] ?? 0),
     (int) ($currentConfig['https-port'] ?? 0),
@@ -891,6 +905,11 @@ function field($key, $label, $desc = '', $def = '')
 
                                 <?php $tlsIsLE = !empty($tlsCertStatus['is_letsencrypt']); ?>
                                 <div class="flex flex-wrap gap-2">
+                                    <?php if (!empty($tlsLeLineages)): ?>
+                                        <button type="button" onclick="document.getElementById('tls-le-modal').classList.remove('hidden')" class="glass-btn text-[10px] uppercase font-black !bg-blue-600 !text-white flex items-center gap-2" title="Importar cert do certbot já emitido neste servidor">
+                                            🔁 Importar Let's Encrypt
+                                        </button>
+                                    <?php endif; ?>
                                     <button type="button" data-tls-action="generate" data-is-le="<?= $tlsIsLE ? '1' : '0' ?>" class="glass-btn text-[10px] uppercase font-black !bg-cyan-600 !text-white flex items-center gap-2">
                                         🔐 Gerar Self-Signed
                                     </button>
@@ -1367,6 +1386,31 @@ function field($key, $label, $desc = '', $def = '')
                             </div>
                         </form>
                     </div>
+
+                    <!-- Importar Let's Encrypt -->
+                    <?php if (!empty($tlsLeLineages)): ?>
+                    <div id="tls-le-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+                        <form method="POST" action="config.php?tab=tls" class="glass-panel max-w-lg w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl">
+                            <input type="hidden" name="action" value="tls_import_letsencrypt">
+                            <input type="hidden" name="tab" value="tls">
+                            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-2">Importar Let's Encrypt</h3>
+                            <p class="text-[11px] text-slate-500 mb-4">Detectei <?= count($tlsLeLineages) ?> lineage(s) em <code>/etc/letsencrypt/live/</code>. Selecione um — o cert e a key vão ser copiados pros paths managed do dashboard e o deploy hook do certbot é instalado pra auto-renovar.</p>
+                            <div class="space-y-2 mb-4">
+                                <?php foreach ($tlsLeLineages as $i => $_le): ?>
+                                    <label class="flex items-center gap-3 p-3 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-900/5 dark:bg-white/5 cursor-pointer hover:border-blue-500/40 hover:bg-blue-500/5 transition-colors">
+                                        <input type="radio" name="le_lineage" value="<?= htmlspecialchars($_le) ?>" <?= $i === 0 ? 'checked' : '' ?> class="w-4 h-4 text-blue-600">
+                                        <span class="font-mono text-[12px] text-slate-900 dark:text-white"><?= htmlspecialchars($_le) ?></span>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
+                            <div class="flex justify-end gap-2">
+                                <button type="button" onclick="document.getElementById('tls-le-modal').classList.add('hidden')" class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
+                                <button type="submit" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">Importar</button>
+                            </div>
+                        </form>
+                    </div>
+                    <?php endif; ?>
 
                     <!-- Remover -->
                     <div id="tls-remove-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">

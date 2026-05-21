@@ -54,4 +54,10 @@ www-data ALL=(ALL) NOPASSWD: \
     /usr/bin/install -o unbound -g unbound -m 0644 /var/www/html/unbound-dashboard/src/data/tmp/unbound_dashboard_cert.crt /etc/unbound/certs/dashboard.crt, \
     /usr/bin/install -o unbound -g unbound -m 0640 /var/www/html/unbound-dashboard/src/data/tmp/unbound_dashboard_cert.key /etc/unbound/certs/dashboard.key, \
     /usr/bin/rm /etc/unbound/certs/dashboard.crt, \
-    /usr/bin/rm /etc/unbound/certs/dashboard.key
+    /usr/bin/rm /etc/unbound/certs/dashboard.key, \
+    /usr/bin/ls /etc/letsencrypt/live, \
+    /usr/bin/ls /etc/letsencrypt/live/, \
+    /usr/bin/install -o unbound -g unbound -m 0644 /etc/letsencrypt/live/*/fullchain.pem /etc/unbound/certs/dashboard.crt, \
+    /usr/bin/install -o unbound -g unbound -m 0640 /etc/letsencrypt/live/*/privkey.pem /etc/unbound/certs/dashboard.key, \
+    /usr/bin/install -o unbound -g unbound -m 0644 /var/www/html/unbound-dashboard/src/data/tmp/unbound_le_lineage /etc/unbound/certs/.le-lineage, \
+    /usr/bin/install -m 0755 /var/www/html/unbound-dashboard/system/letsencrypt/unbound-dashboard-deploy.sh /etc/letsencrypt/renewal-hooks/deploy/unbound-dashboard.sh
