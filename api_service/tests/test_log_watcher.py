@@ -12,6 +12,37 @@ def _set_env() -> None:
     os.environ.setdefault("JWT_SECRET", "test-only-not-for-prod-deadbeef")
 
 
+class _FakeMatcher:
+    """Mock do BlockedMatcher — `matches(domain)` retorna True se está em `self.blocked`."""
+
+    def __init__(self, blocked: set[str] | None = None) -> None:
+        self.blocked = blocked or set()
+
+    def matches(self, domain: str) -> bool:  # noqa: D401
+        d = domain.lower().rstrip(".")
+        if d in self.blocked:
+            return True
+        idx = d.find(".")
+        while idx != -1:
+            if d[idx + 1 :] in self.blocked:
+                return True
+            idx = d.find(".", idx + 1)
+        return False
+
+
+# Matcher que considera TUDO bloqueado — preserva semântica pré-v2.26.1
+# pros testes legados de NXDOMAIN.
+class _AllBlockedMatcher:
+    def matches(self, domain: str) -> bool:  # noqa: D401
+        return True
+
+
+# Matcher que não bloqueia nada — testes onde NXDOMAIN é só upstream.
+class _NeverBlockedMatcher:
+    def matches(self, domain: str) -> bool:  # noqa: D401
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
@@ -30,7 +61,7 @@ def _set_env() -> None:
             "mai 04 10:56:07 unbound unbound[123:0]: [123:1] info: 10.0.0.5 cached.example.com. AAAA IN NOERROR 0.000000 1 60",
             ("cached.example.com", "AAAA", "resolved"),
         ),
-        # Reply NXDOMAIN (blocked)
+        # Reply NXDOMAIN com matcher dizendo blocked → blocked
         (
             "mai 04 10:56:07 unbound unbound[123:0]: [123:1] info: 10.0.0.5 ads.example.com. A IN NXDOMAIN 0.001 0 0",
             ("ads.example.com", "A", "blocked"),
@@ -55,7 +86,7 @@ def _set_env() -> None:
 def test_parse_line_classifies_correctly(line, expected) -> None:
     from app.workers.log_watcher import _parse_line
 
-    entry = _parse_line(line, now=1234567890)
+    entry = _parse_line(line, now=1234567890, matcher=_AllBlockedMatcher())
     assert entry is not None
     _, _, domain, qtype, action = entry
     assert (domain, qtype, action) == expected
@@ -77,7 +108,7 @@ def test_parse_line_classifies_correctly(line, expected) -> None:
 def test_parse_line_skips_irrelevant(line) -> None:
     from app.workers.log_watcher import _parse_line
 
-    assert _parse_line(line, now=1234567890) is None
+    assert _parse_line(line, now=1234567890, matcher=_AllBlockedMatcher()) is None
 
 
 # ---------------------------------------------------------------------------
@@ -88,11 +119,58 @@ def test_parse_line_skips_irrelevant(line) -> None:
 def test_classify_status_codes() -> None:
     from app.workers.log_watcher import _classify
 
-    assert _classify("...", None) is None
-    assert _classify("foo NOERROR bar", "NOERROR") == "resolved"
-    assert _classify("foo NXDOMAIN bar", "NXDOMAIN") == "blocked"
-    # NOERROR + 0.0.0.0 (RPZ block)
-    assert _classify("... NOERROR ... 0.0.0.0", "NOERROR") == "blocked"
+    m = _AllBlockedMatcher()
+    assert _classify("...", None, "x.com", m) is None
+    assert _classify("foo NOERROR bar", "NOERROR", "x.com", m) == "resolved"
+    assert _classify("foo NXDOMAIN bar", "NXDOMAIN", "x.com", m) == "blocked"
+    # NOERROR + 0.0.0.0 (RPZ block) — não depende do matcher
+    assert _classify("... NOERROR ... 0.0.0.0", "NOERROR", "x.com", m) == "blocked"
     # SERVFAIL e REFUSED são ignorados (None)
-    assert _classify("... SERVFAIL", "SERVFAIL") is None
-    assert _classify("... REFUSED", "REFUSED") is None
+    assert _classify("... SERVFAIL", "SERVFAIL", "x.com", m) is None
+    assert _classify("... REFUSED", "REFUSED", "x.com", m) is None
+
+
+def test_classify_nxdomain_distinguishes_blocked_from_upstream() -> None:
+    """
+    Regressão pro v2.26.1: NXDOMAIN só é `blocked` se o domain está nas
+    local-zones do Unbound. Senão é `nxdomain_upstream` (domínio morto
+    upstream — não envolveu bloqueio nosso).
+    """
+    from app.workers.log_watcher import _classify
+
+    matcher = _FakeMatcher(blocked={"evil.com", "ads.tracker.net"})
+
+    # Domain exato bloqueado → blocked
+    assert _classify("foo NXDOMAIN", "NXDOMAIN", "evil.com", matcher) == "blocked"
+
+    # Subdomain de algo bloqueado (match por sufixo) → blocked
+    assert _classify("foo NXDOMAIN", "NXDOMAIN", "sub.evil.com", matcher) == "blocked"
+    assert _classify("foo NXDOMAIN", "NXDOMAIN", "deep.sub.evil.com", matcher) == "blocked"
+
+    # Domain NÃO bloqueado pelo Unbound → nxdomain_upstream
+    assert (
+        _classify("foo NXDOMAIN", "NXDOMAIN", "expired-adware.com", matcher)
+        == "nxdomain_upstream"
+    )
+    assert (
+        _classify("foo NXDOMAIN", "NXDOMAIN", "random.example.org", matcher)
+        == "nxdomain_upstream"
+    )
+
+    # 0.0.0.0 sempre é blocked (vem de local-data nossa), mesmo sem match
+    assert (
+        _classify("... 0.0.0.0 ...", "NOERROR", "qualquer.com", matcher) == "blocked"
+    )
+
+
+def test_parse_line_emits_nxdomain_upstream_when_no_match() -> None:
+    """Smoke do parser inteiro: NXDOMAIN não-bloqueado vira `nxdomain_upstream`."""
+    from app.workers.log_watcher import _parse_line
+
+    line = (
+        "mai 04 10:56:07 unbound unbound[123:0]: [123:1] info: 10.0.0.5 "
+        "morto.adware.io. A IN NXDOMAIN 0.001 0 0"
+    )
+    entry = _parse_line(line, now=1, matcher=_NeverBlockedMatcher())
+    assert entry is not None
+    assert entry[4] == "nxdomain_upstream"

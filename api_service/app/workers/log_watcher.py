@@ -32,6 +32,7 @@ import structlog
 
 from app.core.metrics import queries_ingested, worker_errors, worker_queue_size
 from app.repositories.duckdb.connection import db_append
+from app.services.blocked_matcher import BlockedMatcher, get_default_matcher
 
 log = structlog.get_logger(__name__)
 
@@ -54,34 +55,51 @@ LogEntry = tuple[int, str, str, str, str]
 # (timestamp, client_ip, domain, query_type, action)
 
 
-def _classify(line: str, status: str | None) -> str | None:
-    """Retorna 'blocked' ou 'resolved'; None pra queries sem reply ou status ignorado."""
+def _classify(line: str, status: str | None, domain: str, matcher: BlockedMatcher) -> str | None:
+    """
+    Retorna `blocked` | `nxdomain_upstream` | `resolved` | None.
+
+    Distinção crítica (v2.26.1+): NXDOMAIN só é `blocked` se o domain (ou
+    sufixo) está nas local-zones do Unbound. NXDOMAIN sem match é
+    `nxdomain_upstream` — domínio que o upstream disse que não existe,
+    sem envolver bloqueio nosso. Antes tudo virava `blocked`.
+
+    `0.0.0.0` na linha também é `blocked` (vem de local-data nossa).
+    """
     if not status:
         return None  # query sem reply — ignorar (igual ao PHP)
-    if status == "NXDOMAIN" or "0.0.0.0" in line:
+    if "0.0.0.0" in line:
         return "blocked"
+    if status == "NXDOMAIN":
+        return "blocked" if matcher.matches(domain) else "nxdomain_upstream"
     if status == "NOERROR":
         return "resolved"
     return None  # SERVFAIL, REFUSED, etc. — ignorar
 
 
-def _parse_line(line: str, now: int) -> LogEntry | None:
+def _parse_line(line: str, now: int, matcher: BlockedMatcher) -> LogEntry | None:
     if "info:" not in line:
         return None
     m = _QUERY_RE.search(line)
     if not m:
         return None
-    action = _classify(line, m.group("status"))
+    domain = m.group("domain").lower()
+    action = _classify(line, m.group("status"), domain, matcher)
     if action is None:
         return None
-    return (now, m.group("ip"), m.group("domain").lower(), m.group("qtype"), action)
+    return (now, m.group("ip"), domain, m.group("qtype"), action)
 
 
 class LogWatcher:
-    def __init__(self, log_path: str | None = None) -> None:
+    def __init__(
+        self,
+        log_path: str | None = None,
+        matcher: BlockedMatcher | None = None,
+    ) -> None:
         self._path = Path(log_path or "/var/log/syslog")
         self._queue: asyncio.Queue[LogEntry] = asyncio.Queue(maxsize=BUFFER_MAXSIZE)
         self._running = False
+        self._matcher = matcher or get_default_matcher()
 
     async def start(self) -> None:
         self._running = True
@@ -126,7 +144,7 @@ class LogWatcher:
 
                 if "unbound" not in line:
                     continue
-                entry = _parse_line(line, int(time.time()))
+                entry = _parse_line(line, int(time.time()), self._matcher)
                 if entry is None:
                     continue
                 try:

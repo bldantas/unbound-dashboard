@@ -1,5 +1,46 @@
 # Changelog
 
+## v2.26.1 — 2026-05-21
+
+### fix(log_watcher): distinguir `blocked` real de `nxdomain_upstream`
+
+Antes, o `log_watcher` classificava **qualquer NXDOMAIN como `blocked`**
+em `query_logs.action`. Resultado: domínios mortos/descontinuados de
+adware/tracker apareciam no menu Ameaças como se tivessem sido
+bloqueados por nós — sintoma típico era ver domínios velhos da lista
+StevenBlack/Hagezi "blocked" mesmo sem estarem no Unbound config.
+
+**Mudança**: novo serviço `BlockedMatcher` parseia
+`/etc/unbound/includes/blocked_domains.conf` (fonte da verdade do que
+o Unbound realmente bloqueia via `local-zone`), mantém set em memória
+com TTL 5min + invalidação por mtime, expõe `matches(domain)` com
+match por sufixo (`evil.com` cobre `sub.evil.com`).
+
+`_classify` agora:
+
+- `NXDOMAIN` + matcher hit → `blocked` (bloqueio nosso real).
+- `NXDOMAIN` + matcher miss → `nxdomain_upstream` (novo valor — o
+  upstream retornou NXDOMAIN sem envolvimento nosso).
+- `0.0.0.0` na linha → `blocked` (vem de `local-data` nossa, sempre é nosso).
+- `NOERROR` → `resolved`.
+- Resto → ignorado (None).
+
+**Impacto na UI** (sem mudança visual, mas semântica fica certa):
+
+- Threats page filtra `action='blocked'` — agora só conta bloqueio
+  real, não NXDOMAIN upstream.
+- daily_stats, stats_aggregator: idem (todos usam filtro literal
+  `action='blocked'`, não exclusão).
+- Queries antigas em `query_logs` não são reescritas — só novas
+  entradas se beneficiam.
+
+9 testes novos em `test_blocked_matcher.py` + 2 em `test_log_watcher.py`.
+151/151 passing.
+
+VERSION 2.26.0 → 2.26.1.
+
+---
+
 ## v2.26.0 — 2026-05-21
 
 ### feat(blocklist): separa "Lista ANATEL" (bloqueio) de "Catálogo de Ameaças"
