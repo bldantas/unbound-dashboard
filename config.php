@@ -127,16 +127,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $res = $tlsCertManager->generateSelfSigned($cn, $sans, $days);
         $message = $res['message'];
         $messageType = $res['success'] ? 'success' : 'error';
+        // Auto-aplica os paths gerenciados no unbound.conf — sem ter que digitar.
+        if ($res['success']) {
+            $applyRes = $configManager->applyConfig([
+                'tls-service-pem' => \App\TlsCertManager::MANAGED_CRT,
+                'tls-service-key' => \App\TlsCertManager::MANAGED_KEY,
+            ]);
+            if ($applyRes['success']) {
+                $message .= ' Caminhos auto-preenchidos no Unbound.';
+            } else {
+                $message .= ' (Atenção: cert gerado mas falha ao aplicar paths no Unbound: ' . $applyRes['message'] . ')';
+                $messageType = 'error';
+            }
+        }
     } elseif ($action === 'tls_upload_cert') {
         $certPem = (string)($_POST['cert_pem'] ?? '');
         $keyPem  = (string)($_POST['cert_key'] ?? '');
         $res = $tlsCertManager->uploadCert($certPem, $keyPem);
         $message = $res['message'];
         $messageType = $res['success'] ? 'success' : 'error';
+        if ($res['success']) {
+            $applyRes = $configManager->applyConfig([
+                'tls-service-pem' => \App\TlsCertManager::MANAGED_CRT,
+                'tls-service-key' => \App\TlsCertManager::MANAGED_KEY,
+            ]);
+            if ($applyRes['success']) {
+                $message .= ' Caminhos auto-preenchidos no Unbound.';
+            }
+        }
     } elseif ($action === 'tls_remove_cert') {
         $res = $tlsCertManager->removeCert();
         $message = $res['message'];
         $messageType = $res['success'] ? 'success' : 'error';
+        // Limpa os paths do unbound.conf quando o managed é removido
+        if ($res['success']) {
+            $configManager->applyConfig([
+                'tls-service-pem' => '',
+                'tls-service-key' => '',
+            ]);
+        }
     } elseif ($action === 'delete_interface') {
         $requestedIface = trim((string)($_POST['iface_name'] ?? ''));
         // Pra card da loopback, o "remover" age no alias lo.1 (mesma
@@ -771,14 +800,40 @@ function field($key, $label, $desc = '', $def = '')
                             <div class="glass-panel">
                                 <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-8 border-b border-slate-900/10 dark:border-white/5 pb-4">DNS over TLS (DoT) & HTTPS (DoH)</h3>
 
-                                <p class="text-xs text-slate-400 mb-6 leading-relaxed">Habilite a escuta criptografada do Unbound fornecendo as portas e os caminhos absolutos dos certificados SSL (Requer reinício manual posterior).</p>
+                                <p class="text-xs text-slate-400 mb-6 leading-relaxed">Habilite a escuta criptografada do Unbound. Quando ligado, o sistema adiciona listeners <code>interface:&lt;ip&gt;@porta</code> automaticamente pras interfaces não-loopback.</p>
+
+                                <?php
+                                $tlsPortVal   = $currentConfig['tls-port']   ?? '';
+                                $httpsPortVal = $currentConfig['https-port'] ?? '';
+                                $tlsEnabled   = $tlsPortVal !== '' && $tlsPortVal !== '0';
+                                $httpsEnabled = $httpsPortVal !== '' && $httpsPortVal !== '0';
+                                ?>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
-                                    <?= field('tls-port', 'Porta TLS (DoT)', 'Padrão Unbound: 853. Deixe em branco para inativar.') ?>
-                                    <?= field('https-port', 'Porta HTTPS (DoH)', 'Padrão Unbound: 443. Deixe em branco para inativar.') ?>
+                                    <!-- DoT toggle + port -->
+                                    <div class="bg-slate-900/5 dark:bg-white/5 p-4 rounded-2xl border border-slate-200 dark:border-white/5">
+                                        <label class="flex items-center gap-3 cursor-pointer mb-3">
+                                            <input type="checkbox" id="enable-tls-port" <?= $tlsEnabled ? 'checked' : '' ?> onchange="document.getElementById('tls-port-input').disabled = !this.checked; if (this.checked && !document.getElementById('tls-port-input').value) document.getElementById('tls-port-input').value = 853;" class="w-5 h-5 text-cyan-500 bg-slate-900 border-white/10 rounded">
+                                            <span class="text-[11px] font-black text-slate-900 dark:text-white uppercase tracking-widest">Habilitar DoT (DNS-over-TLS)</span>
+                                        </label>
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Porta</label>
+                                        <input type="number" min="1" max="65535" id="tls-port-input" name="tls-port" value="<?= htmlspecialchars($tlsPortVal !== '' ? $tlsPortVal : '853') ?>" <?= $tlsEnabled ? '' : 'disabled' ?> class="glass-input w-full font-mono">
+                                        <p class="text-[9px] text-slate-500 italic mt-1">Padrão Unbound: 853. Quando desabilitado, é omitido do config.</p>
+                                    </div>
+
+                                    <!-- DoH toggle + port -->
+                                    <div class="bg-slate-900/5 dark:bg-white/5 p-4 rounded-2xl border border-slate-200 dark:border-white/5">
+                                        <label class="flex items-center gap-3 cursor-pointer mb-3">
+                                            <input type="checkbox" id="enable-https-port" <?= $httpsEnabled ? 'checked' : '' ?> onchange="document.getElementById('https-port-input').disabled = !this.checked; if (this.checked && !document.getElementById('https-port-input').value) document.getElementById('https-port-input').value = 443;" class="w-5 h-5 text-cyan-500 bg-slate-900 border-white/10 rounded">
+                                            <span class="text-[11px] font-black text-slate-900 dark:text-white uppercase tracking-widest">Habilitar DoH (DNS-over-HTTPS)</span>
+                                        </label>
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Porta</label>
+                                        <input type="number" min="1" max="65535" id="https-port-input" name="https-port" value="<?= htmlspecialchars($httpsPortVal !== '' ? $httpsPortVal : '443') ?>" <?= $httpsEnabled ? '' : 'disabled' ?> class="glass-input w-full font-mono">
+                                        <p class="text-[9px] text-slate-500 italic mt-1">Padrão Unbound: 443. Quando desabilitado, é omitido do config.</p>
+                                    </div>
                                 </div>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    <?= field('tls-service-pem', 'Caminho do Certificado Público (.pem / .crt)', 'Exemplo: /etc/letsencrypt/live/seusite.com/fullchain.pem') ?>
-                                    <?= field('tls-service-key', 'Caminho da Chave Privada (.key)', 'Exemplo: /etc/letsencrypt/live/seusite.com/privkey.pem') ?>
+                                    <?= field('tls-service-pem', 'Caminho do Certificado Público (.pem / .crt)', 'Auto-preenchido quando você Gera/Faz Upload abaixo. Sobrescreva pra usar cert externo (Let\'s Encrypt etc).') ?>
+                                    <?= field('tls-service-key', 'Caminho da Chave Privada (.key)', 'Auto-preenchido junto com o certificado.') ?>
                                 </div>
                             </div>
 
@@ -1219,8 +1274,22 @@ function field($key, $label, $desc = '', $def = '')
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Subject Alternative Names (SANs)</label>
-                                    <textarea name="cert_sans" rows="3" class="glass-input w-full font-mono text-xs" placeholder="Um por linha ou vírgula-separado. Hostnames OU IPs. ex:&#10;dns.empresa.local&#10;192.168.1.1&#10;10.0.0.1"></textarea>
-                                    <p class="text-[10px] text-slate-500 mt-1">Opcional. Clientes geralmente exigem SAN — adicione todos os hostnames/IPs que o servidor responde.</p>
+                                    <?php
+                                    // Pré-popular com hostname + IPs reais das interfaces não-loopback.
+                                    $sanDefaults = [];
+                                    foreach ($ifacesDetails as $_if) {
+                                        if (($_if['ifname'] ?? '') === 'lo') continue;
+                                        foreach (($_if['addr_info'] ?? []) as $_a) {
+                                            $_ip = $_a['local'] ?? '';
+                                            // Skip link-local IPv6 (fe80::) — não é útil no SAN
+                                            if ($_ip === '' || str_starts_with(strtolower($_ip), 'fe80:')) continue;
+                                            $sanDefaults[] = $_ip;
+                                        }
+                                    }
+                                    $sanDefaults = array_values(array_unique($sanDefaults));
+                                    ?>
+                                    <textarea name="cert_sans" rows="4" class="glass-input w-full font-mono text-xs" placeholder="Um por linha ou vírgula-separado. Hostnames OU IPs."><?= htmlspecialchars(implode("\n", $sanDefaults)) ?></textarea>
+                                    <p class="text-[10px] text-slate-500 mt-1">Pré-preenchido com os IPs detectados nas interfaces não-loopback. Adicione hostnames/FQDNs que clientes vão usar.</p>
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Validade (dias)</label>

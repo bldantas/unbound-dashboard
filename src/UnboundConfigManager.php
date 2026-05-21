@@ -304,13 +304,41 @@ class UnboundConfigManager
         // 1. Interfaces
         $interfaces = !empty($newParams['interfaces']) ? $newParams['interfaces'] : $oldConfig['interfaces'];
         if (empty($interfaces)) $interfaces = ['0.0.0.0', '::0'];
-        $intContent = "";
+
+        // "Bases" são as interfaces SEM `@porta` — o que o user define manualmente.
+        // Quando habilitamos DoT/DoH, geramos listeners adicionais `iface@porta`
+        // automaticamente (Unbound exige isso pra escutar nas portas extras).
+        $baseInterfaces = [];
         foreach ($interfaces as $iface) {
+            $iface = trim((string) $iface);
+            if ($iface === '') continue;
+            // Strip trailing @PORT se vier (re-aplicamos abaixo).
+            $base = preg_replace('/@\d+$/', '', $iface);
+            $baseInterfaces[] = $base;
+        }
+        $baseInterfaces = array_values(array_unique($baseInterfaces));
+
+        $intContent = "";
+        foreach ($baseInterfaces as $iface) {
             $intContent .= "    interface: {$iface}\n";
         }
-        $port = $filterVal('port', $newParams['port'] ?? '');
         $port = $filterVal('port', $newParams['port'] ?? $oldConfig['port'] ?? '');
         $intContent .= "    port: " . (!empty($port) ? (int)$port : 53) . "\n";
+
+        // Auto-listen pra DoT (tls-port) e DoH (https-port). Skippa loopback —
+        // TLS no 127.0.0.1/::1 é raro e gera ruído desnecessário.
+        $tlsPortNum   = (int) ($newParams['tls-port']   ?? $oldConfig['tls-port']   ?? 0);
+        $httpsPortNum = (int) ($newParams['https-port'] ?? $oldConfig['https-port'] ?? 0);
+        $isLoopback = function (string $ip): bool {
+            $ip = strtolower(trim($ip));
+            return $ip === '127.0.0.1' || $ip === '::1' || str_starts_with($ip, '127.');
+        };
+        foreach ($baseInterfaces as $iface) {
+            if ($isLoopback($iface)) continue;
+            if ($tlsPortNum > 0)   $intContent .= "    interface: {$iface}@{$tlsPortNum}\n";
+            if ($httpsPortNum > 0) $intContent .= "    interface: {$iface}@{$httpsPortNum}\n";
+        }
+
         $configs['interfaces'] = $intContent;
 
         // 2. General

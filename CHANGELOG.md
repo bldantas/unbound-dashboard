@@ -1,5 +1,47 @@
 # Changelog
 
+## v2.30.0 — 2026-05-21
+
+### feat(tls): fluxo DoT/DoH funcional ponta-a-ponta
+
+Antes era preciso preencher portas, paths de cert manualmente, mas
+mesmo assim o Unbound não escutava nas portas extras (precisa de
+`interface: X@porta` adicional). 5 melhorias:
+
+1. **Toggle on/off + porta** — campo único de porta foi substituído
+   por checkbox "Habilitar DoT/DoH" + input numérico. Quando desmarca,
+   o input é desabilitado (não vai pro POST → port vazia → feature off).
+   Default 853/443 preenchidos automaticamente ao habilitar.
+
+2. **Auto-fill paths após Gerar/Upload** — quando user clica em
+   "Gerar Self-Signed" ou "Upload PEM" com sucesso, `tls-service-pem`
+   e `tls-service-key` no `unbound.conf` recebem automaticamente os
+   paths managed `/etc/unbound/certs/dashboard.{crt,key}`. Sem
+   copia-cola manual. Remoção do cert também limpa os paths.
+
+3. **SANs pré-preenchidos** — o textarea de SANs no modal "Gerar"
+   agora vem com **os IPs reais das interfaces não-loopback** do
+   servidor já preenchidos. Skip de link-local IPv6 (fe80::*).
+
+4. **Auto-listen `interface:X@porta`** — `generateModularConfigs`
+   agora gera linhas extras `interface: <ip>@<tls-port>` e
+   `interface: <ip>@<https-port>` pra cada interface base (não-
+   loopback). Sem isso, o Unbound aceita `tls-port: 853` no config
+   mas nunca abre a porta. Strip de `@N` existente antes pra evitar
+   duplicação.
+
+5. **Fix CIDR no SAN** (já incluído no v2.29.0 mas reiterado pra
+   contexto): `143.0.220.0/22` → `143.0.220.0` automaticamente.
+
+Smoke ao vivo: após apply com tls-port=853, https-port=443 + cert
+managed, `interfaces.conf` ficou com 4 linhas `interface:` base +
+4 linhas extras (`@853`/`@443` pra cada non-loopback). Pronto pra
+unbound recarregar e abrir handshake TLS.
+
+VERSION 2.29.0 → 2.30.0.
+
+---
+
 ## v2.29.0 — 2026-05-21
 
 ### feat(tls): painel de status DoT/DoH + fix CIDR no SAN
