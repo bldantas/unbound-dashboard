@@ -1,5 +1,53 @@
 # Changelog
 
+## v2.28.0 — 2026-05-21
+
+### feat(tls): gerar / upload / remover certificado SSL no DoT/DoH
+
+Antes o tab "Criptografia DoT/DoH" só aceitava paths digitados na mão.
+Pra usar DoT/DoH era preciso gerar o cert externamente (openssl /
+certbot) e copiar pra um caminho lido pelo unbound. Fluxo invasivo.
+
+Agora o dashboard gerencia o par `dashboard.crt` + `dashboard.key`
+em `/etc/unbound/certs/`, dono `unbound:unbound`, perms `0644/0640`.
+
+**Novo `TlsCertManager.php`**:
+
+- `generateSelfSigned(cn, sans, days)` — openssl `req -x509 -newkey
+  rsa:2048` com `subjectAltName` (DNS + IP), `serverAuth` EKU.
+  Default 825 dias (limite iOS/Safari). CN entra automaticamente
+  como primeiro SAN DNS (compat moderna).
+- `uploadCert(certPem, keyPem)` — paste de PEM via textarea. Valida
+  com `openssl x509`/`pkey` e match de modulus cert↔key antes de
+  instalar.
+- `removeCert()` — `rm` dos arquivos gerenciados. Não toca em paths
+  externos (Let's Encrypt etc).
+- `getStatus()` — pega subject, expira, SANs do cert atual pra UI.
+
+**UI no tab-tls**:
+
+- Card "Certificado SSL Gerenciado" abaixo dos campos de paths.
+- Status verde com CN/Expira/SANs quando o cert managed existe.
+- 3 botões: **Gerar Self-Signed** • **Upload PEM** • **Remover**.
+- 3 modais fora do `mainConfigForm` (forms separados POSTam direto
+  pra `config.php?tab=tls`).
+- Modal "Gerar" pré-popula o CN com o hostname do servidor.
+
+**Sudoers** ganha 4 entries exatas:
+
+- `mkdir -p /etc/unbound/certs`
+- `install -o unbound -g unbound -m 0644 <tmp>/unbound_dashboard_cert.crt → dashboard.crt`
+- `install -o unbound -g unbound -m 0640 <tmp>/unbound_dashboard_cert.key → dashboard.key`
+- `rm /etc/unbound/certs/dashboard.{crt,key}`
+
+Smoke ao vivo: gerei `CN=dns.test.local`, SAN `192.168.1.1 10.0.0.1`,
+validade 30d. Cert instalado com perms corretos, status exibido,
+remove funcionou.
+
+VERSION 2.27.3 → 2.28.0.
+
+---
+
 ## v2.27.3 — 2026-05-21
 
 ### fix(config-rede): IP da LO.1 não aparecia + faltava botão "Remover"

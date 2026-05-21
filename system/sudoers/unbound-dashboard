@@ -49,4 +49,9 @@ www-data ALL=(ALL) NOPASSWD: \
     /usr/bin/systemctl restart ntpsec, \
     /usr/bin/bash /var/www/html/unbound-dashboard/tools/run-update.sh * /var/lib/unbound-dashboard/updates/unbound-dashboard-update-v[0-9]*.tar.gz, \
     /usr/bin/bash /var/www/html/unbound-dashboard/tools/restore-backup.sh * [0-9]*, \
-    /usr/bin/systemctl restart unbound-dashboard-api
+    /usr/bin/systemctl restart unbound-dashboard-api, \
+    /usr/bin/mkdir -p /etc/unbound/certs, \
+    /usr/bin/install -o unbound -g unbound -m 0644 /var/www/html/unbound-dashboard/src/data/tmp/unbound_dashboard_cert.crt /etc/unbound/certs/dashboard.crt, \
+    /usr/bin/install -o unbound -g unbound -m 0640 /var/www/html/unbound-dashboard/src/data/tmp/unbound_dashboard_cert.key /etc/unbound/certs/dashboard.key, \
+    /usr/bin/rm /etc/unbound/certs/dashboard.crt, \
+    /usr/bin/rm /etc/unbound/certs/dashboard.key

@@ -5,6 +5,7 @@ require_once 'src/NetworkManager.php';
 require_once 'src/SourceBalanceManager.php';
 require_once 'src/BlocklistManager.php';
 require_once 'src/ShellHelper.php';
+require_once 'src/TlsCertManager.php';
 
 \App\Auth::check();
 $isAdmin = \App\Auth::isAdmin();
@@ -18,6 +19,7 @@ $configManager = new \App\UnboundConfigManager();
 $networkManager = new \App\NetworkManager();
 $sourceBalanceManager = new \App\SourceBalanceManager();
 $blocklistManager = new \App\BlocklistManager();
+$tlsCertManager = new \App\TlsCertManager();
 
 $message = '';
 $messageType = '';
@@ -117,6 +119,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $resDns = $networkManager->setSystemDNS($dns);
         $message = ($resHn['success'] && $resDns['success']) ? "Rede do host salva." : "Erro na rede.";
         $messageType = ($resHn['success'] && $resDns['success']) ? 'success' : 'error';
+    } elseif ($action === 'tls_generate_cert') {
+        $cn = trim((string)($_POST['cert_cn'] ?? ''));
+        $sansRaw = trim((string)($_POST['cert_sans'] ?? ''));
+        $days = (int)($_POST['cert_days'] ?? 825);
+        $sans = $sansRaw === '' ? [] : array_filter(array_map('trim', preg_split('/[\s,]+/', $sansRaw)));
+        $res = $tlsCertManager->generateSelfSigned($cn, $sans, $days);
+        $message = $res['message'];
+        $messageType = $res['success'] ? 'success' : 'error';
+    } elseif ($action === 'tls_upload_cert') {
+        $certPem = (string)($_POST['cert_pem'] ?? '');
+        $keyPem  = (string)($_POST['cert_key'] ?? '');
+        $res = $tlsCertManager->uploadCert($certPem, $keyPem);
+        $message = $res['message'];
+        $messageType = $res['success'] ? 'success' : 'error';
+    } elseif ($action === 'tls_remove_cert') {
+        $res = $tlsCertManager->removeCert();
+        $message = $res['message'];
+        $messageType = $res['success'] ? 'success' : 'error';
     } elseif ($action === 'delete_interface') {
         $requestedIface = trim((string)($_POST['iface_name'] ?? ''));
         // Pra card da loopback, o "remover" age no alias lo.1 (mesma
@@ -360,6 +380,7 @@ $currentConfig = $configManager->parseConfig();
 $settings = $configManager->loadSettings();
 $localRecords = $configManager->loadLocalRecords();
 $ifacesDetails = $networkManager->getInterfacesDetailed();
+$tlsCertStatus = $tlsCertManager->getStatus();
 $systemHostname = $networkManager->getHostname();
 $systemDnsList = array_pad($networkManager->getSystemDNS(), 2, '');
 $blockedDomainsTxt = implode("\n", $configManager->loadBlocklist());
@@ -656,6 +677,43 @@ function field($key, $label, $desc = '', $def = '')
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                                     <?= field('tls-service-pem', 'Caminho do Certificado Público (.pem / .crt)', 'Exemplo: /etc/letsencrypt/live/seusite.com/fullchain.pem') ?>
                                     <?= field('tls-service-key', 'Caminho da Chave Privada (.key)', 'Exemplo: /etc/letsencrypt/live/seusite.com/privkey.pem') ?>
+                                </div>
+                            </div>
+
+                            <!-- Certificado gerenciado pelo dashboard -->
+                            <div class="glass-panel">
+                                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-4">Certificado SSL Gerenciado</h3>
+                                <p class="text-xs text-slate-400 mb-4 leading-relaxed">Gere ou envie um par de cert+key armazenado em <code class="text-slate-300">/etc/unbound/certs/dashboard.{crt,key}</code>. Os campos de caminho acima podem apontar pra esses arquivos.</p>
+
+                                <?php if ($tlsCertStatus['managed_by_dashboard']): ?>
+                                    <div class="p-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 mb-4">
+                                        <p class="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-2">Certificado ativo</p>
+                                        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-[11px] font-mono">
+                                            <div><span class="text-slate-500">CN:</span> <span class="text-slate-900 dark:text-white"><?= htmlspecialchars($tlsCertStatus['subject'] ?? '?') ?></span></div>
+                                            <div><span class="text-slate-500">Expira:</span> <span class="text-slate-900 dark:text-white"><?= $tlsCertStatus['expires_at'] ? date('d/m/Y H:i', $tlsCertStatus['expires_at']) : '?' ?></span></div>
+                                            <?php if (!empty($tlsCertStatus['sans'])): ?>
+                                                <div class="sm:col-span-2"><span class="text-slate-500">SAN:</span> <span class="text-slate-900 dark:text-white break-all"><?= htmlspecialchars(implode(', ', $tlsCertStatus['sans'])) ?></span></div>
+                                            <?php endif; ?>
+                                        </dl>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="p-4 rounded-2xl border border-slate-500/20 bg-slate-500/5 mb-4 text-[11px] text-slate-500">
+                                        Nenhum certificado gerenciado instalado em <code>/etc/unbound/certs/dashboard.{crt,key}</code>.
+                                    </div>
+                                <?php endif; ?>
+
+                                <div class="flex flex-wrap gap-2">
+                                    <button type="button" onclick="document.getElementById('tls-generate-modal').classList.remove('hidden')" class="glass-btn text-[10px] uppercase font-black !bg-cyan-600 !text-white flex items-center gap-2">
+                                        🔐 Gerar Self-Signed
+                                    </button>
+                                    <button type="button" onclick="document.getElementById('tls-upload-modal').classList.remove('hidden')" class="glass-btn text-[10px] uppercase font-black flex items-center gap-2">
+                                        ⬆ Upload PEM
+                                    </button>
+                                    <?php if ($tlsCertStatus['managed_by_dashboard']): ?>
+                                        <button type="button" onclick="document.getElementById('tls-remove-modal').classList.remove('hidden')" class="glass-btn text-[10px] uppercase font-black !bg-red-500/15 !text-red-600 dark:!text-red-400">
+                                            ✗ Remover
+                                        </button>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                         </div>
@@ -1038,6 +1096,79 @@ function field($key, $label, $desc = '', $def = '')
                                 </div>
                             <?php endif; ?>
                         </div>
+                    </div>
+
+                    <!-- ============================================================ -->
+                    <!-- Modais do certificado TLS (fora do mainConfigForm)            -->
+                    <!-- ============================================================ -->
+
+                    <!-- Gerar self-signed -->
+                    <div id="tls-generate-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+                        <form method="POST" action="config.php?tab=tls" class="glass-panel max-w-lg w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl">
+                            <input type="hidden" name="action" value="tls_generate_cert">
+                            <input type="hidden" name="tab" value="tls">
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4">Gerar certificado self-signed</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Common Name (CN) *</label>
+                                    <input type="text" name="cert_cn" required maxlength="100" placeholder="ex: dns.empresa.local" class="glass-input w-full font-mono text-xs" value="<?= htmlspecialchars($systemHostname) ?>">
+                                    <p class="text-[10px] text-slate-500 mt-1">FQDN principal do servidor (entra no Subject e como primeiro SAN).</p>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Subject Alternative Names (SANs)</label>
+                                    <textarea name="cert_sans" rows="3" class="glass-input w-full font-mono text-xs" placeholder="Um por linha ou vírgula-separado. Hostnames OU IPs. ex:&#10;dns.empresa.local&#10;192.168.1.1&#10;10.0.0.1"></textarea>
+                                    <p class="text-[10px] text-slate-500 mt-1">Opcional. Clientes geralmente exigem SAN — adicione todos os hostnames/IPs que o servidor responde.</p>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Validade (dias)</label>
+                                    <input type="number" name="cert_days" min="1" max="3650" value="825" class="glass-input w-full font-mono text-xs">
+                                    <p class="text-[10px] text-slate-500 mt-1">Default 825 (limite aceito por iOS/Safari sem warning).</p>
+                                </div>
+                            </div>
+                            <div class="flex justify-end gap-2 mt-6">
+                                <button type="button" onclick="document.getElementById('tls-generate-modal').classList.add('hidden')" class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
+                                <button type="submit" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Gerar</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Upload PEM -->
+                    <div id="tls-upload-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+                        <form method="POST" action="config.php?tab=tls" class="glass-panel max-w-2xl w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl">
+                            <input type="hidden" name="action" value="tls_upload_cert">
+                            <input type="hidden" name="tab" value="tls">
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4">Upload de certificado PEM</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Certificado público (PEM) *</label>
+                                    <textarea name="cert_pem" rows="8" required class="glass-input w-full font-mono text-[10px]" placeholder="-----BEGIN CERTIFICATE-----&#10;MIID...&#10;-----END CERTIFICATE-----"></textarea>
+                                    <p class="text-[10px] text-slate-500 mt-1">Cole o conteúdo do <code>.crt</code> ou <code>fullchain.pem</code>.</p>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Chave privada (PEM) *</label>
+                                    <textarea name="cert_key" rows="8" required class="glass-input w-full font-mono text-[10px]" placeholder="-----BEGIN PRIVATE KEY-----&#10;MIIE...&#10;-----END PRIVATE KEY-----"></textarea>
+                                    <p class="text-[10px] text-slate-500 mt-1">Validamos com openssl + match cert↔key antes de instalar.</p>
+                                </div>
+                            </div>
+                            <div class="flex justify-end gap-2 mt-6">
+                                <button type="button" onclick="document.getElementById('tls-upload-modal').classList.add('hidden')" class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
+                                <button type="submit" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Instalar</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Remover -->
+                    <div id="tls-remove-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+                        <form method="POST" action="config.php?tab=tls" class="glass-panel max-w-md w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl">
+                            <input type="hidden" name="action" value="tls_remove_cert">
+                            <input type="hidden" name="tab" value="tls">
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4">Remover certificado gerenciado</h3>
+                            <p class="text-[12px] text-slate-600 dark:text-slate-400 mb-4">Apaga <code>/etc/unbound/certs/dashboard.crt</code> e <code>dashboard.key</code>. Não afeta certificados externos (ex: <code>/etc/letsencrypt/</code>). Lembre de limpar os caminhos em Configurações depois.</p>
+                            <div class="flex justify-end gap-2">
+                                <button type="button" onclick="document.getElementById('tls-remove-modal').classList.add('hidden')" class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
+                                <button type="submit" class="glass-btn !bg-red-600 !text-white text-[10px] uppercase font-black">Remover</button>
+                            </div>
+                        </form>
                     </div>
 
                     <!-- tab-email — config SMTP (admin only) — fora do mainConfigForm, igual ao tab-ntp -->
