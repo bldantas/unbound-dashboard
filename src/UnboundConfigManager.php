@@ -238,7 +238,17 @@ class UnboundConfigManager
             } else {
                 foreach (array_keys($scalars) as $key) {
                     if (preg_match('/^' . $key . ':\s*(.+)$/', $trimmed, $matches)) {
-                        $config[$key] = trim($matches[1]);
+                        $val = trim($matches[1]);
+                        // Unbound aceita valores quoted (`key: "value"`) e raw
+                        // (`key: value`). Strip aspas externas pra que callers
+                        // PHP usem o path direto (sem isso, is_readable("\"X\"")
+                        // sempre falhava — viu-se em tls-service-pem/key).
+                        if (strlen($val) >= 2
+                            && ($val[0] === '"' || $val[0] === "'")
+                            && $val[strlen($val) - 1] === $val[0]) {
+                            $val = substr($val, 1, -1);
+                        }
+                        $config[$key] = $val;
                         break;
                     }
                 }

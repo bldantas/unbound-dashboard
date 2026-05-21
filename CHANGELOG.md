@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.30.4 — 2026-05-21
+
+### fix(config-parser): strip aspas externas de valores quoted
+
+Painel TLS mostrava "arquivo não encontrado" pros paths do cert mesmo
+com handshake OK. Causa: `parseConfig` capturava o valor literal
+da linha `tls-service-pem: "/etc/unbound/certs/dashboard.crt"`
+incluindo as aspas duplas. PHP tentava `is_readable('"/etc/.../dashboard.crt"')`
+e dava false (aspas viram parte do filename).
+
+Unbound em si parseia corretamente (sabe tirar aspas), então o
+servidor funcionava — só nossa validação client-side é que mentia.
+
+**Fix** em `parseConfig` (linha do scalars-loop): após capturar
+`$matches[1]`, se a string começar E terminar com a mesma aspa (`"` ou
+`'`), faz `substr` removendo as bordas. Aplica pra qualquer scalar
+quoted no config (não só TLS — `interface:`, `module-config:` etc
+já tinham regex específico, então não afeta).
+
+Smoke: `parseConfig['tls-service-pem']` agora retorna o path nu,
+`is_readable()` reconhece os arquivos, painel não mostra mais o falso
+warning.
+
+VERSION 2.30.3 → 2.30.4.
+
+---
+
 ## v2.30.3 — 2026-05-21
 
 ### fix(tls): 3 problemas no handshake + AppArmor
