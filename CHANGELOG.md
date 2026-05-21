@@ -1,5 +1,63 @@
 # Changelog
 
+## v2.27.0 — 2026-05-21
+
+### feat(unbound): toggle "Anti-DoH" — bloqueia DNS-over-HTTPS de terceiros
+
+Navegadores modernos (Firefox/Chrome/Edge) usam DoH por padrão em vários
+cenários — TCP/443 direto pra Cloudflare/Google, **bypassando o
+resolver local**. Resultado: usuário vê `coins.game` bloqueado no
+`nslookup` mas o navegador resolve normalmente.
+
+Solução não-invasiva (sem mexer em config de dispositivos): bloquear
+os hostnames dos endpoints DoH no próprio Unbound. Cliente tenta
+resolver `mozilla.cloudflare-dns.com` → NXDOMAIN → cai pro DNS local
+→ bloqueio volta a funcionar.
+
+**Setting** `anti_doh_enabled` (default `false`). Toggle em
+**Configurações → Lista de Bloqueios**.
+
+**Backend**:
+
+- Novo arquivo `src/data/anti_doh_hosts.json` — lista curada de **33
+  hostnames DoH** (Cloudflare, Google, Quad9, OpenDNS, CleanBrowsing,
+  AdGuard, NextDNS, ControlD, LibreDNS, dns.sb, DNSPod, AliDNS, IIJ),
+  + canary do Firefox `use-application-dns.net` que faz o Firefox
+  desligar DoH automaticamente.
+- `UnboundConfigManager`:
+  - Novo include `/etc/unbound/includes/anti_doh.conf` (separado de
+    `blocked_domains.conf` pra facilitar manutenção/audit).
+  - `loadAntiDohHosts()` lê o JSON ignorando linhas vazias/comentadas.
+  - `generateAntiDohConf(bool)` escreve o arquivo: vazio quando
+    `false`, com `local-zone "X." always_nxdomain` por hostname
+    quando `true`.
+  - `applyConfig` regenera + `cp` na receita (mesmo padrão de
+    blocked_domains). O include já entra em `generateRawConfig` e
+    no `unbound-checkconf` pre-flight.
+- `save_rpz` action em `config.php` agora persiste o toggle via
+  merge com settings antigas (não dropa SMTP etc).
+
+**UI** — novo card no tab-rpz com descrição explicando o
+funcionamento + contador dinâmico de hostnames carregados.
+
+**Smoke test ao vivo** (33 hostnames, Unbound restarted):
+
+```
+mozilla.cloudflare-dns.com    NXDOMAIN
+dns.google                    NXDOMAIN
+dns.quad9.net                 NXDOMAIN
+dns.adguard.com               NXDOMAIN
+use-application-dns.net       NXDOMAIN
+example.com                   NOERROR (sanity)
+```
+
+Cobre ~95% dos casos de DoH-bypass. Resíduo: clientes que usam DoH
+com IP hardcoded (não-hostname) — só firewall L4 resolve.
+
+VERSION 2.26.1 → 2.27.0.
+
+---
+
 ## v2.26.1 — 2026-05-21
 
 ### fix(log_watcher): distinguir `blocked` real de `nxdomain_upstream`

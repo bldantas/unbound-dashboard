@@ -14,6 +14,9 @@ class UnboundConfigManager
     private string $blocklistJsonPath;
     private string $blockedConfPath;
     private string $tempBlockedConfPath;
+    private string $antiDohConfPath;
+    private string $tempAntiDohPath;
+    private string $antiDohHostsJsonPath;
     private string $officialBlocklistPath;
     private string $settingsPath;
     private string $localRecordsJsonPath;
@@ -32,6 +35,9 @@ class UnboundConfigManager
         $this->blocklistJsonPath = dirname(__FILE__) . '/data/blocklist.json';
         $this->blockedConfPath = $this->confdDir . '/blocked_domains.conf';
         $this->tempBlockedConfPath = $tempDir . 'unbound_blocked_domains.tmp';
+        $this->antiDohConfPath = $this->confdDir . '/anti_doh.conf';
+        $this->tempAntiDohPath = $tempDir . 'unbound_anti_doh.tmp';
+        $this->antiDohHostsJsonPath = dirname(__FILE__) . '/anti_doh_hosts.json';
         $this->officialBlocklistPath = dirname(__FILE__) . '/data/official_blocklist.conf';
         $this->settingsPath = dirname(__FILE__) . '/data/settings.json';
         $this->localRecordsJsonPath = dirname(__FILE__) . '/data/local_records.json';
@@ -71,6 +77,16 @@ class UnboundConfigManager
         if (!file_exists($this->blockedConfPath)) {
             file_put_contents($this->blockedConfPath, "# Blocked Domains Configuration\n# This file is auto-generated\n\n");
             @chmod($this->blockedConfPath, 0664);
+        }
+
+        // Garantir que o arquivo de Anti-DoH existe (vazio = sem zones, desativado)
+        if (!file_exists($this->antiDohConfPath)) {
+            file_put_contents($this->antiDohConfPath, "# Anti-DoH Filter — DNS-over-HTTPS endpoints\n# Auto-generated. Toggle em Configurações → Lista de Bloqueios.\nserver:\n");
+            @chmod($this->antiDohConfPath, 0664);
+        }
+        if (!file_exists($this->tempAntiDohPath)) {
+            file_put_contents($this->tempAntiDohPath, "# Anti-DoH Filter\nserver:\n");
+            @chmod($this->tempAntiDohPath, 0664);
         }
 
         // Garantir que outros arquivos modulares existem
@@ -481,6 +497,8 @@ class UnboundConfigManager
         }
         // Include bloqueios
         $content .= "    include: \"{$this->blockedConfPath}\"\n";
+        // Include Anti-DoH (DNS-over-HTTPS endpoints) — sempre incluso; conteúdo é vazio se feature off.
+        $content .= "    include: \"{$this->antiDohConfPath}\"\n";
 
         $content .= "\n# Remote Control\n";
         $content .= "remote-control:\n";
@@ -515,6 +533,11 @@ class UnboundConfigManager
             $this->generateBlockedDomainsConf($this->loadBlocklist());
         }
 
+        // Anti-DoH: lê o estado de newParams se vier; senão, do settings persistido.
+        $antiDohEnabled = $newParams['anti_doh_enabled']
+            ?? ((bool) ($this->loadSettings()['anti_doh_enabled'] ?? false));
+        $this->generateAntiDohConf((bool) $antiDohEnabled);
+
         if (isset($newParams['local_records'])) {
             $this->saveLocalRecords($newParams['local_records']);
             $this->generateLocalRecordsConf($newParams['local_records']);
@@ -526,6 +549,12 @@ class UnboundConfigManager
         \App\ShellHelper::exec('/usr/bin/cp', [$this->tempBlockedConfPath, $this->blockedConfPath], $cpBlockedOutput, $cpBlockedReturn, true);
         if ($cpBlockedReturn !== 0) {
             return ['success' => false, 'message' => "Falha ao salvar lista de bloqueio modular:\n" . implode("\n", $cpBlockedOutput)];
+        }
+
+        // Move Anti-DoH conf (mesmo padrão do blocked_domains)
+        \App\ShellHelper::exec('/usr/bin/cp', [$this->tempAntiDohPath, $this->antiDohConfPath], $cpAntiDohOutput, $cpAntiDohReturn, true);
+        if ($cpAntiDohReturn !== 0) {
+            return ['success' => false, 'message' => "Falha ao salvar filtro Anti-DoH:\n" . implode("\n", $cpAntiDohOutput)];
         }
 
         \App\ShellHelper::exec('/usr/bin/cp', [$this->tempLocalRecordsPath, $this->modularFiles['local_records']], $cpLocalOutput, $cpLocalReturn, true);
@@ -557,6 +586,7 @@ class UnboundConfigManager
             $checkRaw .= "    include: \"" . $tempDir . "unbound_{$key}.conf\"\n";
         }
         $checkRaw .= "    include: \"{$this->tempBlockedConfPath}\"\n";
+        $checkRaw .= "    include: \"{$this->tempAntiDohPath}\"\n";
         $checkRaw .= "    include: \"{$this->tempLocalRecordsPath}\"\n";
         $checkRaw .= "\ninclude: \"" . $tempDir . "unbound_forwarders.conf\"\n";
 
@@ -640,6 +670,44 @@ class UnboundConfigManager
         }
         file_put_contents($this->tempBlockedConfPath, $content);
         chmod($this->tempBlockedConfPath, 0664);
+    }
+
+    /**
+     * Carrega a lista curada de endpoints DoH (JSON shippado com o dashboard).
+     * Linhas vazias e comentários (`#`) são ignorados pra suportar edição manual.
+     */
+    public function loadAntiDohHosts(): array
+    {
+        if (!file_exists($this->antiDohHostsJsonPath)) return [];
+        $raw = json_decode(file_get_contents($this->antiDohHostsJsonPath), true);
+        if (!is_array($raw)) return [];
+        $out = [];
+        foreach ($raw as $entry) {
+            $h = strtolower(trim((string) $entry));
+            if ($h === '' || $h[0] === '#') continue;
+            $out[] = $h;
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * Escreve o arquivo de Anti-DoH no temp path. Se `$enabled=false`, gera
+     * arquivo válido mas vazio (apenas `server:` sem zones) — assim o
+     * `include:` no unbound.conf continua sempre válido.
+     */
+    public function generateAntiDohConf(bool $enabled): void
+    {
+        $content  = "# Anti-DoH Filter — DNS-over-HTTPS endpoints conhecidos.\n";
+        $content .= "# Auto-gerado pelo Unbound Dashboard. NÃO edite à mão.\n";
+        $content .= "# Toggle em Configurações → Lista de Bloqueios.\n";
+        $content .= "server:\n";
+        if ($enabled) {
+            foreach ($this->loadAntiDohHosts() as $host) {
+                $content .= "    local-zone: \"{$host}.\" always_nxdomain\n";
+            }
+        }
+        file_put_contents($this->tempAntiDohPath, $content);
+        @chmod($this->tempAntiDohPath, 0664);
     }
 
     public function loadLocalRecords(): array

@@ -87,7 +87,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $messageType = $res['success'] ? 'success' : 'error';
     } elseif ($action === 'save_rpz') {
         $domains = array_filter(explode("\n", str_replace("\r", "", $_POST['blocked_domains'] ?? '')));
-        $settings = ['official_blocklist_enabled' => ($_POST['official_blocklist_enabled'] ?? 'no') === 'yes', 'official_blocklist_update_time' => $_POST['official_blocklist_update_time'] ?? '03:00'];
+        $antiDohEnabled = ($_POST['anti_doh_enabled'] ?? 'no') === 'yes';
+        // Merge com settings antigas pra não dropar outras chaves (ex: SMTP).
+        $prevSettings = $configManager->loadSettings();
+        $settings = array_merge($prevSettings, [
+            'official_blocklist_enabled'     => ($_POST['official_blocklist_enabled'] ?? 'no') === 'yes',
+            'official_blocklist_update_time' => $_POST['official_blocklist_update_time'] ?? '03:00',
+            'anti_doh_enabled'               => $antiDohEnabled,
+        ]);
 
         if (isset($_POST['blacklist_source'])) {
             $blocklistManager->saveBlocklistSource($_POST['blacklist_source']);
@@ -97,7 +104,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $blocklistManager->saveBlacklistSourceEnabled(($_POST['blacklist_source_enabled'] ?? 'no') === 'yes');
 
         $configManager->saveSettings($settings);
-        $res = $configManager->applyConfig(['blocked_domains' => $domains]);
+        $res = $configManager->applyConfig([
+            'blocked_domains' => $domains,
+            'anti_doh_enabled' => $antiDohEnabled,
+        ]);
         $message = $res['success'] ? "Filtros de Bloqueio atualizados." : "Erro ao aplicar bloqueios: " . $res['message'];
         $messageType = $res['success'] ? 'success' : 'error';
     } elseif ($action === 'save_system_network') {
@@ -740,6 +750,19 @@ function field($key, $label, $desc = '', $def = '')
                                         <div><span class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Sincronização Anablock (Judicial)</span></div>
                                     </div>
                                     <input type="time" name="official_blocklist_update_time" value="<?= htmlspecialchars($settings['official_blocklist_update_time'] ?? '03:00') ?>" class="glass-input !py-2 !px-4 text-xs font-mono">
+                                </label>
+
+                                <!-- Toggle: Anti-DoH (DNS-over-HTTPS dos navegadores) -->
+                                <label class="bg-red-600/5 dark:bg-white/5 border border-slate-200 dark:border-white/5 p-6 rounded-3xl flex items-center justify-between cursor-pointer mb-8">
+                                    <div class="flex items-center gap-4">
+                                        <input type="checkbox" name="anti_doh_enabled" value="yes" <?= ($settings['anti_doh_enabled'] ?? false) ? 'checked' : '' ?> class="w-6 h-6 text-red-600 bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-white/10 rounded-lg">
+                                        <div>
+                                            <span class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Bloquear DNS-over-HTTPS de terceiros</span>
+                                            <p class="text-[10px] text-slate-500 font-medium mt-1">
+                                                Adiciona <?= count($configManager->loadAntiDohHosts()) ?> hostnames de DoH conhecidos (Cloudflare, Google, Quad9, AdGuard, NextDNS…) ao Unbound como <code>always_nxdomain</code>. Os navegadores não conseguem mais resolver o endpoint DoH e caem pro DNS local — voltam a respeitar seus bloqueios sem mexer no dispositivo. Firefox tb desliga DoH automaticamente via canary <code>use-application-dns.net</code>.
+                                            </p>
+                                        </div>
+                                    </div>
                                 </label>
 
 
