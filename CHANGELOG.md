@@ -1,5 +1,48 @@
 # Changelog
 
+## v2.25.0 — 2026-05-21
+
+### feat(multi-host): histórico de polls por host + aba dedicada no drill-down
+
+Antes o multi-host só guardava `last_status` por host. Sem visibilidade
+do passado: "esse host caiu quando?", "tá oscilando?", "qual foi o
+erro 5 polls atrás?" — só dava pra inferir do estado atual.
+
+**Backend**:
+
+- **Migration V8**: nova tabela `host_poll_history(id, host_id,
+  polled_at, status, error, payload)` + índice
+  `(host_id, polled_at DESC)`.
+- `managed_hosts.poll_host()`: além de atualizar `managed_hosts`
+  como antes, agora insere 1 linha em `host_poll_history` e faz
+  trim mantendo os últimos **100 polls por host** (best-effort,
+  falha no histórico não derruba o poll).
+- `managed_hosts.list_history(host_id, limit)`: leitura ordenada
+  por `polled_at DESC`, parseia payload JSON.
+- Novo endpoint `GET /api/v1/hosts/{id}/history?limit=N`
+  (capability `config.write`).
+
+**Frontend** (`hosts.php`):
+
+- 3ª aba "Histórico" no modal drill-down, lazy-loaded ao abrir:
+  - **Sparkline horizontal** com 100 barras finas coloridas
+    (verde=ok / amarelo=auth / vermelho=unreachable /
+    laranja=error), ordem mais-recente→mais-antiga, tooltip por
+    barra com timestamp + erro.
+  - **Tabela detalhada** abaixo: quando, status pill, versão,
+    queries_24h, erro.
+  - Botão "↻ Recarregar".
+
+Com poll a cada 60s, 100 entries = ~1h40 de histórico. Cap
+deterministico: `hosts × 100` linhas no banco no pior caso.
+
+2 testes novos (`test_poll_writes_history`,
+`test_history_trim_keeps_last_100`). 140/140 verde.
+
+VERSION 2.24.0 → 2.25.0.
+
+---
+
 ## v2.24.0 — 2026-05-21
 
 ### feat(blocklist): /blocklist.php reorganizada — 2 fontes distintas + busca unificada

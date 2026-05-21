@@ -202,6 +202,80 @@ async def test_poll_host_not_found(fresh_db):
         await managed_hosts.poll_host(9999)
 
 
+@pytest.mark.asyncio
+async def test_poll_writes_history(fresh_db, monkeypatch):
+    """Cada poll grava 1 linha em host_poll_history (best-effort)."""
+    from app.services import managed_hosts
+
+    h_id = await managed_hosts.create(
+        label="agent", base_url="https://h.example.com", api_token="t" * 30, notes=None, added_by=None
+    )
+
+    # Mock httpx pra retornar JSON ok
+    class MockResp:
+        status_code = 200
+
+        def json(self):
+            return {"version": "9.9.9", "uptime_seconds": 100}
+
+    class MockClient:
+        def __init__(self, *a, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+        async def get(self, url, headers=None):
+            return MockResp()
+
+    monkeypatch.setattr("app.services.managed_hosts.httpx.AsyncClient", MockClient)
+    await managed_hosts.poll_host(h_id)
+
+    history = await managed_hosts.list_history(h_id, limit=10)
+    assert len(history) == 1
+    assert history[0]["status"] == "ok"
+    assert history[0]["payload"]["version"] == "9.9.9"
+
+
+@pytest.mark.asyncio
+async def test_history_trim_keeps_last_100(fresh_db):
+    """
+    Insert >100 linhas direto no banco e verifica que trim deixa só 100
+    quando poll_host roda. Não passa por httpx — testa só a lógica de trim.
+    """
+    from app.repositories.duckdb.connection import db_execute
+    from app.services import managed_hosts
+
+    h_id = await managed_hosts.create(
+        label="agent", base_url="https://h.example.com", api_token="t" * 30, notes=None, added_by=None
+    )
+    # Seed 105 linhas pré-existentes
+    for i in range(105):
+        await db_execute(
+            "INSERT INTO host_poll_history (host_id, status, error, payload) VALUES (?, ?, ?, ?)",
+            [h_id, "ok", None, None],
+        )
+
+    # Trigger trim via poll_host (vai dar unreachable mas o trim roda igual)
+    import httpx as httpx_mod
+
+    class MockClient:
+        def __init__(self, *a, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+        async def get(self, url, headers=None):
+            raise httpx_mod.ConnectError("refused")
+
+    import pytest as _p
+    monkeypatch_ctx = _p.MonkeyPatch()
+    monkeypatch_ctx.setattr("app.services.managed_hosts.httpx.AsyncClient", MockClient)
+    try:
+        await managed_hosts.poll_host(h_id)
+    finally:
+        monkeypatch_ctx.undo()
+
+    # 105 + 1 (poll novo) = 106, depois trim mantém 100
+    history = await managed_hosts.list_history(h_id, limit=500)
+    assert len(history) == managed_hosts.HISTORY_RETENTION == 100
+
+
 def test_batch_routes_declared_before_parametric():
     """
     Regressão pra HTTP 422 no UI "Atualizar todos":

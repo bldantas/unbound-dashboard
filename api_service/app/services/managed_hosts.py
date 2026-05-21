@@ -23,6 +23,7 @@ from app.repositories.duckdb.connection import db_execute, db_fetchall, db_fetch
 log = structlog.get_logger(__name__)
 
 POLL_TIMEOUT = 10.0  # 10s — agents em rede confiável devem responder rápido
+HISTORY_RETENTION = 100  # mantém os últimos N polls por host (trim ON INSERT)
 
 
 class ManagedHostError(Exception):
@@ -197,7 +198,7 @@ async def poll_host(host_id: int) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         err_msg = f"{type(exc).__name__}: {exc}"
 
-    # Persiste resultado
+    # Persiste resultado em managed_hosts (último estado)
     if status_label == "ok":
         await db_execute(
             """
@@ -218,6 +219,29 @@ async def poll_host(host_id: int) -> dict[str, Any]:
             """,
             [status_label, err_msg, host_id],
         )
+
+    # Histórico: insere linha + trim pros últimos HISTORY_RETENTION por host.
+    # Best-effort — falha aqui não derruba o poll (que já persistiu o estado).
+    try:
+        await db_execute(
+            "INSERT INTO host_poll_history (host_id, status, error, payload) VALUES (?, ?, ?, ?)",
+            [host_id, status_label, err_msg, payload_str],
+        )
+        # Trim: deleta polls mais antigos que o N-ésimo
+        await db_execute(
+            """
+            DELETE FROM host_poll_history
+            WHERE host_id = ? AND id NOT IN (
+                SELECT id FROM host_poll_history
+                WHERE host_id = ?
+                ORDER BY polled_at DESC, id DESC
+                LIMIT ?
+            )
+            """,
+            [host_id, host_id, HISTORY_RETENTION],
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("managed_hosts.history_write_failed", host_id=host_id, error=str(exc))
 
     return {
         "id": host_id,
@@ -246,6 +270,40 @@ async def poll_all() -> list[dict[str, Any]]:
 # ============================================================
 # Diferente do poll, estes não persistem nada no banco do master:
 # são pass-through pra UI mostrar drill-down ou disparar batch ops.
+
+
+async def list_history(host_id: int, limit: int = 100) -> list[dict[str, Any]]:
+    """
+    Retorna histórico de polls do host (mais recente primeiro), até `limit`.
+    Payload JSON vem como dict parseado (ou None).
+    """
+    rows = await db_fetchall(
+        """
+        SELECT id, polled_at, status, error, payload
+        FROM host_poll_history
+        WHERE host_id = ?
+        ORDER BY polled_at DESC, id DESC
+        LIMIT ?
+        """,
+        [host_id, limit],
+    )
+    out = []
+    for r in rows:
+        payload = None
+        raw = r.get("payload")
+        if raw:
+            try:
+                payload = json.loads(raw)
+            except Exception:  # noqa: BLE001
+                pass
+        out.append({
+            "id": int(r["id"]),
+            "polled_at": r["polled_at"].isoformat() if r.get("polled_at") else None,
+            "status": r.get("status"),
+            "error": r.get("error"),
+            "payload": payload,
+        })
+    return out
 
 
 async def proxy_get(host_id: int, path: str) -> dict[str, Any]:

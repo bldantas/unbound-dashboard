@@ -146,6 +146,7 @@ $currentPage = 'hosts.php';
             <div class="flex gap-1 border-b border-slate-200 dark:border-white/10 mb-4">
                 <button type="button" data-tab="info" class="host-tab-btn px-3 py-2 text-[10px] uppercase font-black tracking-widest border-b-2 border-cyan-500 text-cyan-600 dark:text-cyan-400">Info do agent</button>
                 <button type="button" data-tab="status" class="host-tab-btn px-3 py-2 text-[10px] uppercase font-black tracking-widest border-b-2 border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">Status atual</button>
+                <button type="button" data-tab="history" class="host-tab-btn px-3 py-2 text-[10px] uppercase font-black tracking-widest border-b-2 border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">Histórico</button>
             </div>
 
             <!-- Tab content: info -->
@@ -162,6 +163,44 @@ $currentPage = 'hosts.php';
                 </div>
                 <dl id="host-tab-status-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]"></dl>
                 <p id="host-tab-status-err" class="hidden mt-3 text-[11px] text-red-500"></p>
+            </div>
+
+            <!-- Tab content: history -->
+            <div id="host-tab-history" class="host-tab-pane hidden">
+                <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                    <p class="text-[11px] text-slate-500" id="host-tab-history-meta">Carregando histórico…</p>
+                    <button type="button" id="host-tab-history-refresh" class="glass-btn text-[10px] uppercase font-black">↻ Recarregar</button>
+                </div>
+
+                <!-- Sparkline de status: cada poll vira uma barrinha colorida -->
+                <div class="mb-4">
+                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Linha do tempo (mais recente → mais antigo)</p>
+                    <div id="host-tab-history-sparkline" class="flex flex-row-reverse gap-[2px] items-end h-10 bg-slate-900/5 dark:bg-white/5 p-2 rounded-lg overflow-hidden">
+                        <span class="text-[10px] text-slate-500 italic">…</span>
+                    </div>
+                    <div class="flex items-center gap-3 text-[9px] mt-1 text-slate-500">
+                        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-emerald-500"></span>ok</span>
+                        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-amber-500"></span>auth</span>
+                        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-red-500"></span>unreachable</span>
+                        <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-orange-500"></span>error</span>
+                    </div>
+                </div>
+
+                <!-- Tabela detalhada -->
+                <div class="overflow-x-auto rounded-lg border border-slate-200 dark:border-white/10">
+                    <table class="w-full text-[11px]">
+                        <thead class="bg-slate-900/5 dark:bg-white/5 text-[10px] uppercase tracking-widest text-slate-500">
+                            <tr>
+                                <th class="text-left px-3 py-2 font-black">Quando</th>
+                                <th class="text-left px-3 py-2 font-black">Status</th>
+                                <th class="text-left px-3 py-2 font-black">Versão</th>
+                                <th class="text-right px-3 py-2 font-black">Queries 24h</th>
+                                <th class="text-left px-3 py-2 font-black">Erro</th>
+                            </tr>
+                        </thead>
+                        <tbody id="host-tab-history-rows" class="divide-y divide-slate-200 dark:divide-white/10"></tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- Ações individuais -->
@@ -657,12 +696,17 @@ $currentPage = 'hosts.php';
                 tabBtns:      document.querySelectorAll('.host-tab-btn'),
                 paneInfo:     document.getElementById('host-tab-info'),
                 paneStatus:   document.getElementById('host-tab-status'),
+                paneHistory:  document.getElementById('host-tab-history'),
                 infoLoader:   document.getElementById('host-tab-info-loader'),
                 infoGrid:     document.getElementById('host-tab-info-grid'),
                 statusMeta:   document.getElementById('host-tab-status-meta'),
                 statusGrid:   document.getElementById('host-tab-status-grid'),
                 statusErr:    document.getElementById('host-tab-status-err'),
                 statusReload: document.getElementById('host-tab-status-refresh'),
+                historyMeta:  document.getElementById('host-tab-history-meta'),
+                historyBars:  document.getElementById('host-tab-history-sparkline'),
+                historyRows:  document.getElementById('host-tab-history-rows'),
+                historyReload:document.getElementById('host-tab-history-refresh'),
                 btnRestartApi:     document.getElementById('host-detail-restart-api'),
                 btnRestartUnbound: document.getElementById('host-detail-restart-unbound'),
                 btnUpgrade:        document.getElementById('host-detail-upgrade'),
@@ -714,6 +758,9 @@ $currentPage = 'hosts.php';
                 });
                 detailEl.paneInfo.classList.toggle('hidden', which !== 'info');
                 detailEl.paneStatus.classList.toggle('hidden', which !== 'status');
+                detailEl.paneHistory.classList.toggle('hidden', which !== 'history');
+                // Lazy-load do histórico só quando a aba abre
+                if (which === 'history' && currentDetailHost) loadHistoryTab(currentDetailHost.id);
             }
 
             async function loadInfoTab(id) {
@@ -745,6 +792,55 @@ $currentPage = 'hosts.php';
                 }
             }
 
+            // Cores das barras do sparkline + cor da pill na tabela
+            const HISTORY_STATUS_COLOR = {
+                ok:          { bar: 'bg-emerald-500', pill: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30' },
+                auth_failed: { bar: 'bg-amber-500',   pill: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30' },
+                unreachable: { bar: 'bg-red-500',     pill: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30' },
+                error:       { bar: 'bg-orange-500',  pill: 'bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/30' },
+            };
+            const HISTORY_DEFAULT_COLOR = { bar: 'bg-slate-400', pill: 'bg-slate-500/15 text-slate-500 border-slate-500/30' };
+
+            async function loadHistoryTab(id) {
+                detailEl.historyMeta.textContent = 'Carregando histórico…';
+                detailEl.historyBars.innerHTML = '<span class="text-[10px] text-slate-500 italic">carregando…</span>';
+                detailEl.historyRows.innerHTML = '';
+                detailEl.historyReload.disabled = true;
+                try {
+                    const resp = await fetch(`/api/v1/hosts/${id}/history?limit=100`, { headers: HEADERS });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const body = await resp.json();
+                    const items = body.history || [];
+                    detailEl.historyMeta.textContent = items.length
+                        ? `${items.length} polls registrados (mais recente: ${fmtRelative(items[0].polled_at)})`
+                        : 'Sem histórico ainda — aguarde o próximo tick do poller (60s).';
+                    // Sparkline: barras finas com cor por status, ordem mais-recente-primeiro
+                    detailEl.historyBars.innerHTML = items.map(it => {
+                        const c = HISTORY_STATUS_COLOR[it.status] || HISTORY_DEFAULT_COLOR;
+                        const tip = `${fmtDate(it.polled_at)} • ${it.status}${it.error ? ' • ' + it.error.replace(/"/g, "'") : ''}`;
+                        return `<span class="w-[3px] flex-1 ${c.bar} rounded-sm hover:scale-y-110 transition-transform" style="height:100%" title="${escapeAttr(tip)}"></span>`;
+                    }).join('') || '<span class="text-[10px] text-slate-500 italic">sem polls ainda</span>';
+                    // Tabela: timestamp, status pill, versão, queries_24h, erro
+                    detailEl.historyRows.innerHTML = items.map(it => {
+                        const c = HISTORY_STATUS_COLOR[it.status] || HISTORY_DEFAULT_COLOR;
+                        const p = it.payload || {};
+                        return `
+                            <tr>
+                                <td class="px-3 py-2 font-mono text-[10px] text-slate-600 dark:text-slate-400 whitespace-nowrap" title="${escapeAttr(it.polled_at || '')}">${fmtRelative(it.polled_at)}</td>
+                                <td class="px-3 py-2"><span class="inline-block px-2 py-0.5 rounded-md border text-[9px] font-black uppercase tracking-widest ${c.pill}">${escapeHtml(it.status || '?')}</span></td>
+                                <td class="px-3 py-2 font-mono">${p.version ? 'v' + escapeHtml(p.version) : '—'}</td>
+                                <td class="px-3 py-2 text-right font-mono">${fmtNum(p.queries_24h)}</td>
+                                <td class="px-3 py-2 text-[10px] text-slate-500 max-w-xs truncate" title="${escapeAttr(it.error || '')}">${it.error ? escapeHtml(it.error) : ''}</td>
+                            </tr>
+                        `;
+                    }).join('') || `<tr><td colspan="5" class="text-center text-[11px] text-slate-500 italic py-4">Sem polls ainda</td></tr>`;
+                } catch (err) {
+                    detailEl.historyMeta.textContent = 'Erro: ' + err.message;
+                } finally {
+                    detailEl.historyReload.disabled = false;
+                }
+            }
+
             function renderStatusTab(h) {
                 const p = h.last_status_payload || {};
                 detailEl.statusMeta.textContent = `Último poll: ${fmtRelative(h.last_polled_at)} • Estado: ${h.last_status || 'unknown'}`;
@@ -768,6 +864,9 @@ $currentPage = 'hosts.php';
             }
 
             detailEl.tabBtns.forEach(b => b.addEventListener('click', () => switchTab(b.getAttribute('data-tab'))));
+            detailEl.historyReload.addEventListener('click', () => {
+                if (currentDetailHost) loadHistoryTab(currentDetailHost.id);
+            });
             detailEl.close.addEventListener('click', closeDetailModal);
             detailEl.modal.addEventListener('click', (e) => { if (e.target === detailEl.modal) closeDetailModal(); });
             detailEl.statusReload.addEventListener('click', async () => {

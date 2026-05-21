@@ -193,6 +193,19 @@ async def host_info(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
 
 
+@router.get("/{host_id}/history")
+async def host_history(
+    host_id: int,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+    limit: int = 100,
+) -> dict:
+    """Últimos polls registrados pelo poller. Retenção: HISTORY_RETENTION (100)."""
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="limit deve ser 1..500")
+    items = await managed_hosts.list_history(host_id, limit=limit)
+    return {"history": items, "count": len(items)}
+
+
 @router.post("/{host_id}/restart/{service}", status_code=status.HTTP_202_ACCEPTED)
 async def restart_host_service(
     host_id: int,
