@@ -66,7 +66,10 @@ $isAdmin = Auth::isAdmin();
             <!-- TTL distribution chart + top types -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                 <div class="glass-panel border-slate-200 dark:border-white/5 lg:col-span-2">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2">Distribuição de TTL</h3>
+                    <div class="flex items-baseline justify-between gap-2 mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2">
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Distribuição de TTL</h3>
+                        <span id="ttlCapLabel" class="text-[10px] font-medium text-slate-500 italic" title="Buckets acima do cap não aparecem porque seriam matematicamente vazios"></span>
+                    </div>
                     <div class="h-48"><canvas id="ttlChart"></canvas></div>
                 </div>
                 <div class="glass-panel border-slate-200 dark:border-white/5">
@@ -154,7 +157,8 @@ $isAdmin = Auth::isAdmin();
         let cachePage = 1;
         let cachePerPage = 50;
 
-        const TTL_BUCKETS_META = [
+        // Fallback caso o backend (versão antiga) não envie ttl_buckets_meta.
+        const TTL_BUCKETS_META_FALLBACK = [
             { key: 'expired',   label: 'expirado',   color: '#ef4444' },
             { key: 'lt_60',     label: '< 1 min',    color: '#f59e0b' },
             { key: 'lt_300',    label: '1-5 min',    color: '#eab308' },
@@ -220,15 +224,30 @@ $isAdmin = Auth::isAdmin();
 
         function renderTtlChart() {
             const buckets = (cacheData.stats && cacheData.stats.ttl_buckets) || {};
-            const data = TTL_BUCKETS_META.map(m => buckets[m.key] || 0);
+            // Backend (v2.27.1+) manda meta dinâmica filtrada pelo cache-max-ttl
+            // atual; versão antiga usa o fallback completo.
+            const meta = (cacheData.stats && Array.isArray(cacheData.stats.ttl_buckets_meta))
+                ? cacheData.stats.ttl_buckets_meta
+                : TTL_BUCKETS_META_FALLBACK;
+            const data = meta.map(m => buckets[m.key] || 0);
+
+            // Label: indica o cap atual pra usuário entender por que algum bucket sumiu
+            const capSecs = (cacheData.stats && cacheData.stats.cache_max_ttl) || null;
+            const capLabel = document.getElementById('ttlCapLabel');
+            if (capLabel) {
+                capLabel.textContent = capSecs
+                    ? 'TTL capado em ' + fmtTtl(capSecs) + ' (cache-max-ttl)'
+                    : '';
+            }
+
             if (ttlChartInstance) ttlChartInstance.destroy();
             ttlChartInstance = new Chart(document.getElementById('ttlChart'), {
                 type: 'bar',
                 data: {
-                    labels: TTL_BUCKETS_META.map(m => m.label),
+                    labels: meta.map(m => m.label),
                     datasets: [{
                         data,
-                        backgroundColor: TTL_BUCKETS_META.map(m => m.color),
+                        backgroundColor: meta.map(m => m.color),
                         borderRadius: 6,
                         borderWidth: 0,
                     }],

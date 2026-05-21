@@ -1,5 +1,42 @@
 # Changelog
 
+## v2.27.1 — 2026-05-21
+
+### fix(cache): gráfico "Distribuição de TTL" com buckets dinâmicos
+
+Bucket "> 1 dia" (e às vezes "1-24 h") aparecia sempre vazio. Não era
+bug — era matemática: `cache-max-ttl` capa todos os TTLs, então
+buckets acima do cap são inalcançáveis.
+
+**Backend** (`api/cache_dump.php`):
+
+- Nova fn `readCacheMaxTtl()` — consulta o cap real do Unbound rodando
+  via `unbound-control get_option cache-max-ttl` (fallback 86400 se
+  controle off).
+- Nova fn `buildTtlBucketsMeta(int $cap)` — gera só os buckets onde
+  é matematicamente possível ter dados (`lower < cap`, `expired` sempre).
+- Resposta JSON ganha `stats.ttl_buckets_meta` (array filtrado) e
+  `stats.cache_max_ttl` (segundos).
+
+**Frontend** (`cache.php`):
+
+- Lê meta do backend (com fallback pro array antigo se backend desatualizado).
+- Adicionou label sutil no header do card: "TTL capado em Xh (cache-max-ttl)"
+  pra explicar visualmente por que tem 4/5/6 buckets em vez de 6 fixos.
+
+**Exemplos de filtragem**:
+
+| cache-max-ttl | Buckets visíveis |
+|---|---|
+| 60s | `expired`, `<1m` |
+| 3600s (1h) | `expired`, `<1m`, `1-5m`, `5-60m` |
+| 86400s (24h — default Unbound) | + `1-24h` |
+| > 86400s | + `>1d` |
+
+VERSION 2.27.0 → 2.27.1.
+
+---
+
 ## v2.27.0 — 2026-05-21
 
 ### feat(unbound): toggle "Anti-DoH" — bloqueia DNS-over-HTTPS de terceiros
