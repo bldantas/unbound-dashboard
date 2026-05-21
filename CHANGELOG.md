@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.26.0 — 2026-05-21
+
+### feat(blocklist): separa "Lista ANATEL" (bloqueio) de "Catálogo de Ameaças"
+
+Em v2.24.0 as 2 fontes (ANATEL Judicial e StevenBlack/Hagezi) viviam
+juntas em `/blocklist.php` com filter chips. Decisão de manter a página
+"Lista ANATEL" só com ANATEL (a única que realmente bloqueia no
+Unbound) e mover o catálogo de inteligência pra página própria.
+
+**`blocklist.php`** (Lista ANATEL):
+
+- Mostra apenas o painel ANATEL Judicial + Sincronizar ANATEL.
+- Removidos: 2º card (StevenBlack/Hagezi), filter chips de categoria,
+  toggle ativa/pausa e botão "Atualizar Agora" do catálogo.
+- Search agora força `category=Judicial` no endpoint. Stats card
+  "Total de Domínios" usa `by_category.judicial` em vez do global.
+- Título atualizado: "Lista ANATEL Judicial".
+
+**`catalog.php`** (página nova):
+
+- Painel da fonte StevenBlack/Hagezi + nome+desc, toggle ativa/pausa,
+  botão "Atualizar Agora".
+- Search força `category=Malware/Adware`.
+- Stats card "Total" usa `by_category.adware`.
+- Texto enfatiza: "não bloqueia no Unbound — só pra busca/analytics".
+
+**Sidebar**: novo link "Catálogo" abaixo de "Lista ANATEL" no grupo
+Monitoramento (admin only, mesmo gate).
+
+Nenhuma mudança de backend — reusa o endpoint
+`/api/v1/blocklist/search?category=...` que já existia desde v2.24.0.
+
+VERSION 2.25.0 → 2.26.0.
+
+---
+
 ## v2.25.0 — 2026-05-21
 
 ### feat(multi-host): histórico de polls por host + aba dedicada no drill-down
