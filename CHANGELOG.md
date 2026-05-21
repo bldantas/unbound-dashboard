@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.28.1 — 2026-05-21
+
+### fix(tls): "Token expirado" ao gerar/upload/remover certificado
+
+Os 3 modais novos do tab Criptografia DoT/DoH (v2.28.0) submetem
+forms independentes do `mainConfigForm`, mas esqueci de incluir
+o `<input type="hidden" name="csrf_token">`. O handler global
+de `config.php` (linha 30) rejeita qualquer POST sem CSRF token
+válido com a mensagem "Token de segurança (CSRF) inválido ou
+expirado" — caía pra todos os 3 botões.
+
+**Fix**: adicionado `csrf_token` em cada modal (Gerar / Upload /
+Remover), igual aos outros forms independentes (NTP, Timezone,
+SMTP). Comportamento idêntico ao mainConfigForm.
+
+VERSION 2.28.0 → 2.28.1.
+
+---
+
 ## v2.28.0 — 2026-05-21
 
 ### feat(tls): gerar / upload / remover certificado SSL no DoT/DoH

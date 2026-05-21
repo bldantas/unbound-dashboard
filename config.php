@@ -1107,6 +1107,7 @@ function field($key, $label, $desc = '', $def = '')
                         <form method="POST" action="config.php?tab=tls" class="glass-panel max-w-lg w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl">
                             <input type="hidden" name="action" value="tls_generate_cert">
                             <input type="hidden" name="tab" value="tls">
+                            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                             <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4">Gerar certificado self-signed</h3>
                             <div class="space-y-4">
                                 <div>
@@ -1137,6 +1138,7 @@ function field($key, $label, $desc = '', $def = '')
                         <form method="POST" action="config.php?tab=tls" class="glass-panel max-w-2xl w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl">
                             <input type="hidden" name="action" value="tls_upload_cert">
                             <input type="hidden" name="tab" value="tls">
+                            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                             <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4">Upload de certificado PEM</h3>
                             <div class="space-y-4">
                                 <div>
@@ -1162,6 +1164,7 @@ function field($key, $label, $desc = '', $def = '')
                         <form method="POST" action="config.php?tab=tls" class="glass-panel max-w-md w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl">
                             <input type="hidden" name="action" value="tls_remove_cert">
                             <input type="hidden" name="tab" value="tls">
+                            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                             <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4">Remover certificado gerenciado</h3>
                             <p class="text-[12px] text-slate-600 dark:text-slate-400 mb-4">Apaga <code>/etc/unbound/certs/dashboard.crt</code> e <code>dashboard.key</code>. Não afeta certificados externos (ex: <code>/etc/letsencrypt/</code>). Lembre de limpar os caminhos em Configurações depois.</p>
                             <div class="flex justify-end gap-2">
