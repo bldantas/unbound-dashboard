@@ -165,3 +165,91 @@ def test_recent_time_format(client) -> None:
     for r in body["data"]["recent"]:
         assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", r["time"])
         assert re.fullmatch(r"\d{2}/\d{2}/\d{2}", r["date"])
+
+
+# ============================================================
+# Busca paginada do /blocklist.php (v2.24+) — substitui
+# api/blocklist_search.php (PHP que lia o arquivo flat).
+# ============================================================
+
+
+@pytest.fixture()
+def client_with_blocklist(client, populated_db):
+    """Adiciona blocklist_domains com Judicial + Malware/Adware misturados."""
+    with duckdb.connect(populated_db) as conn:
+        # populated_db já tem 3 rows (malware/tracking/phishing minúsculas).
+        # Adiciona algumas Judicial (.com.br, .bet) e mais Malware/Adware.
+        conn.execute(
+            "INSERT INTO blocklist_domains VALUES "
+            "('legaltest.com.br', 'Judicial', 'CRITICO'), "
+            "('judjudge.bet',     'Judicial', 'CRITICO'), "
+            "('casino1.bet',      'Judicial', 'CRITICO'), "
+            "('adware-x.com',     'Malware/Adware', 'ALTO'), "
+            "('adware-y.com',     'Malware/Adware', 'ALTO'), "
+            "('adware-z.net',     'Malware/Adware', 'ALTO')"
+        )
+    return client
+
+
+def test_blocklist_search_no_filter_returns_all(client_with_blocklist):
+    resp = client_with_blocklist.get("/api/v1/blocklist/search?per_page=100")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    # 3 do fixture base + 6 do fixture novo = 9
+    assert body["filtered"] == 9
+    assert body["total"] == 9
+    assert body["page"] == 1
+    assert body["total_pages"] == 1
+
+
+def test_blocklist_search_filter_category(client_with_blocklist):
+    """Filtro category=Judicial deve retornar só os 3 .com.br/.bet seedados."""
+    resp = client_with_blocklist.get("/api/v1/blocklist/search?category=Judicial&per_page=100")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["filtered"] == 3
+    for d in body["domains"]:
+        # todos devem ter sido inseridos com cat Judicial
+        assert d in {"legaltest.com.br", "judjudge.bet", "casino1.bet"}
+
+
+def test_blocklist_search_query_match(client_with_blocklist):
+    """LIKE %adware% deve casar 3 domains Malware/Adware."""
+    resp = client_with_blocklist.get("/api/v1/blocklist/search?q=adware&per_page=100")
+    body = resp.json()
+    assert body["filtered"] == 3
+    assert all("adware" in d for d in body["domains"])
+
+
+def test_blocklist_search_tld_filter(client_with_blocklist):
+    """tld=bet deve casar os 2 .bet seedados como Judicial."""
+    resp = client_with_blocklist.get("/api/v1/blocklist/search?tld=bet&per_page=100")
+    body = resp.json()
+    assert body["filtered"] == 2
+    assert all(d.endswith(".bet") for d in body["domains"])
+
+
+def test_blocklist_search_pagination(client_with_blocklist):
+    """per_page=4 + 9 rows = 3 páginas (4 + 4 + 1)."""
+    page1 = client_with_blocklist.get("/api/v1/blocklist/search?per_page=4&page=1").json()
+    page3 = client_with_blocklist.get("/api/v1/blocklist/search?per_page=4&page=3").json()
+    assert page1["total_pages"] == 3
+    assert len(page1["domains"]) == 4
+    assert len(page3["domains"]) == 1
+    # Ordenação ASC: page1 e page3 não devem se sobrepor
+    assert set(page1["domains"]).isdisjoint(set(page3["domains"]))
+
+
+def test_blocklist_search_top_tlds(client_with_blocklist):
+    """top_tlds vem como {tld: count}, descending."""
+    body = client_with_blocklist.get("/api/v1/blocklist/search").json()
+    assert "top_tlds" in body
+    # .com aparece nos 3 do fixture base + 2 adware Malware = 5; .bet = 2
+    assert body["top_tlds"].get("com", 0) >= 3
+
+
+def test_blocklist_search_rejects_invalid_category(client_with_blocklist):
+    """Pydantic Literal rejeita categoria fora do whitelist."""
+    resp = client_with_blocklist.get("/api/v1/blocklist/search?category=Nonsense")
+    assert resp.status_code == 422

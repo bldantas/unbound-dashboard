@@ -35,6 +35,15 @@ if ($action === 'update_blacklist') {
     exit;
 }
 
+if ($action === 'sync_anatel') {
+    // Dispara sync_judicial_list.php em background — só funciona se
+    // official_blocklist_enabled=true (o script valida internamente).
+    $cmd = 'php ' . escapeshellarg(dirname(__DIR__) . '/src/scripts/sync_judicial_list.php') . ' > /dev/null 2>&1 &';
+    \App\ShellHelper::shell($cmd, $tmpOutput, $tmpReturn);
+    echo json_encode(['success' => true, 'message' => 'Sincronização ANATEL iniciada em background.']);
+    exit;
+}
+
 if ($action === 'toggle_blacklist_source') {
     // Liga/desliga a fonte. Aceita {enabled: "1"|"0"} ou alterna o atual.
     $bm = new BlocklistManager();

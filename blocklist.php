@@ -1,14 +1,17 @@
 <?php
 require_once 'src/Auth.php';
 require_once 'src/BlocklistManager.php';
+require_once 'src/UnboundConfigManager.php';
 use App\Auth;
 use App\BlocklistManager;
+use App\UnboundConfigManager;
 Auth::check();
 
 $currentPage = 'blocklist.php';
 
-// Source ativa + metadata da blocklist
+// ---- Estado das duas fontes (independentes) ----
 $bm = new BlocklistManager();
+// Catálogo StevenBlack/Hagezi — popular o DuckDB pra busca/analytics
 $blocklistSource = $bm->getBlocklistSource(); // stevenblack | hagezi_normal | hagezi_pro
 $blocklistEnabled = $bm->isBlacklistSourceEnabled();
 $sourceLabels = [
@@ -18,9 +21,15 @@ $sourceLabels = [
 ];
 $sourceMeta = $sourceLabels[$blocklistSource] ?? ['name' => $blocklistSource, 'desc' => 'Fonte personalizada'];
 
-$blocklistFile = __DIR__ . '/src/data/official_blocklist.conf';
-$blocklistMtime = file_exists($blocklistFile) ? filemtime($blocklistFile) : 0;
-$blocklistAgeSecs = $blocklistMtime > 0 ? (time() - $blocklistMtime) : null;
+// Lista ANATEL Judicial — bloqueio efetivo no Unbound quando habilitada
+$cfgMgr = new UnboundConfigManager();
+$_cfgSettings = $cfgMgr->loadSettings();
+$anatelEnabled = (bool) ($_cfgSettings['official_blocklist_enabled'] ?? false);
+
+$anatelFile = __DIR__ . '/src/data/official_blocklist.conf';
+$anatelMtime = file_exists($anatelFile) ? filemtime($anatelFile) : 0;
+$anatelAgeSecs = $anatelMtime > 0 ? (time() - $anatelMtime) : null;
+
 $fmtAge = function ($secs) {
     if ($secs === null) return 'nunca';
     if ($secs < 60) return $secs . 's atrás';
@@ -28,13 +37,13 @@ $fmtAge = function ($secs) {
     if ($secs < 86400) return floor($secs / 3600) . 'h atrás';
     return floor($secs / 86400) . 'd atrás';
 };
-$blocklistAgeText = $fmtAge($blocklistAgeSecs);
+$anatelAgeText = $fmtAge($anatelAgeSecs);
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <title>Lista de Bloqueio - Unbound DNS</title>
-    <meta name="description" content="Consulta e pesquisa de domínios na lista de bloqueio ativa (StevenBlack / Hagezi).">
+    <meta name="description" content="Consulta unificada do catálogo de bloqueio (Lista ANATEL Judicial + StevenBlack/Hagezi).">
     <?php include 'includes/head.php'; ?>
 </head>
 <body class="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 transition-colors duration-300">
@@ -48,35 +57,75 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
         ?>
         <div class="page-container">
 
-            <!-- Source info panel -->
-            <div class="glass-panel border-l-4 <?= $blocklistEnabled ? 'border-orange-500' : 'border-slate-400 dark:border-slate-700' ?> mb-6 border-slate-200 dark:border-white/5">
-                <div class="flex items-center justify-between gap-4 flex-wrap">
-                    <div class="min-w-0">
-                        <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 flex items-center gap-2">
-                            Origem Ativa
-                            <?php if (!$blocklistEnabled): ?>
-                                <span class="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[9px] font-black uppercase tracking-widest">Fonte pausada</span>
-                            <?php endif; ?>
-                        </p>
-                        <p class="text-sm font-bold text-slate-900 dark:text-white">
-                            <span class="<?= $blocklistEnabled ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 line-through' ?>"><?= htmlspecialchars($sourceMeta['name']) ?></span>
-                            <span class="text-slate-500 dark:text-slate-400 font-medium"> · <?= htmlspecialchars($sourceMeta['desc']) ?></span>
-                        </p>
-                        <p class="text-[11px] text-slate-500 mt-1">
-                            Última atualização do arquivo:
-                            <span class="font-mono font-bold text-slate-700 dark:text-slate-300"><?= htmlspecialchars($blocklistAgeText) ?></span>
-                            <?php if ($blocklistMtime > 0): ?>
-                                <span class="text-slate-500 dark:text-slate-600">(<?= date('d/m/Y H:i', $blocklistMtime) ?>)</span>
-                            <?php endif; ?>
-                            <span class="ml-2 text-slate-500 dark:text-slate-600">— configure a fonte em <a href="config.php#tab-rpz" class="text-orange-500 hover:underline">Configurações → Lista de Bloqueios</a>.</span>
-                        </p>
+            <!-- Painéis das 2 fontes (independentes) -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+
+                <!-- Card 1: ANATEL Judicial (bloqueio efetivo no Unbound) -->
+                <div class="glass-panel border-l-4 <?= $anatelEnabled ? 'border-red-500' : 'border-slate-400 dark:border-slate-700' ?> border-slate-200 dark:border-white/5">
+                    <div class="flex items-start justify-between gap-3 mb-2">
+                        <div class="min-w-0">
+                            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                ANATEL — Bloqueio Judicial
+                                <span class="px-2 py-0.5 rounded-md <?= $anatelEnabled ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-slate-500/15 text-slate-500 border-slate-500/30' ?> border text-[9px] font-black uppercase tracking-widest">
+                                    <?= $anatelEnabled ? 'Ativa' : 'Desativada' ?>
+                                </span>
+                            </p>
+                            <p class="text-sm font-bold text-slate-900 dark:text-white">
+                                <span class="<?= $anatelEnabled ? 'text-red-500 dark:text-red-400' : 'text-slate-500' ?>">anablock.net.br</span>
+                                <span class="text-slate-500 dark:text-slate-400 font-medium"> · <?= $anatelEnabled ? 'bloqueia no Unbound (local-zone NXDOMAIN)' : 'lista presente mas não bloqueia' ?></span>
+                            </p>
+                            <p class="text-[11px] text-slate-500 mt-1">
+                                Último sync:
+                                <span class="font-mono font-bold text-slate-700 dark:text-slate-300"><?= htmlspecialchars($anatelAgeText) ?></span>
+                                <?php if ($anatelMtime > 0): ?>
+                                    <span class="text-slate-500 dark:text-slate-600">(<?= date('d/m/Y H:i', $anatelMtime) ?>)</span>
+                                <?php endif; ?>
+                            </p>
+                        </div>
                     </div>
                     <?php if (\App\Auth::can('blocklist.write')): ?>
-                        <div class="flex items-center gap-3 flex-wrap">
-                            <!-- Toggle: ativa/pausa o auto-update da fonte -->
-                            <label for="toggleSourceEnabled" class="inline-flex items-center gap-2 cursor-pointer select-none" title="Quando off, o cron de hora-em-hora e o botão Atualizar ficam inertes. Dados atuais ficam preservados.">
+                        <div class="flex flex-wrap gap-2 mt-3">
+                            <button type="button" id="btnSyncAnatel"
+                                    class="glass-btn !bg-red-600 !text-white text-[10px] uppercase font-black flex items-center gap-2 <?= $anatelEnabled ? '' : 'opacity-40 cursor-not-allowed' ?>"
+                                    <?= $anatelEnabled ? '' : 'disabled' ?>
+                                    title="<?= $anatelEnabled ? 'Re-baixa a lista da Anablock e re-aplica no Unbound' : 'Habilite em Configurações → Lista de Bloqueios pra poder sincronizar' ?>">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                                <span>Sincronizar ANATEL</span>
+                            </button>
+                            <a href="config.php#tab-rpz" class="glass-btn text-[10px] uppercase font-black flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                <span>Config</span>
+                            </a>
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Card 2: Catálogo StevenBlack/Hagezi (analytics/busca) -->
+                <div class="glass-panel border-l-4 <?= $blocklistEnabled ? 'border-orange-500' : 'border-slate-400 dark:border-slate-700' ?> border-slate-200 dark:border-white/5">
+                    <div class="flex items-start justify-between gap-3 mb-2">
+                        <div class="min-w-0">
+                            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                Catálogo — Inteligência (busca/analytics)
+                                <span class="px-2 py-0.5 rounded-md <?= $blocklistEnabled ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30' ?> border text-[9px] font-black uppercase tracking-widest">
+                                    <?= $blocklistEnabled ? 'Ativa' : 'Pausada' ?>
+                                </span>
+                            </p>
+                            <p class="text-sm font-bold text-slate-900 dark:text-white">
+                                <span class="<?= $blocklistEnabled ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 line-through' ?>"><?= htmlspecialchars($sourceMeta['name']) ?></span>
+                                <span class="text-slate-500 dark:text-slate-400 font-medium"> · <?= htmlspecialchars($sourceMeta['desc']) ?></span>
+                            </p>
+                            <p class="text-[11px] text-slate-500 mt-1">
+                                Catálogo só pra busca/analytics — não bloqueia no Unbound.
+                                <span class="ml-1 text-slate-500 dark:text-slate-600">Auto-update <?= $blocklistEnabled ? 'roda 1x/h' : 'pausado' ?>.</span>
+                            </p>
+                        </div>
+                    </div>
+                    <?php if (\App\Auth::can('blocklist.write')): ?>
+                        <div class="flex flex-wrap items-center gap-2 mt-3">
+                            <!-- Toggle: ativa/pausa o auto-update do catálogo -->
+                            <label for="toggleSourceEnabled" class="inline-flex items-center gap-2 cursor-pointer select-none" title="Quando off, o cron e o botão Atualizar ficam inertes. Dados atuais ficam preservados.">
                                 <span class="text-[10px] font-black uppercase tracking-widest <?= $blocklistEnabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500' ?>" id="toggleSourceLabel">
-                                    <?= $blocklistEnabled ? 'Fonte ATIVA' : 'Fonte PAUSADA' ?>
+                                    <?= $blocklistEnabled ? 'Ativa' : 'Pausada' ?>
                                 </span>
                                 <span class="relative inline-block w-11 h-6">
                                     <input type="checkbox" id="toggleSourceEnabled" class="peer sr-only" <?= $blocklistEnabled ? 'checked' : '' ?>>
@@ -87,13 +136,14 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
                             <button type="button" id="btnUpdateBlocklist"
                                     class="glass-btn !bg-orange-600 !text-white text-[10px] uppercase font-black flex items-center gap-2 <?= $blocklistEnabled ? '' : 'opacity-40 cursor-not-allowed' ?>"
                                     <?= $blocklistEnabled ? '' : 'disabled' ?>
-                                    title="<?= $blocklistEnabled ? 'Re-baixa a fonte ativa e regenera o arquivo' : 'Fonte pausada — ative o toggle pra rodar' ?>">
+                                    title="<?= $blocklistEnabled ? 'Re-baixa o catálogo da fonte' : 'Catálogo pausado — ative o toggle' ?>">
                                 <svg id="iconRefresh" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                                 <span id="btnUpdateBlocklistLabel">Atualizar Agora</span>
                             </button>
                         </div>
                     <?php endif; ?>
                 </div>
+
             </div>
 
             <!-- Stats Cards -->
@@ -105,7 +155,7 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
                         <div class="metric-value text-orange-500" id="statTotal">
                             <div class="w-16 h-7 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse"></div>
                         </div>
-                        <div class="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-2">Origem: <?= htmlspecialchars($sourceMeta['name']) ?></div>
+                        <div class="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-2">Catálogo DuckDB (todas categorias)</div>
                     </div>
                 </div>
                 <div class="glass-panel group border-slate-200 dark:border-white/5 relative overflow-hidden">
@@ -142,6 +192,22 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
 
             <!-- Search & Filter Bar -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-8">
+                <!-- Filter chips por categoria -->
+                <div class="flex flex-wrap items-center gap-2 mb-4">
+                    <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-1">Categoria:</span>
+                    <button type="button" data-category="" class="cat-chip cat-chip-active inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all">
+                        Todas <span class="text-[9px] opacity-70" data-count="total">…</span>
+                    </button>
+                    <button type="button" data-category="Judicial" class="cat-chip inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all">
+                        <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                        Judicial (ANATEL) <span class="text-[9px] opacity-70" data-count="judicial">…</span>
+                    </button>
+                    <button type="button" data-category="Malware/Adware" class="cat-chip inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all">
+                        <span class="w-2 h-2 rounded-full bg-orange-500"></span>
+                        Malware/Adware <span class="text-[9px] opacity-70" data-count="adware">…</span>
+                    </button>
+                </div>
+
                 <div class="flex flex-col lg:flex-row gap-4">
                     <!-- Search Input -->
                     <div class="flex-1 relative group">
@@ -218,7 +284,7 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
                     <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
                         <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
-                        Domínios Bloqueados — Origem: <?= htmlspecialchars($sourceMeta['name']) ?>
+                        Domínios — busca no catálogo DuckDB (ANATEL + StevenBlack/Hagezi)
                     </h3>
                     <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest" id="tableInfo">Carregando...</span>
                 </div>
@@ -267,10 +333,16 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
     let currentPage = 1;
     let currentSearch = '';
     let currentTld = '';
+    let currentCategory = '';     // '' = todas | 'Judicial' | 'Malware/Adware'
     let currentPerPage = 50;
     let debounceTimer = null;
     let isLoading = false;
     let topTldsLoaded = false;
+
+    // JWT pra chamar FastAPI direto (igual /hosts.php)
+    const jwtMeta = document.querySelector('meta[name="api-jwt"]');
+    const JWT = jwtMeta ? jwtMeta.content : '';
+    const API_HEADERS = JWT ? { 'Authorization': 'Bearer ' + JWT } : {};
 
     // DOM Elements
     const searchInput     = document.getElementById('searchInput');
@@ -283,6 +355,7 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
     const searchIndicator = document.getElementById('searchIndicator');
     const searchSummary   = document.getElementById('searchSummary');
     const tableInfo       = document.getElementById('tableInfo');
+    const catChips        = document.querySelectorAll('.cat-chip');
 
     // -- Fetch Data --
     async function fetchDomains() {
@@ -291,15 +364,25 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
         showLoading();
 
         const params = new URLSearchParams({
-            search: currentSearch,
+            q: currentSearch,
             page: currentPage,
             per_page: currentPerPage,
             tld: currentTld,
         });
+        if (currentCategory) params.set('category', currentCategory);
 
         try {
-            const res = await fetch(`api/blocklist_search.php?${params}`);
+            const res = await fetch(`/api/v1/blocklist/search?${params}`, { headers: API_HEADERS });
             const data = await res.json();
+            // Atualiza contadores nos chips a cada fetch
+            if (data && data.by_category) {
+                const totalEl = document.querySelector('[data-count="total"]');
+                if (totalEl) totalEl.textContent = '(' + (data.total ?? 0).toLocaleString('pt-BR') + ')';
+                const jEl = document.querySelector('[data-count="judicial"]');
+                if (jEl) jEl.textContent = '(' + (data.by_category.judicial ?? 0).toLocaleString('pt-BR') + ')';
+                const aEl = document.querySelector('[data-count="adware"]');
+                if (aEl) aEl.textContent = '(' + (data.by_category.adware ?? 0).toLocaleString('pt-BR') + ')';
+            }
             if (data.success) {
                 renderStats(data);
                 renderDomains(data);
@@ -453,12 +536,13 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
 
     // -- Render Search Indicator --
     function renderSearchIndicator(data) {
-        const hasFilter = currentSearch || currentTld;
+        const hasFilter = currentSearch || currentTld || currentCategory;
         searchIndicator.classList.toggle('hidden', !hasFilter);
         if (hasFilter) {
             const parts = [];
             if (currentSearch) parts.push(`"${currentSearch}"`);
             if (currentTld) parts.push(`.${currentTld}`);
+            if (currentCategory) parts.push(`categoria=${currentCategory}`);
             searchSummary.textContent = `${data.filtered.toLocaleString('pt-BR')} resultados para ${parts.join(' em ')}`;
         }
     }
@@ -571,6 +655,18 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
         fetchDomains();
     });
 
+    // -- Category chips: clica liga/desliga o filtro --
+    catChips.forEach(chip => {
+        chip.addEventListener('click', () => {
+            const target = chip.getAttribute('data-category') || '';
+            if (currentCategory === target) return;  // já está nesse estado
+            currentCategory = target;
+            catChips.forEach(c => c.classList.toggle('cat-chip-active', c.getAttribute('data-category') === target));
+            currentPage = 1;
+            fetchDomains();
+        });
+    });
+
     // Keyboard shortcut: / para focar no search
     document.addEventListener('keydown', (e) => {
         if (e.key === '/' && document.activeElement !== searchInput) {
@@ -665,6 +761,33 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
         });
     }
 
+    // -- Botão "Sincronizar ANATEL" (admin only) --
+    const btnSyncAnatel = document.getElementById('btnSyncAnatel');
+    if (btnSyncAnatel) {
+        btnSyncAnatel.addEventListener('click', async () => {
+            const original = btnSyncAnatel.querySelector('span').textContent;
+            btnSyncAnatel.disabled = true;
+            btnSyncAnatel.querySelector('span').textContent = 'Sincronizando...';
+            try {
+                const fd = new FormData();
+                fd.append('action', 'sync_anatel');
+                const res = await fetch('api/service_control.php', { method: 'POST', body: fd, cache: 'no-store' });
+                const json = await res.json().catch(() => ({}));
+                if (window.AppUI && typeof window.AppUI.toast === 'function') {
+                    window.AppUI.toast(json.message || 'Sync ANATEL iniciada.', json.success ? 'success' : 'error');
+                }
+                // Sync ANATEL pode demorar (download + parse + re-apply Unbound), dá 10s antes de reload
+                setTimeout(() => location.reload(), 10000);
+            } catch (err) {
+                if (window.AppUI && typeof window.AppUI.toast === 'function') {
+                    window.AppUI.toast('Falha: ' + err.message, 'error');
+                }
+                btnSyncAnatel.disabled = false;
+                btnSyncAnatel.querySelector('span').textContent = original;
+            }
+        });
+    }
+
     // -- Init --
     fetchDomains();
 })();
@@ -706,6 +829,29 @@ $blocklistAgeText = $fmtAge($blocklistAgeSecs);
         background: linear-gradient(135deg, rgb(249 115 22), rgb(234 88 12));
         box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
         border-color: rgba(249, 115, 22, 0.3);
+    }
+
+    /* Filter chips por categoria — mesmo "look" que tld-chip mas com estado ativo distinto */
+    .cat-chip {
+        color: rgb(100 116 139);
+        background: rgba(0,0,0,0.02);
+        border-color: rgba(0,0,0,0.08);
+        cursor: pointer;
+    }
+    .dark .cat-chip {
+        color: rgb(148 163 184);
+        background: rgba(255,255,255,0.03);
+        border-color: rgba(255,255,255,0.06);
+    }
+    .cat-chip:hover {
+        border-color: rgba(249, 115, 22, 0.3);
+        background: rgba(249, 115, 22, 0.06);
+    }
+    .cat-chip-active {
+        color: white !important;
+        background: linear-gradient(135deg, rgb(249 115 22), rgb(234 88 12)) !important;
+        border-color: rgba(249, 115, 22, 0.3) !important;
+        box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
     }
 
     .tld-chip {

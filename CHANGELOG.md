@@ -1,5 +1,49 @@
 # Changelog
 
+## v2.24.0 — 2026-05-21
+
+### feat(blocklist): /blocklist.php reorganizada — 2 fontes distintas + busca unificada
+
+Antes a página rotulava "Origem: StevenBlack" mas mostrava mtime do
+arquivo ANATEL e fazia search no flat file dele. Os 2 fluxos (catálogo
+StevenBlack/Hagezi → DuckDB; ANATEL → flat file → Unbound) viviam
+misturados na UI.
+
+**Backend novo** (`api_service`):
+
+- `GET /api/v1/blocklist/search?q=&category=&tld=&page=&per_page=` —
+  busca paginada direto no DuckDB. Filtra por categoria
+  (`Judicial` | `Malware/Adware`) e TLD. Substitui o legado
+  `api/blocklist_search.php` (que parseava o `.conf`).
+- `threats_repo`: `search_blocklist`, `count_blocklist`, `top_tlds`
+  com helper `_build_where` compartilhado.
+- `service_control.php` ganha action `sync_anatel` que dispara
+  `src/scripts/sync_judicial_list.php` em background.
+
+**UI** (`blocklist.php`):
+
+- **Topo: 2 cards lado-a-lado**, cada um com seu estado/ação:
+  - "ANATEL — Bloqueio Judicial": badge ativo/desativado, mtime do
+    arquivo, botão "Sincronizar ANATEL" (gated em
+    `official_blocklist_enabled`).
+  - "Catálogo — Inteligência": nome da fonte (StevenBlack/Hagezi),
+    toggle ativo/pausado, botão "Atualizar Agora". Texto explícito
+    que esse catálogo NÃO bloqueia no Unbound.
+- **Filter chips** de categoria acima da busca (Todas / Judicial /
+  Malware-Adware) com contadores ao vivo.
+- **Tabela** agora consome `/api/v1/blocklist/search` (DuckDB) em
+  vez do flat file — vê ANATEL + Malware/Adware juntos.
+- Labels "Origem: StevenBlack" removidos de stats card e header da
+  tabela (eram enganosos).
+
+7 testes novos em `test_threats.py` cobrindo filtros (categoria, q,
+tld), paginação, top_tlds e rejeição de categoria inválida. 138/138
+verde.
+
+VERSION 2.23.1 → 2.24.0.
+
+---
+
 ## v2.23.1 — 2026-05-15
 
 ### fix(multi-host): sentinel "latest" pra eliminar race no upgrade orquestrado

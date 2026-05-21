@@ -131,3 +131,91 @@ async def top_blocked_domains_with_blacklist(limit: int = 10) -> list[dict]:
         """,
         [limit],
     )
+
+
+# ============================================================
+# Busca paginada — alimenta a tabela de /blocklist.php (UI v2.24).
+# Substitui o antigo `api/blocklist_search.php`, que parseava o arquivo
+# `official_blocklist.conf` e só via ANATEL. Agora a busca é direta no
+# DuckDB, vê todas as categorias (Judicial + Malware/Adware), e aceita
+# filtro por categoria + filtro por TLD.
+# ============================================================
+
+
+def _build_where(q: str, category: str | None, tld: str | None) -> tuple[str, list]:
+    """Retorna (WHERE clause, params) — joins condicionalmente."""
+    conds: list[str] = []
+    args: list = []
+    if q:
+        conds.append("domain LIKE ?")
+        args.append(f"%{q.lower()}%")
+    if category:
+        conds.append("category = ?")
+        args.append(category)
+    if tld:
+        # LIKE '%.<tld>' pega tld no final do domain
+        conds.append("domain LIKE ?")
+        args.append(f"%.{tld.lower()}")
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    return where, args
+
+
+async def search_blocklist(
+    *,
+    q: str = "",
+    category: str | None = None,
+    tld: str | None = None,
+    offset: int = 0,
+    limit: int = 50,
+) -> list[dict]:
+    """Busca paginada em blocklist_domains. Ordenado por domain ASC."""
+    where, args = _build_where(q, category, tld)
+    args = list(args) + [limit, offset]
+    return await db_fetchall(
+        f"""
+        SELECT domain, category, severity
+        FROM blocklist_domains
+        {where}
+        ORDER BY domain ASC
+        LIMIT ? OFFSET ?
+        """,
+        args,
+    )
+
+
+async def count_blocklist(
+    *,
+    q: str = "",
+    category: str | None = None,
+    tld: str | None = None,
+) -> int:
+    """Conta linhas que casam os mesmos filtros — pra paginação."""
+    where, args = _build_where(q, category, tld)
+    row = await db_fetchone(
+        f"SELECT COUNT(*) AS n FROM blocklist_domains {where}",
+        args,
+    )
+    return int(row["n"]) if row else 0
+
+
+async def top_tlds(category: str | None = None, limit: int = 20) -> dict[str, int]:
+    """
+    TLD = última parte do domain (split '.'). DuckDB tem split_part.
+    Retorna {tld: count} ordenado desc, top N.
+    """
+    where, args = _build_where("", category, None)
+    rows = await db_fetchall(
+        f"""
+        SELECT
+            split_part(domain, '.', -1) AS tld,
+            COUNT(*) AS n
+        FROM blocklist_domains
+        {where}
+        GROUP BY tld
+        HAVING tld <> ''
+        ORDER BY n DESC
+        LIMIT ?
+        """,
+        list(args) + [limit],
+    )
+    return {str(r["tld"]): int(r["n"]) for r in rows}
