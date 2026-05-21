@@ -1,5 +1,56 @@
 # Changelog
 
+## v2.30.6 — 2026-05-21
+
+### feat(tls): hook pra reusar Let's Encrypt do Apache no DoT/DoH
+
+Cert self-signed do dashboard funcionava no nível de protocolo
+(handshake OK), mas browsers/clientes DoH **recusam self-signed** sem
+import manual de cada cliente. Pra hostname público
+(`dashboard.redeconexaonet.com`), reusar o **cert Let's Encrypt já
+emitido pro Apache** é a solução prática.
+
+**Adicionado**: `system/letsencrypt/unbound-dashboard-deploy.sh`,
+um hook do certbot que:
+
+- Roda automaticamente após cada `certbot renew` (cert LE = 90d)
+- Detecta se a lineage renovada é do `dashboard.<dominio>`
+- Copia `fullchain.pem` → `/etc/unbound/certs/dashboard.crt` (0644
+  unbound:unbound)
+- Copia `privkey.pem` → `/etc/unbound/certs/dashboard.key` (0640
+  unbound:unbound)
+- `systemctl reload unbound` (fallback restart)
+
+**Setup manual** (uma vez):
+
+```bash
+sudo install -m 0755 \
+    /var/www/html/unbound-dashboard/system/letsencrypt/unbound-dashboard-deploy.sh \
+    /etc/letsencrypt/renewal-hooks/deploy/unbound-dashboard.sh
+# Edita o domínio dentro do script se for diferente do default.
+
+# Primeiro install: roda o hook manualmente pra copiar o cert atual:
+sudo RENEWED_LINEAGE=/etc/letsencrypt/live/dashboard.SEUDOMINIO.com \
+    /etc/letsencrypt/renewal-hooks/deploy/unbound-dashboard.sh
+sudo systemctl reload unbound
+```
+
+Smoke ao vivo neste server:
+
+```
+curl https://dashboard.redeconexaonet.com:8443/dns-query
+HTTP 200  (sem -k!)
+
+openssl x509 -noout -issuer:
+issuer=C=US, O=Let's Encrypt, CN=R13
+```
+
+Browsers reconhecem cert público → DoH funciona sem warning.
+
+VERSION 2.30.5 → 2.30.6.
+
+---
+
 ## v2.30.5 — 2026-05-21
 
 ### fix(tls): aviso falso "chave não encontrada" mesmo com arquivo presente
