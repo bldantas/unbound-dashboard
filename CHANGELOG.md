@@ -1,5 +1,66 @@
 # Changelog
 
+## v2.30.3 — 2026-05-21
+
+### fix(tls): 3 problemas no handshake + AppArmor
+
+Após habilitar DoT/DoH com cert managed, painel mostrava "porta aberta
+mas handshake falhou". 3 bugs descobertos:
+
+**Bug 1 — cert paths sumindo do general.conf**:
+
+Se o user gerava o cert ANTES de habilitar DoT/DoH, o `applyConfig`
+não escrevia `tls-service-pem`/`tls-service-key` em `general.conf`
+porque eu condicionava ao `tls-enabled=yes`. Quando o user ligava
+o toggle depois, paths sumiam do form.
+
+**Fix**: `tls-service-pem`/`tls-service-key` agora são escritos SEMPRE
+que houver valor (Unbound ignora paths sem `tls-port`, sem efeito
+colateral). Só `tls-port`/`https-port`/`interface@porta` dependem do
+master switch.
+
+**Bug 2 — handshake test em 127.0.0.1**:
+
+Status panel testava handshake em `127.0.0.1:853`, mas o Unbound só
+escuta nos IPs reais (`interface: 10.x@853`, sem loopback). Resultado:
+mesmo TLS funcionando, painel mostrava "FALHOU".
+
+**Fix**: `getServiceStatus()` aceita lista `$testIps` e testa cada uma
+até funcionar. `config.php` extrai os IPs non-loopback do
+`$currentConfig['interfaces']` e passa.
+
+**Bug 3 — AppArmor bloqueia `/etc/unbound/certs/*`**:
+
+Em distros com AppArmor (Debian/Ubuntu), o profile do pacote unbound
+só permite `/etc/unbound/*.key*` (direto, sem subdir). Cert do dashboard
+em `/etc/unbound/certs/dashboard.key` é negado mesmo com perms corretos
+(`unbound:unbound 0640`). Unbound aborta com:
+
+```
+error: Error in SSL_CTX use_PrivateKey_file crypto error: Permission denied
+fatal error: could not set up listen SSL_CTX
+```
+
+**Fix**: novo `system/apparmor/usr.sbin.unbound.local.snippet` com as
+regras necessárias (`/etc/unbound/certs/** r`, capabilities `dac_*`).
+**Aplicação manual** por enquanto (próximas releases vão automatizar):
+
+```bash
+sudo cat system/apparmor/usr.sbin.unbound.local.snippet \
+    >> /etc/apparmor.d/local/usr.sbin.unbound
+sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.unbound
+sudo systemctl restart unbound
+```
+
+Sistemas sem AppArmor (CentOS, Alpine, etc) não precisam.
+
+Smoke ao vivo após os 3 fixes: handshake DoT em 10.x:853 ✓ e DoH em
+10.x:8443 ✓, status panel verde.
+
+VERSION 2.30.2 → 2.30.3.
+
+---
+
 ## v2.30.2 — 2026-05-21
 
 ### fix(tls): detectar conflito de porta antes de aplicar (Unbound caía)

@@ -258,16 +258,20 @@ class TlsCertManager
     }
 
     /**
-     * Snapshot do estado real do servidor DoT/DoH:
-     *  - portas DoT/DoH estão em LISTEN?
-     *  - handshake TLS de fato funciona em 127.0.0.1?
-     *  - certificado configurado é válido? quando expira?
+     * Snapshot do estado real do servidor DoT/DoH.
      *
-     * Recebe as portas e caminhos atuais (lidos do unbound.conf via PHP),
-     * pra não duplicar parsing. Se port é 0 ou string vazia, considera
-     * desabilitado.
+     * `$testIps` = lista de IPs onde tentar o handshake. Se vazia, defaults
+     * pra 127.0.0.1 (raramente útil, porque o Unbound só gera
+     * `interface:<ip>@porta` pra non-loopback). Passe os IPs reais lidos
+     * de `ip addr` ou da config Unbound.
      */
-    public function getServiceStatus(int $dotPort = 853, int $dohPort = 443, string $certPath = '', string $keyPath = ''): array
+    public function getServiceStatus(
+        int $dotPort = 853,
+        int $dohPort = 443,
+        string $certPath = '',
+        string $keyPath = '',
+        array $testIps = []
+    ): array
     {
         $out = [
             'dot_port'             => $dotPort,
@@ -313,18 +317,34 @@ class TlsCertManager
             $out['warnings'][] = 'Caminho da chave configurado mas arquivo não encontrado: ' . $keyPath;
         }
 
-        // Handshake TLS — só roda se port estiver em listen pra evitar 3s de
-        // timeout × 2 quando nada está rodando.
+        // Handshake TLS — tenta em cada IP da lista até um funcionar. Unbound
+        // só listen nos IPs que estão como `interface: X@porta`, então 127.0.0.1
+        // sozinho geralmente falha. Caller passa os IPs detectados.
+        $ipsToTry = !empty($testIps) ? $testIps : ['127.0.0.1'];
+        $out['handshake_tested_ip'] = null;
+
         if ($out['dot_listening']) {
-            $out['dot_handshake_ok'] = $this->_testTlsHandshake('127.0.0.1', $dotPort, 'dot');
+            foreach ($ipsToTry as $ip) {
+                if ($this->_testTlsHandshake($ip, $dotPort, 'dot')) {
+                    $out['dot_handshake_ok'] = true;
+                    $out['handshake_tested_ip'] = $ip;
+                    break;
+                }
+            }
             if (!$out['dot_handshake_ok']) {
-                $out['warnings'][] = 'Porta DoT (' . $dotPort . ') está aberta mas handshake TLS falhou — cert/key incorretos ou unbound não recarregou.';
+                $out['warnings'][] = 'Porta DoT (' . $dotPort . ') está aberta mas handshake TLS falhou em ' . implode(', ', $ipsToTry) . ' — cert/key incorretos ou unbound não recarregou.';
             }
         }
         if ($out['doh_listening']) {
-            $out['doh_handshake_ok'] = $this->_testTlsHandshake('127.0.0.1', $dohPort, 'doh');
+            foreach ($ipsToTry as $ip) {
+                if ($this->_testTlsHandshake($ip, $dohPort, 'doh')) {
+                    $out['doh_handshake_ok'] = true;
+                    if (!$out['handshake_tested_ip']) $out['handshake_tested_ip'] = $ip;
+                    break;
+                }
+            }
             if (!$out['doh_handshake_ok']) {
-                $out['warnings'][] = 'Porta DoH (' . $dohPort . ') está aberta mas handshake TLS falhou — cert/key incorretos ou unbound não recarregou.';
+                $out['warnings'][] = 'Porta DoH (' . $dohPort . ') está aberta mas handshake TLS falhou em ' . implode(', ', $ipsToTry) . ' — cert/key incorretos ou unbound não recarregou.';
             }
         }
 

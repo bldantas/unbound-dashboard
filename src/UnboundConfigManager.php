@@ -388,26 +388,25 @@ class UnboundConfigManager
         $edns = $newParams['edns-buffer-size'] ?? $oldConfig['edns-buffer-size'] ?? '';
         if (!empty($edns)) $genContent .= "    edns-buffer-size: {$edns}\n";
         if (file_exists('/etc/unbound/root.hints')) $genContent .= "    root-hints: \"/etc/unbound/root.hints\"\n";
-        // Bloco TLS — escreve só se master switch tls-enabled está on. Faz
-        // fallback pro oldConfig pra preservar paths/portas quando apply
-        // vier de outro form (save_interface, save_rpz, etc) que não envia
-        // esses 4 campos. Antes da v2.30.1 isso causava sumiço silencioso
-        // do cert config a cada save em outro tab.
+        // Bloco TLS:
+        //   - `tls-port`/`https-port` SÓ escritas quando master switch on
+        //     (estas portas + interface@porta = listener TLS efetivo).
+        //   - `tls-service-pem`/`tls-service-key` escritos SEMPRE que houver
+        //     valor (fallback pro oldConfig). Unbound ignora paths sem porta
+        //     configurada, mas mantê-los persiste o "qual cert usar" quando
+        //     o user ligar o toggle depois. Era a causa do bug v2.30.1 onde
+        //     paths sumiam silenciosamente do general.conf após save.
+        $finalTlsKey = $newParams['tls-service-key'] ?? $oldConfig['tls-service-key'] ?? '';
+        $finalTlsPem = $newParams['tls-service-pem'] ?? $oldConfig['tls-service-pem'] ?? '';
+
         if (!empty($newParams['_tls_enabled'])) {
             $finalTlsPort   = (int) ($newParams['_tls_port_num']   ?? 0);
             $finalHttpsPort = (int) ($newParams['_https_port_num'] ?? 0);
-            $finalTlsKey    = $newParams['tls-service-key'] ?? $oldConfig['tls-service-key'] ?? '';
-            $finalTlsPem    = $newParams['tls-service-pem'] ?? $oldConfig['tls-service-pem'] ?? '';
-
             if ($finalTlsPort > 0)   $genContent .= "    tls-port: {$finalTlsPort}\n";
             if ($finalHttpsPort > 0) $genContent .= "    https-port: {$finalHttpsPort}\n";
-            if (!empty($finalTlsKey)) $genContent .= "    tls-service-key: \"{$finalTlsKey}\"\n";
-            if (!empty($finalTlsPem)) $genContent .= "    tls-service-pem: \"{$finalTlsPem}\"\n";
         }
-        // Se tls-enabled=false → nada é escrito (tls-port/https-port/cert paths
-        // são removidos do general.conf), interfaces@porta também sumiram acima.
-        // (Bloco duplicado de v2.x foi removido em v2.30.1 — dava entradas
-        // repetidas em general.conf.)
+        if (!empty($finalTlsKey)) $genContent .= "    tls-service-key: \"{$finalTlsKey}\"\n";
+        if (!empty($finalTlsPem)) $genContent .= "    tls-service-pem: \"{$finalTlsPem}\"\n";
         $configs['general'] = $genContent;
 
         // 3. Optimization

@@ -1,0 +1,20 @@
+# Unbound Dashboard — certificados gerenciados pra DoT/DoH
+#
+# Adicione este snippet em /etc/apparmor.d/local/usr.sbin.unbound (anexa
+# ao final do arquivo existente) e recarregue o profile:
+#
+#   sudo cat system/apparmor/usr.sbin.unbound.local.snippet >> /etc/apparmor.d/local/usr.sbin.unbound
+#   sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.unbound
+#   sudo systemctl restart unbound
+#
+# Sem essas regras o Unbound não consegue ler o cert/key em
+# /etc/unbound/certs/ mesmo com perms corretos (owner unbound:unbound,
+# 0640) — o profile do pacote distro só permite `*.key*` no diretório
+# direto `/etc/unbound/`, não em subdir. As capabilities dac_*
+# permitem o openssl bypassar perm checks durante o load do PEM.
+
+/etc/unbound/certs/ r,
+/etc/unbound/certs/** r,
+owner /etc/unbound/certs/*.key r,
+capability dac_read_search,
+capability dac_override,

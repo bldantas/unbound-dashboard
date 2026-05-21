@@ -410,12 +410,24 @@ $settings = $configManager->loadSettings();
 $localRecords = $configManager->loadLocalRecords();
 $ifacesDetails = $networkManager->getInterfacesDetailed();
 $tlsCertStatus = $tlsCertManager->getStatus();
-// Status do serviço DoT/DoH — lê portas/cert do parsed config atual
+// Status do serviço DoT/DoH — lê portas/cert do parsed config atual.
+// Passa os IPs reais das interfaces non-loopback configuradas pra o handshake
+// testar onde Unbound de fato escuta (não em 127.0.0.1).
+$_tlsTestIps = [];
+foreach (($currentConfig['interfaces'] ?? []) as $_iface) {
+    $_ip = preg_replace('/@\d+$/', '', (string) $_iface);
+    if ($_ip === '' || $_ip === '127.0.0.1' || $_ip === '::1' || str_starts_with($_ip, '127.')) continue;
+    $_tlsTestIps[] = $_ip;
+}
+// Fallback se config não trouxer (instala recente sem nada)
+if (empty($_tlsTestIps)) $_tlsTestIps = ['127.0.0.1'];
+
 $tlsServiceStatus = $tlsCertManager->getServiceStatus(
     (int) ($currentConfig['tls-port'] ?? 0),
     (int) ($currentConfig['https-port'] ?? 0),
     (string) ($currentConfig['tls-service-pem'] ?? ''),
-    (string) ($currentConfig['tls-service-key'] ?? '')
+    (string) ($currentConfig['tls-service-key'] ?? ''),
+    $_tlsTestIps
 );
 $systemHostname = $networkManager->getHostname();
 $systemDnsList = array_pad($networkManager->getSystemDNS(), 2, '');
