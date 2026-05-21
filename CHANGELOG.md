@@ -1,5 +1,52 @@
 # Changelog
 
+## v2.30.1 — 2026-05-21
+
+### fix(tls): toggle DoT/DoH não desligava + duplicação no general.conf
+
+**Bug do toggle** (v2.30.0): os 2 checkboxes separados ficavam disabled
+ao desmarcar, fazendo o `<input>` da porta sumir do POST. Backend caía
+no fallback `oldConfig['tls-port']` (=853) e continuava gerando
+`interface: X@853`. Resultado: desligar via UI não desligava o serviço.
+
+**Bug bônus**: `generateModularConfigs` tinha bloco duplicado escrevendo
+`tls-port` 2x em general.conf (linhas 391-394 e 409-416). Causava
+entradas repetidas no arquivo.
+
+**Bug do silencioso-sumiço**: salvar QUALQUER coisa em outro tab
+(blocked_domains, interface, etc) deletava os 4 campos TLS de
+general.conf porque eram só escritos quando `$newParams` os
+incluía (sem fallback). Cada save zerava DoT/DoH silenciosamente.
+
+**Mudanças** (sugestão do user — toggle único, ports separados):
+
+1. **1 master switch** "Habilitar DoT/DoH" controla os 2 ao mesmo tempo.
+   Cada protocolo mantém seu próprio campo de porta (853, 443).
+   Hidden input `tls-enabled=no` antes do checkbox garante que o estado
+   sempre vai no POST (HTML padrão não envia checkboxes off).
+
+2. **Backend `_tls_enabled` flag interna** propagada entre `interfaces`
+   e `general` durante geração. 3 origens em ordem de prioridade:
+   - `$newParams['tls-enabled']` (do form)
+   - presença de `tls-port`/`https-port` no $newParams (apply do cert)
+   - fallback: estado anterior em $oldConfig.
+
+3. **Fallback nos 4 campos TLS** (`tls-port`, `https-port`,
+   `tls-service-{pem,key}`) — sempre lê do oldConfig se newParams não
+   trouxer. Save em outro tab não zera mais o TLS.
+
+4. **Bloco duplicado removido** de generateModularConfigs.
+
+Smoke ao vivo:
+- `applyConfig(["tls-enabled" => "yes"])` → 4 interfaces base + 4
+  listeners @853/@443 + tls-port/https-port/cert paths em general.
+- `applyConfig(["tls-enabled" => "no"])` → só interfaces base + port:53,
+  general.conf SEM nenhuma linha TLS, interfaces.conf SEM @porta.
+
+VERSION 2.30.0 → 2.30.1.
+
+---
+
 ## v2.30.0 — 2026-05-21
 
 ### feat(tls): fluxo DoT/DoH funcional ponta-a-ponta

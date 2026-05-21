@@ -805,30 +805,36 @@ function field($key, $label, $desc = '', $def = '')
                                 <?php
                                 $tlsPortVal   = $currentConfig['tls-port']   ?? '';
                                 $httpsPortVal = $currentConfig['https-port'] ?? '';
-                                $tlsEnabled   = $tlsPortVal !== '' && $tlsPortVal !== '0';
-                                $httpsEnabled = $httpsPortVal !== '' && $httpsPortVal !== '0';
+                                // Master switch: feature está on se há alguma porta TLS configurada.
+                                $tlsEnabled = ($tlsPortVal !== '' && $tlsPortVal !== '0')
+                                           || ($httpsPortVal !== '' && $httpsPortVal !== '0');
                                 ?>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
-                                    <!-- DoT toggle + port -->
-                                    <div class="bg-slate-900/5 dark:bg-white/5 p-4 rounded-2xl border border-slate-200 dark:border-white/5">
-                                        <label class="flex items-center gap-3 cursor-pointer mb-3">
-                                            <input type="checkbox" id="enable-tls-port" <?= $tlsEnabled ? 'checked' : '' ?> onchange="document.getElementById('tls-port-input').disabled = !this.checked; if (this.checked && !document.getElementById('tls-port-input').value) document.getElementById('tls-port-input').value = 853;" class="w-5 h-5 text-cyan-500 bg-slate-900 border-white/10 rounded">
-                                            <span class="text-[11px] font-black text-slate-900 dark:text-white uppercase tracking-widest">Habilitar DoT (DNS-over-TLS)</span>
-                                        </label>
-                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Porta</label>
-                                        <input type="number" min="1" max="65535" id="tls-port-input" name="tls-port" value="<?= htmlspecialchars($tlsPortVal !== '' ? $tlsPortVal : '853') ?>" <?= $tlsEnabled ? '' : 'disabled' ?> class="glass-input w-full font-mono">
-                                        <p class="text-[9px] text-slate-500 italic mt-1">Padrão Unbound: 853. Quando desabilitado, é omitido do config.</p>
-                                    </div>
 
-                                    <!-- DoH toggle + port -->
-                                    <div class="bg-slate-900/5 dark:bg-white/5 p-4 rounded-2xl border border-slate-200 dark:border-white/5">
-                                        <label class="flex items-center gap-3 cursor-pointer mb-3">
-                                            <input type="checkbox" id="enable-https-port" <?= $httpsEnabled ? 'checked' : '' ?> onchange="document.getElementById('https-port-input').disabled = !this.checked; if (this.checked && !document.getElementById('https-port-input').value) document.getElementById('https-port-input').value = 443;" class="w-5 h-5 text-cyan-500 bg-slate-900 border-white/10 rounded">
-                                            <span class="text-[11px] font-black text-slate-900 dark:text-white uppercase tracking-widest">Habilitar DoH (DNS-over-HTTPS)</span>
-                                        </label>
-                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Porta</label>
-                                        <input type="number" min="1" max="65535" id="https-port-input" name="https-port" value="<?= htmlspecialchars($httpsPortVal !== '' ? $httpsPortVal : '443') ?>" <?= $httpsEnabled ? '' : 'disabled' ?> class="glass-input w-full font-mono">
-                                        <p class="text-[9px] text-slate-500 italic mt-1">Padrão Unbound: 443. Quando desabilitado, é omitido do config.</p>
+                                <!-- Master toggle: 1 switch controla DoT + DoH -->
+                                <div class="bg-cyan-600/10 border border-cyan-500/30 p-5 rounded-3xl mb-6">
+                                    <!-- Hidden submitted quando o checkbox NÃO marcado (HTML não envia checkboxes off) -->
+                                    <input type="hidden" name="tls-enabled" value="no">
+                                    <label class="flex items-center gap-4 cursor-pointer">
+                                        <input type="checkbox" id="enable-tls-doh" name="tls-enabled" value="yes" <?= $tlsEnabled ? 'checked' : '' ?>
+                                               onchange="document.getElementById('tls-port-input').disabled = !this.checked; document.getElementById('https-port-input').disabled = !this.checked;"
+                                               class="w-6 h-6 text-cyan-500 bg-slate-900 border-white/10 rounded-lg">
+                                        <div>
+                                            <span class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Habilitar DoT / DoH</span>
+                                            <p class="text-[10px] text-slate-500 mt-1">Liga DNS-over-TLS e DNS-over-HTTPS no Unbound usando as portas abaixo. Quando desabilitado, os <code>tls-port</code> / <code>https-port</code> e os listeners <code>@porta</code> são removidos do config.</p>
+                                        </div>
+                                    </label>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+                                    <div>
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Porta DoT (DNS-over-TLS)</label>
+                                        <input type="number" min="1" max="65535" id="tls-port-input" name="tls-port" value="<?= htmlspecialchars($tlsPortVal !== '' ? $tlsPortVal : '853') ?>" <?= $tlsEnabled ? '' : 'disabled' ?> class="glass-input w-full font-mono">
+                                        <p class="text-[9px] text-slate-500 italic mt-1">Padrão: 853. Cobrar TCP só.</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Porta DoH (DNS-over-HTTPS)</label>
+                                        <input type="number" min="1" max="65535" id="https-port-input" name="https-port" value="<?= htmlspecialchars($httpsPortVal !== '' ? $httpsPortVal : '443') ?>" <?= $tlsEnabled ? '' : 'disabled' ?> class="glass-input w-full font-mono">
+                                        <p class="text-[9px] text-slate-500 italic mt-1">Padrão: 443. Cuidado se já tiver web server na mesma porta.</p>
                                     </div>
                                 </div>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">

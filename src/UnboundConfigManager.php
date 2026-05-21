@@ -325,10 +325,22 @@ class UnboundConfigManager
         $port = $filterVal('port', $newParams['port'] ?? $oldConfig['port'] ?? '');
         $intContent .= "    port: " . (!empty($port) ? (int)$port : 53) . "\n";
 
-        // Auto-listen pra DoT (tls-port) e DoH (https-port). Skippa loopback —
-        // TLS no 127.0.0.1/::1 é raro e gera ruído desnecessário.
-        $tlsPortNum   = (int) ($newParams['tls-port']   ?? $oldConfig['tls-port']   ?? 0);
-        $httpsPortNum = (int) ($newParams['https-port'] ?? $oldConfig['https-port'] ?? 0);
+        // Master switch DoT/DoH. Tres origens (em ordem de prioridade):
+        //   1. $newParams['tls-enabled'] = 'yes'|'no' — explícito via form
+        //   2. Houver tls-port OU https-port em $newParams (ex: applyConfig
+        //      vindo de tls_generate_cert/upload, sem master switch)
+        //   3. Fallback: estado anterior (oldConfig tem alguma porta TLS)
+        if (array_key_exists('tls-enabled', $newParams)) {
+            $tlsEnabled = $newParams['tls-enabled'] === 'yes';
+        } elseif (!empty($newParams['tls-port']) || !empty($newParams['https-port'])) {
+            $tlsEnabled = true;
+        } else {
+            $tlsEnabled = !empty($oldConfig['tls-port']) || !empty($oldConfig['https-port']);
+        }
+
+        // Auto-listen pra DoT/DoH (skip loopback)
+        $tlsPortNum   = $tlsEnabled ? (int) ($newParams['tls-port']   ?? $oldConfig['tls-port']   ?? 853) : 0;
+        $httpsPortNum = $tlsEnabled ? (int) ($newParams['https-port'] ?? $oldConfig['https-port'] ?? 443) : 0;
         $isLoopback = function (string $ip): bool {
             $ip = strtolower(trim($ip));
             return $ip === '127.0.0.1' || $ip === '::1' || str_starts_with($ip, '127.');
@@ -339,7 +351,12 @@ class UnboundConfigManager
             if ($httpsPortNum > 0) $intContent .= "    interface: {$iface}@{$httpsPortNum}\n";
         }
 
+        // Exporta no array de configs E em $newParams pra etapa 2 (general.conf)
+        // saber quais valores escrever — o $tlsEnabled é a fonte da verdade.
         $configs['interfaces'] = $intContent;
+        $newParams['_tls_enabled']   = $tlsEnabled;
+        $newParams['_tls_port_num']  = $tlsPortNum;
+        $newParams['_https_port_num']= $httpsPortNum;
 
         // 2. General
         $threads = !empty($newParams['num-threads']) ? (int)$newParams['num-threads'] : 4;
@@ -371,18 +388,26 @@ class UnboundConfigManager
         $edns = $newParams['edns-buffer-size'] ?? $oldConfig['edns-buffer-size'] ?? '';
         if (!empty($edns)) $genContent .= "    edns-buffer-size: {$edns}\n";
         if (file_exists('/etc/unbound/root.hints')) $genContent .= "    root-hints: \"/etc/unbound/root.hints\"\n";
-        if (!empty($newParams['tls-port'])) $genContent .= "    tls-port: {$newParams['tls-port']}\n";
-        if (!empty($newParams['https-port'])) $genContent .= "    https-port: {$newParams['https-port']}\n";
-        if (!empty($newParams['tls-service-key'])) $genContent .= "    tls-service-key: \"{$newParams['tls-service-key']}\"\n";
-        if (!empty($newParams['tls-service-pem'])) $genContent .= "    tls-service-pem: \"{$newParams['tls-service-pem']}\"\n";
-        $tlsPort = $newParams['tls-port'] ?? $oldConfig['tls-port'] ?? '';
-        $httpsPort = $newParams['https-port'] ?? $oldConfig['https-port'] ?? '';
-        $tlsKey = $newParams['tls-service-key'] ?? $oldConfig['tls-service-key'] ?? '';
-        $tlsPem = $newParams['tls-service-pem'] ?? $oldConfig['tls-service-pem'] ?? '';
-        if (!empty($tlsPort)) $genContent .= "    tls-port: {$tlsPort}\n";
-        if (!empty($httpsPort)) $genContent .= "    https-port: {$httpsPort}\n";
-        if (!empty($tlsKey)) $genContent .= "    tls-service-key: \"{$tlsKey}\"\n";
-        if (!empty($tlsPem)) $genContent .= "    tls-service-pem: \"{$tlsPem}\"\n";
+        // Bloco TLS — escreve só se master switch tls-enabled está on. Faz
+        // fallback pro oldConfig pra preservar paths/portas quando apply
+        // vier de outro form (save_interface, save_rpz, etc) que não envia
+        // esses 4 campos. Antes da v2.30.1 isso causava sumiço silencioso
+        // do cert config a cada save em outro tab.
+        if (!empty($newParams['_tls_enabled'])) {
+            $finalTlsPort   = (int) ($newParams['_tls_port_num']   ?? 0);
+            $finalHttpsPort = (int) ($newParams['_https_port_num'] ?? 0);
+            $finalTlsKey    = $newParams['tls-service-key'] ?? $oldConfig['tls-service-key'] ?? '';
+            $finalTlsPem    = $newParams['tls-service-pem'] ?? $oldConfig['tls-service-pem'] ?? '';
+
+            if ($finalTlsPort > 0)   $genContent .= "    tls-port: {$finalTlsPort}\n";
+            if ($finalHttpsPort > 0) $genContent .= "    https-port: {$finalHttpsPort}\n";
+            if (!empty($finalTlsKey)) $genContent .= "    tls-service-key: \"{$finalTlsKey}\"\n";
+            if (!empty($finalTlsPem)) $genContent .= "    tls-service-pem: \"{$finalTlsPem}\"\n";
+        }
+        // Se tls-enabled=false → nada é escrito (tls-port/https-port/cert paths
+        // são removidos do general.conf), interfaces@porta também sumiram acima.
+        // (Bloco duplicado de v2.x foi removido em v2.30.1 — dava entradas
+        // repetidas em general.conf.)
         $configs['general'] = $genContent;
 
         // 3. Optimization
