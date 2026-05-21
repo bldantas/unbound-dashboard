@@ -120,14 +120,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'save_interface') {
         $requestedIface = trim((string)($_POST['iface_name'] ?? ''));
         $ifaceFormKey = $requestedIface;
-        $targetIface = strtolower($requestedIface) === 'lo' ? 'lo.1' : $requestedIface;
+        $isLoAlias = strtolower($requestedIface) === 'lo';
+        $targetIface = $isLoAlias ? 'lo.1' : $requestedIface;
 
+        // No card da loopback, o <select> de modo fica `disabled` (UX: só
+        // faz sentido static no lo.1). Mas inputs disabled NÃO são enviados
+        // no POST, então o backend recebia vazio e caía no default 'dhcp'
+        // — gerava `iface lo.1 inet dhcp` mesmo com IP preenchido. Força
+        // static aqui pra fechar a brecha.
         $mode = $_POST['iface_mode'][$ifaceFormKey] ?? 'dhcp';
+        if ($isLoAlias) $mode = 'static';
         $address = $_POST['iface_address'][$ifaceFormKey] ?? '';
         $gateway = $_POST['iface_gateway'][$ifaceFormKey] ?? '';
         $netmask = $_POST['iface_netmask'][$ifaceFormKey] ?? '';
         $v6_enabled = isset($_POST['iface_v6_enabled'][$ifaceFormKey]);
         $v6_mode = $_POST['iface_v6_mode'][$ifaceFormKey] ?? 'auto';
+        if ($isLoAlias && $v6_enabled) $v6_mode = 'static';
         $v6_address = $_POST['iface_v6_address'][$ifaceFormKey] ?? '';
         $v6_gateway = $_POST['iface_v6_gateway'][$ifaceFormKey] ?? '';
         $v6_netmask = $_POST['iface_v6_netmask'][$ifaceFormKey] ?? '';

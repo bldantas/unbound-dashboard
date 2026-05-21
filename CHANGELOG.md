@@ -1,5 +1,35 @@
 # Changelog
 
+## v2.27.2 — 2026-05-21
+
+### fix(config-rede): salvar IP na LO sempre gerava `iface lo.1 inet dhcp`
+
+Bug sutil de HTML/PHP: no card da loopback em **Configurações → Configurações
+de Rede**, o `<select name="iface_mode[lo]">` está marcado como `disabled`
+(porque só faz sentido `static` no `lo.1`). Mas **inputs `disabled` não são
+enviados no submit do browser** — o backend recebia POST sem `iface_mode[lo]`
+e caía no default `'dhcp'` (linha 125 do handler). Resultado: mesmo preenchendo
+IP/netmask, o `/etc/network/interfaces` ficava com:
+
+```
+auto lo.1
+iface lo.1 inet dhcp
+```
+
+ignorando os campos preenchidos.
+
+**Fix** em `config.php` no handler `save_interface`:
+
+- Detecta `requestedIface === 'lo'` e força `$mode = 'static'`.
+- Mesma coisa pro IPv6 quando habilitado: `$v6_mode = 'static'`.
+
+UI inalterada (continua com `disabled` no select pra UX correta). Só fechou
+a brecha server-side.
+
+VERSION 2.27.1 → 2.27.2.
+
+---
+
 ## v2.27.1 — 2026-05-21
 
 ### fix(cache): gráfico "Distribuição de TTL" com buckets dinâmicos
