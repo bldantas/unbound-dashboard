@@ -1,5 +1,31 @@
 # Changelog
 
+## v2.30.5 — 2026-05-21
+
+### fix(tls): aviso falso "chave não encontrada" mesmo com arquivo presente
+
+Continuação do v2.30.4. O painel ainda mostrava:
+
+> Caminho da chave configurado mas arquivo não encontrado:
+> /etc/unbound/certs/dashboard.key
+
+Causa: `getServiceStatus` usava `is_readable($keyPath)` que retorna
+false quando o PHP-FPM (rodando como `www-data`) não tem permissão de
+leitura. A `.key` tem perms `0640` (owner+grupo `unbound`) por design —
+o **Unbound** lê (é o owner), mas o **PHP** não está no grupo.
+
+**Fix**: trocar `is_readable` por `file_exists` nos 2 checks
+(cert path + key path). O painel só precisa saber se o arquivo
+EXISTE pra o Unbound encontrar; não precisa que o PHP leia.
+
+Cert ainda usa `is_readable` pra extrair subject/expires/SANs via
+openssl — esses precisam de read, e o cert tem `0644` (world-readable
+por design).
+
+VERSION 2.30.4 → 2.30.5.
+
+---
+
 ## v2.30.4 — 2026-05-21
 
 ### fix(config-parser): strip aspas externas de valores quoted

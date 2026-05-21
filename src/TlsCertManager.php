@@ -294,9 +294,16 @@ class TlsCertManager
         if ($dotPort > 0) $out['dot_listening'] = in_array($dotPort, $listening, true);
         if ($dohPort > 0) $out['doh_listening'] = in_array($dohPort, $listening, true);
 
-        // Certificado configurado (path do form, não necessariamente o managed)
-        if ($certPath !== '' && is_readable($certPath)) {
-            $info = $this->_readCertInfo($certPath);
+        // Certificado configurado (path do form, não necessariamente o managed).
+        // Usamos file_exists em vez de is_readable porque o key normalmente
+        // tem perms 0640 (só owner+grupo unbound), e o PHP-FPM (www-data) não
+        // está no grupo unbound — daí is_readable retornava false mesmo o
+        // arquivo existindo e o Unbound conseguindo ler. file_exists só checa
+        // se existe, sem precisar permissão de leitura.
+        if ($certPath !== '' && file_exists($certPath)) {
+            // Cert é world-readable por design (perms 0644), então o PHP pode
+            // abrir openssl pra extrair subject/expires/SANs.
+            $info = is_readable($certPath) ? $this->_readCertInfo($certPath) : [];
             $out['cert_present']    = true;
             $out['cert_subject']    = $info['subject'] ?? null;
             $out['cert_expires_at'] = $info['expires_at'] ?? null;
@@ -313,7 +320,7 @@ class TlsCertManager
             $out['warnings'][] = 'Caminho do certificado configurado mas arquivo não encontrado: ' . $certPath;
         }
 
-        if ($keyPath !== '' && !is_readable($keyPath)) {
+        if ($keyPath !== '' && !file_exists($keyPath)) {
             $out['warnings'][] = 'Caminho da chave configurado mas arquivo não encontrado: ' . $keyPath;
         }
 
