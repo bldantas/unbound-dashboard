@@ -1,5 +1,42 @@
 # Changelog
 
+## v2.29.0 — 2026-05-21
+
+### feat(tls): painel de status DoT/DoH + fix CIDR no SAN
+
+**Status panel** no topo de Configurações → Criptografia DoT/DoH:
+
+3 cards mostrando estado real do serviço:
+
+- **DoT (porta X)**: Funcionando (listening + handshake OK) /
+  Sem TLS (listening mas handshake falhou) / Inativo (nada
+  escutando) / Desabilitado (porta em branco).
+- **DoH (porta Y)**: idem.
+- **Certificado SSL**: Válido (com dias restantes) / Expira em
+  breve (<30d, amarelo) / Expirado (vermelho) / Não configurado.
+- Painel de avisos coletando inconsistências (cert path inválido,
+  porta listening sem TLS, expira em breve, etc).
+
+**Backend** `TlsCertManager::getServiceStatus($dotPort, $dohPort,
+$certPath, $keyPath)`:
+
+- `ss -ltn` pra detectar portas em LISTEN.
+- `stream_socket_client tls://127.0.0.1:X` pra validar handshake
+  com timeout 3s (skip verify, só queremos saber se conecta).
+- Lê info do cert configurado (subject, expires, SANs).
+
+**Bug fix** — CIDR no SAN:
+
+Quando user digitava `143.0.220.0/22` no campo SANs, `filter_var`
+rejeitava como IP inválido e o cert era gerado sem aquele IP.
+Agora strip silencioso da máscara: `1.2.3.4/22` vira `1.2.3.4`
+antes da validação. SAN não suporta network ranges (só IPs
+específicos), mas o input fica tolerante.
+
+VERSION 2.28.1 → 2.29.0.
+
+---
+
 ## v2.28.1 — 2026-05-21
 
 ### fix(tls): "Token expirado" ao gerar/upload/remover certificado

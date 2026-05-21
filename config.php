@@ -381,6 +381,13 @@ $settings = $configManager->loadSettings();
 $localRecords = $configManager->loadLocalRecords();
 $ifacesDetails = $networkManager->getInterfacesDetailed();
 $tlsCertStatus = $tlsCertManager->getStatus();
+// Status do serviço DoT/DoH — lê portas/cert do parsed config atual
+$tlsServiceStatus = $tlsCertManager->getServiceStatus(
+    (int) ($currentConfig['tls-port'] ?? 0),
+    (int) ($currentConfig['https-port'] ?? 0),
+    (string) ($currentConfig['tls-service-pem'] ?? ''),
+    (string) ($currentConfig['tls-service-key'] ?? '')
+);
 $systemHostname = $networkManager->getHostname();
 $systemDnsList = array_pad($networkManager->getSystemDNS(), 2, '');
 $blockedDomainsTxt = implode("\n", $configManager->loadBlocklist());
@@ -666,6 +673,101 @@ function field($key, $label, $desc = '', $def = '')
                         </div>
 
                         <div id="tab-tls" class="tab-content <?= $activeTab === 'tls' ? 'active' : '' ?> space-y-8">
+
+                            <!-- Painel de Status do Serviço -->
+                            <?php
+                            // Helpers visuais
+                            $serviceCard = function(string $title, int $port, bool $listening, bool $handshakeOk) {
+                                if ($port <= 0) {
+                                    $cls = 'border-slate-500/30 bg-slate-500/5';
+                                    $badge = 'bg-slate-500/15 text-slate-500';
+                                    $label = 'Desabilitado';
+                                    $detail = 'Porta em branco — feature off.';
+                                } elseif ($listening && $handshakeOk) {
+                                    $cls = 'border-emerald-500/30 bg-emerald-500/5';
+                                    $badge = 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400';
+                                    $label = 'Funcionando';
+                                    $detail = 'Listening na porta ' . $port . ' • Handshake TLS OK';
+                                } elseif ($listening) {
+                                    $cls = 'border-amber-500/30 bg-amber-500/5';
+                                    $badge = 'bg-amber-500/15 text-amber-600 dark:text-amber-400';
+                                    $label = 'Sem TLS';
+                                    $detail = 'Listening em ' . $port . ' mas handshake falhou — cert/key incorretos ou unbound não recarregou.';
+                                } else {
+                                    $cls = 'border-red-500/30 bg-red-500/5';
+                                    $badge = 'bg-red-500/15 text-red-600 dark:text-red-400';
+                                    $label = 'Inativo';
+                                    $detail = 'Nada escutando em ' . $port . '. Reinicie o Unbound após salvar a config.';
+                                }
+                                return [
+                                    'title' => $title,
+                                    'badge_cls' => $badge,
+                                    'panel_cls' => $cls,
+                                    'label' => $label,
+                                    'detail' => $detail,
+                                ];
+                            };
+                            $dotCard = $serviceCard('DoT (porta ' . ($tlsServiceStatus['dot_port'] ?: '?') . ')', (int) $tlsServiceStatus['dot_port'], $tlsServiceStatus['dot_listening'], $tlsServiceStatus['dot_handshake_ok']);
+                            $dohCard = $serviceCard('DoH (porta ' . ($tlsServiceStatus['doh_port'] ?: '?') . ')', (int) $tlsServiceStatus['doh_port'], $tlsServiceStatus['doh_listening'], $tlsServiceStatus['doh_handshake_ok']);
+
+                            $certCardCls = 'border-slate-500/30 bg-slate-500/5';
+                            $certBadgeCls = 'bg-slate-500/15 text-slate-500';
+                            $certLabel = 'Não configurado';
+                            $certDetail = 'Preencha os caminhos abaixo ou clique em "Gerar Self-Signed".';
+                            if ($tlsServiceStatus['cert_present']) {
+                                $days = $tlsServiceStatus['cert_days_remaining'];
+                                if ($days !== null && $days < 0) {
+                                    $certCardCls = 'border-red-500/30 bg-red-500/5';
+                                    $certBadgeCls = 'bg-red-500/15 text-red-600 dark:text-red-400';
+                                    $certLabel = 'Expirado';
+                                    $certDetail = 'Expirou em ' . date('d/m/Y', $tlsServiceStatus['cert_expires_at']) . '. Gere um novo ou suba outro.';
+                                } elseif ($days !== null && $days < 30) {
+                                    $certCardCls = 'border-amber-500/30 bg-amber-500/5';
+                                    $certBadgeCls = 'bg-amber-500/15 text-amber-600 dark:text-amber-400';
+                                    $certLabel = 'Expira em breve';
+                                    $certDetail = 'Faltam ' . $days . ' dias. CN: ' . ($tlsServiceStatus['cert_subject'] ?: '?');
+                                } else {
+                                    $certCardCls = 'border-emerald-500/30 bg-emerald-500/5';
+                                    $certBadgeCls = 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400';
+                                    $certLabel = 'Válido';
+                                    $certDetail = 'CN: ' . ($tlsServiceStatus['cert_subject'] ?: '?') . ($days !== null ? ' • ' . $days . ' dias restantes' : '');
+                                }
+                            }
+                            ?>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <?php foreach ([$dotCard, $dohCard] as $card): ?>
+                                    <div class="glass-panel border-l-4 <?= $card['panel_cls'] ?>">
+                                        <div class="flex items-start justify-between gap-2 mb-2">
+                                            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest"><?= htmlspecialchars($card['title']) ?></p>
+                                            <span class="px-2 py-0.5 rounded-md border text-[9px] font-black uppercase tracking-widest <?= $card['badge_cls'] ?>"><?= htmlspecialchars($card['label']) ?></span>
+                                        </div>
+                                        <p class="text-[11px] text-slate-600 dark:text-slate-400"><?= htmlspecialchars($card['detail']) ?></p>
+                                    </div>
+                                <?php endforeach; ?>
+
+                                <div class="glass-panel border-l-4 <?= $certCardCls ?>">
+                                    <div class="flex items-start justify-between gap-2 mb-2">
+                                        <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Certificado SSL</p>
+                                        <span class="px-2 py-0.5 rounded-md border text-[9px] font-black uppercase tracking-widest <?= $certBadgeCls ?>"><?= htmlspecialchars($certLabel) ?></span>
+                                    </div>
+                                    <p class="text-[11px] text-slate-600 dark:text-slate-400"><?= htmlspecialchars($certDetail) ?></p>
+                                    <?php if (!empty($tlsServiceStatus['cert_sans'])): ?>
+                                        <p class="text-[10px] text-slate-500 mt-2 font-mono break-all"><?= htmlspecialchars(implode(', ', array_slice($tlsServiceStatus['cert_sans'], 0, 4))) ?><?= count($tlsServiceStatus['cert_sans']) > 4 ? ' …' : '' ?></p>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+
+                            <?php if (!empty($tlsServiceStatus['warnings'])): ?>
+                                <div class="glass-panel border-l-4 border-amber-500/40 bg-amber-500/5">
+                                    <p class="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest mb-2">Avisos</p>
+                                    <ul class="text-[11px] text-amber-700 dark:text-amber-300 space-y-1 list-disc list-inside">
+                                        <?php foreach ($tlsServiceStatus['warnings'] as $w): ?>
+                                            <li><?= htmlspecialchars($w) ?></li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
+
                             <div class="glass-panel">
                                 <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-8 border-b border-slate-900/10 dark:border-white/5 pb-4">DNS over TLS (DoT) & HTTPS (DoH)</h3>
 

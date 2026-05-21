@@ -100,7 +100,11 @@ class TlsCertManager
         $dnsList = array_unique($dnsList);
 
         foreach ($dnsList as $s) {
-            // IP literal?
+            // SANs aceitam IPs literais, não CIDR — strip /N se vier (caso de uso
+            // comum: usuário copia /etc/network/interfaces ou listas com máscara).
+            if (str_contains($s, '/')) {
+                $s = explode('/', $s, 2)[0];
+            }
             if (filter_var($s, FILTER_VALIDATE_IP)) {
                 $sanLines[] = 'IP.' . $i++ . ' = ' . $s;
             } elseif (preg_match('/^[a-zA-Z0-9._-]+$/', $s) && strlen($s) <= 253) {
@@ -251,6 +255,127 @@ class TlsCertManager
         @unlink($this->tmpCrt);
         @unlink($this->tmpKey);
         return ['success' => true, 'message' => $okMessage, 'crt_path' => self::MANAGED_CRT, 'key_path' => self::MANAGED_KEY];
+    }
+
+    /**
+     * Snapshot do estado real do servidor DoT/DoH:
+     *  - portas DoT/DoH estão em LISTEN?
+     *  - handshake TLS de fato funciona em 127.0.0.1?
+     *  - certificado configurado é válido? quando expira?
+     *
+     * Recebe as portas e caminhos atuais (lidos do unbound.conf via PHP),
+     * pra não duplicar parsing. Se port é 0 ou string vazia, considera
+     * desabilitado.
+     */
+    public function getServiceStatus(int $dotPort = 853, int $dohPort = 443, string $certPath = '', string $keyPath = ''): array
+    {
+        $out = [
+            'dot_port'             => $dotPort,
+            'doh_port'             => $dohPort,
+            'dot_listening'        => false,
+            'doh_listening'        => false,
+            'dot_handshake_ok'     => false,
+            'doh_handshake_ok'     => false,
+            'cert_path'            => $certPath,
+            'key_path'             => $keyPath,
+            'cert_present'         => false,
+            'cert_subject'         => null,
+            'cert_expires_at'      => null,
+            'cert_days_remaining'  => null,
+            'cert_sans'            => [],
+            'warnings'             => [],
+        ];
+
+        $listening = $this->_listeningTcpPorts();
+        if ($dotPort > 0) $out['dot_listening'] = in_array($dotPort, $listening, true);
+        if ($dohPort > 0) $out['doh_listening'] = in_array($dohPort, $listening, true);
+
+        // Certificado configurado (path do form, não necessariamente o managed)
+        if ($certPath !== '' && is_readable($certPath)) {
+            $info = $this->_readCertInfo($certPath);
+            $out['cert_present']    = true;
+            $out['cert_subject']    = $info['subject'] ?? null;
+            $out['cert_expires_at'] = $info['expires_at'] ?? null;
+            $out['cert_sans']       = $info['sans'] ?? [];
+            if ($out['cert_expires_at']) {
+                $out['cert_days_remaining'] = (int) floor(($out['cert_expires_at'] - time()) / 86400);
+                if ($out['cert_days_remaining'] < 0) {
+                    $out['warnings'][] = 'Certificado expirado em ' . date('d/m/Y', $out['cert_expires_at']);
+                } elseif ($out['cert_days_remaining'] < 30) {
+                    $out['warnings'][] = 'Certificado expira em ' . $out['cert_days_remaining'] . ' dias';
+                }
+            }
+        } elseif ($certPath !== '') {
+            $out['warnings'][] = 'Caminho do certificado configurado mas arquivo não encontrado: ' . $certPath;
+        }
+
+        if ($keyPath !== '' && !is_readable($keyPath)) {
+            $out['warnings'][] = 'Caminho da chave configurado mas arquivo não encontrado: ' . $keyPath;
+        }
+
+        // Handshake TLS — só roda se port estiver em listen pra evitar 3s de
+        // timeout × 2 quando nada está rodando.
+        if ($out['dot_listening']) {
+            $out['dot_handshake_ok'] = $this->_testTlsHandshake('127.0.0.1', $dotPort, 'dot');
+            if (!$out['dot_handshake_ok']) {
+                $out['warnings'][] = 'Porta DoT (' . $dotPort . ') está aberta mas handshake TLS falhou — cert/key incorretos ou unbound não recarregou.';
+            }
+        }
+        if ($out['doh_listening']) {
+            $out['doh_handshake_ok'] = $this->_testTlsHandshake('127.0.0.1', $dohPort, 'doh');
+            if (!$out['doh_handshake_ok']) {
+                $out['warnings'][] = 'Porta DoH (' . $dohPort . ') está aberta mas handshake TLS falhou — cert/key incorretos ou unbound não recarregou.';
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Retorna a lista de portas TCP em LISTEN (qualquer interface).
+     * Usa `ss -ltn` (não-sudo, lê dump de sockets do kernel).
+     */
+    private function _listeningTcpPorts(): array
+    {
+        $out = []; $ret = 0;
+        ShellHelper::exec('/usr/bin/ss', ['-ltn'], $out, $ret, false);
+        if ($ret !== 0) return [];
+        $ports = [];
+        foreach ($out as $line) {
+            // Formato típico: "LISTEN 0      4096   127.0.0.1:53   0.0.0.0:*"
+            // ou IPv6:        "LISTEN 0      4096   [::]:853       [::]:*"
+            if (preg_match('/[:.](\d+)\s+[\d\.\*\[\]:]+\s*$/', $line, $m)
+                || preg_match('/[:.](\d+)\s/', $line, $m)) {
+                $ports[] = (int) $m[1];
+            }
+        }
+        return array_values(array_unique($ports));
+    }
+
+    /**
+     * Conecta em $host:$port via TLS (ignora cert verification — só queremos
+     * saber se o handshake completa). Timeout 3s.
+     */
+    private function _testTlsHandshake(string $host, int $port, string $proto = 'dot'): bool
+    {
+        $context = stream_context_create([
+            'ssl' => [
+                'verify_peer'       => false,
+                'verify_peer_name'  => false,
+                'allow_self_signed' => true,
+            ],
+        ]);
+        $errno = 0; $errstr = '';
+        $sock = @stream_socket_client(
+            "tls://{$host}:{$port}",
+            $errno, $errstr,
+            3.0,
+            STREAM_CLIENT_CONNECT,
+            $context
+        );
+        if (!$sock) return false;
+        @fclose($sock);
+        return true;
     }
 
     private function _readCertInfo(string $path): array
