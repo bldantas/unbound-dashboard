@@ -1,5 +1,42 @@
 # Changelog
 
+## v2.30.8 — 2026-05-21
+
+### chore(ui): customConfirm/customAlert reutilizável + adeus dialogs nativos do config.php
+
+`/hosts.php` já usava modais customizados (v2.22.3), mas `/config.php`
+voltou a usar `window.confirm()` e `window.alert()` nativos do
+browser conforme features foram adicionadas (especialmente TLS).
+
+**Refatoração**:
+
+- Novo partial `includes/custom_modals.php` extraído do JS inline
+  do `hosts.php`. Define `window.customConfirm` e `window.customAlert`
+  como Promise-based. Guarded contra inclusão dupla.
+- `/hosts.php` agora faz `include 'includes/custom_modals.php'`
+  em vez de inline (cleanup de ~100 linhas duplicadas).
+- `/config.php` ganha o include + 6 substituições:
+  - "Reverter última mudança" (netplan rollback) — `data-confirm`
+  - "Remover LO.1" — `data-confirm`
+  - "Gerar Self-Signed" / "Upload PEM" (guard LE) — `data-tls-action`
+  - "Aplicar update do sistema" — `customConfirm` JS
+  - "Revogar API token" — `customConfirm` JS
+  - 3 alerts JS (`Erro ao gerar token`, `Erro ao revogar`, `Erro ao
+    iniciar restore`) — `customAlert`.
+
+**Padrão `data-confirm`** novo: qualquer `<button data-confirm="...">`
+ganha confirm automático via JS handler em `config.php` (sem precisar
+PHP gerar inline). Atributos: `data-confirm-title`, `data-confirm-variant`
+(`info|warning|danger`), `data-confirm-ok-label`, `data-pre-click` (eval
+opcional pra side effects tipo `setIfaceName(...)`).
+
+Zero `alert()` / `confirm()` nativos remanescentes em config.php ou
+hosts.php.
+
+VERSION 2.30.7 → 2.30.8.
+
+---
+
 ## v2.30.7 — 2026-05-21
 
 ### fix(tls): proteção contra sobrescrever cert Let's Encrypt

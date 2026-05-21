@@ -889,16 +889,12 @@ function field($key, $label, $desc = '', $def = '')
                                     </div>
                                 <?php endif; ?>
 
-                                <?php
-                                $tlsActionGuard = !empty($tlsCertStatus['is_letsencrypt'])
-                                    ? "if (!confirm('O cert ativo é Let\\'s Encrypt válido publicamente. Sobrescrever vai quebrar DoT/DoH pros clientes. Continuar?')) return;"
-                                    : '';
-                                ?>
+                                <?php $tlsIsLE = !empty($tlsCertStatus['is_letsencrypt']); ?>
                                 <div class="flex flex-wrap gap-2">
-                                    <button type="button" onclick="<?= $tlsActionGuard ?> document.getElementById('tls-generate-modal').classList.remove('hidden')" class="glass-btn text-[10px] uppercase font-black !bg-cyan-600 !text-white flex items-center gap-2">
+                                    <button type="button" data-tls-action="generate" data-is-le="<?= $tlsIsLE ? '1' : '0' ?>" class="glass-btn text-[10px] uppercase font-black !bg-cyan-600 !text-white flex items-center gap-2">
                                         🔐 Gerar Self-Signed
                                     </button>
-                                    <button type="button" onclick="<?= $tlsActionGuard ?> document.getElementById('tls-upload-modal').classList.remove('hidden')" class="glass-btn text-[10px] uppercase font-black flex items-center gap-2">
+                                    <button type="button" data-tls-action="upload" data-is-le="<?= $tlsIsLE ? '1' : '0' ?>" class="glass-btn text-[10px] uppercase font-black flex items-center gap-2">
                                         ⬆ Upload PEM
                                     </button>
                                     <?php if ($tlsCertStatus['managed_by_dashboard']): ?>
@@ -1136,7 +1132,10 @@ function field($key, $label, $desc = '', $def = '')
                                     </div>
                                     <?php if ($networkBackend === 'netplan' && $lastNetplanBackup): ?>
                                         <button type="submit" name="action" value="rollback_network"
-                                                onclick="return confirm('Restaurar a versão anterior do YAML netplan e re-aplicar? Isto reverte a última mudança de rede salva.');"
+                                                data-confirm="Restaurar a versão anterior do YAML netplan e re-aplicar? Isto reverte a última mudança de rede salva."
+                                                data-confirm-title="Reverter mudança de rede"
+                                                data-confirm-variant="warning"
+                                                data-confirm-ok-label="Reverter"
                                                 class="glass-btn text-[10px] font-black uppercase border border-amber-500/40 text-amber-700 dark:text-amber-300">
                                             ↩ Reverter última mudança
                                         </button>
@@ -1184,7 +1183,11 @@ function field($key, $label, $desc = '', $def = '')
                                         <div class="flex justify-end gap-2 mt-6 pt-6 border-t border-slate-900/10 dark:border-white/5">
                                             <?php if ($iface['ifname'] === 'lo' && trim($ifConf['address'] ?? '') !== ''): ?>
                                                 <button type="submit" name="action" value="delete_interface"
-                                                        onclick="setIfaceName('<?= htmlspecialchars($iface['ifname']) ?>'); return confirm('Remover o IP estático de lo.1 do /etc/network/interfaces?');"
+                                                        data-confirm="Remover o IP estático de lo.1 do /etc/network/interfaces?"
+                                                        data-confirm-title="Remover LO.1"
+                                                        data-confirm-variant="danger"
+                                                        data-confirm-ok-label="Remover"
+                                                        data-pre-click="setIfaceName('<?= htmlspecialchars($iface['ifname']) ?>')"
                                                         class="glass-btn text-[10px] font-black uppercase !bg-red-500/15 !text-red-600 dark:!text-red-400">
                                                     Remover LO.1
                                                 </button>
@@ -3088,7 +3091,7 @@ function field($key, $label, $desc = '', $def = '')
                         window.__updateRunning = true;
                         streamLog(data.job_id);
                     } catch (err) {
-                        alert('Erro ao iniciar restore: ' + err.message);
+                        await window.customAlert('Erro ao iniciar restore', err.message, 'error');
                         el.restoreGo.disabled = false;
                         el.restoreCancel.disabled = false;
                     }
@@ -3175,7 +3178,12 @@ function field($key, $label, $desc = '', $def = '')
 
             el.applyBtn.addEventListener('click', async () => {
                 if (!lastCheck || !lastCheck.has_update) return;
-                if (!confirm(`Aplicar update v${lastCheck.current} → v${lastCheck.latest}?\n\nO sistema será reiniciado e há rollback automático se o health check falhar.`)) return;
+                const ok = await window.customConfirm(
+                    'Aplicar update do sistema',
+                    `Aplicar update v${lastCheck.current} → v${lastCheck.latest}?\n\nO sistema será reiniciado e há rollback automático se o health check falhar.`,
+                    { variant: 'warning', okLabel: `Atualizar pra v${lastCheck.latest}` }
+                );
+                if (!ok) return;
 
                 el.applyBtn.disabled = true;
                 el.refreshBtn.disabled = true;
@@ -3549,13 +3557,18 @@ function field($key, $label, $desc = '', $def = '')
             }
 
             async function revokeToken(id, label) {
-                if (!confirm(`Revogar token "${label}"? Master que usa este token vai perder acesso imediatamente.`)) return;
+                const ok = await window.customConfirm(
+                    'Revogar API token',
+                    `Revogar token "${label}"? Master que usa este token vai perder acesso imediatamente.`,
+                    { variant: 'danger', okLabel: 'Revogar' }
+                );
+                if (!ok) return;
                 try {
                     const resp = await fetch('/api/v1/api-tokens/' + id, { method: 'DELETE', headers: HEADERS });
                     if (!resp.ok && resp.status !== 204) throw new Error(`HTTP ${resp.status}`);
                     load();
                 } catch (err) {
-                    alert('Erro ao revogar: ' + err.message);
+                    await window.customAlert('Erro ao revogar', err.message, 'error');
                 }
             }
 
@@ -3601,7 +3614,7 @@ function field($key, $label, $desc = '', $def = '')
                     revealModal.classList.remove('hidden');
                     document.body.style.overflow = 'hidden';
                 } catch (err) {
-                    alert('Erro ao gerar token: ' + err.message);
+                    await window.customAlert('Erro ao gerar token', err.message, 'error');
                 } finally {
                     createBtn.disabled = false;
                     cancelBtn.disabled = false;
@@ -3656,7 +3669,59 @@ function field($key, $label, $desc = '', $def = '')
             if (visEl) visEl.textContent = visible;
             if (empty) empty.classList.toggle('hidden', visible !== 0);
         }
+
+        // Botões "Gerar Self-Signed" / "Upload PEM" — confirm via customConfirm
+        // quando cert atual é Let's Encrypt (evita sobrescrever cert público).
+        document.querySelectorAll('[data-tls-action]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const action = btn.getAttribute('data-tls-action');
+                const isLE = btn.getAttribute('data-is-le') === '1';
+                const modalId = action === 'generate' ? 'tls-generate-modal' : 'tls-upload-modal';
+                if (isLE && window.customConfirm) {
+                    const ok = await window.customConfirm(
+                        'Cert Let\'s Encrypt ativo',
+                        'O certificado atual é Let\'s Encrypt válido publicamente. Sobrescrever vai quebrar DoT/DoH pros clientes que validam o cert. Continuar?',
+                        { variant: 'danger', okLabel: 'Sobrescrever' }
+                    );
+                    if (!ok) return;
+                }
+                document.getElementById(modalId).classList.remove('hidden');
+            });
+        });
+
+        // Handler genérico pra botões com data-confirm. Intercepta o submit/click,
+        // abre customConfirm, e se OK re-dispara o click com a flag _confirmed
+        // (que evita loop infinito).
+        document.querySelectorAll('[data-confirm]').forEach(btn => {
+            btn.addEventListener('click', async function (e) {
+                if (this.dataset._confirmed === '1') {
+                    // Segundo click — passa direto (já confirmado)
+                    return;
+                }
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                // Pré-side-effect (ex: setIfaceName antes do submit)
+                const pre = this.getAttribute('data-pre-click');
+                if (pre) {
+                    try { eval(pre); } catch (err) { console.error(err); }
+                }
+                const ok = await window.customConfirm(
+                    this.getAttribute('data-confirm-title') || 'Confirmar',
+                    this.getAttribute('data-confirm') || '',
+                    {
+                        variant: this.getAttribute('data-confirm-variant') || 'warning',
+                        okLabel: this.getAttribute('data-confirm-ok-label') || 'Confirmar',
+                    }
+                );
+                if (ok) {
+                    this.dataset._confirmed = '1';
+                    this.click();
+                }
+            }, true);  // capture phase pra interceptar antes dos outros handlers
+        });
     </script>
+
+    <?php include 'includes/custom_modals.php'; ?>
 </body>
 
 </html>
