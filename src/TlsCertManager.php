@@ -249,6 +249,10 @@ class TlsCertManager
         $fullchain = self::LE_LIVE_DIR . "/{$lineage}/fullchain.pem";
         $privkey   = self::LE_LIVE_DIR . "/{$lineage}/privkey.pem";
 
+        // Garante regras AppArmor (necessário em Debian/Ubuntu pra Unbound
+        // conseguir ler /etc/unbound/certs/*). Idempotente.
+        $this->_ensureApparmorRules();
+
         // Garante /etc/unbound/certs (sudoers permite)
         $mkOut = []; $mkRet = 0;
         ShellHelper::exec('/usr/bin/mkdir', ['-p', self::MANAGED_DIR], $mkOut, $mkRet, true);
@@ -335,8 +339,29 @@ class TlsCertManager
 
     // ------------------------------------------------------------------
 
+    /**
+     * Garante que o AppArmor permite o Unbound ler /etc/unbound/certs/*.
+     * Chamado antes de qualquer install de cert. Idempotente (helper
+     * shell checa se as regras já estão lá). Falha silenciosa — se
+     * AppArmor não está aqui, o helper exit 0 e seguimos.
+     */
+    private function _ensureApparmorRules(): void
+    {
+        $scriptPath = realpath(__DIR__ . '/../tools/setup-apparmor-certs.sh');
+        if (!$scriptPath) return;
+        $out = []; $ret = 0;
+        ShellHelper::exec('/usr/bin/bash', [$scriptPath], $out, $ret, true);
+        // Não retornamos erro — o usuário pode estar num sistema sem AppArmor
+        // (CentOS, Alpine) ou sem permissão de sudo. O install do cert pode
+        // falhar depois com mensagem mais clara se for o caso.
+    }
+
     private function _installFromTmp(string $okMessage): array
     {
+        // Aplica regras AppArmor ANTES de instalar (cobre primeira execução
+        // em servidor novo onde o profile distro bloqueia /etc/unbound/certs)
+        $this->_ensureApparmorRules();
+
         // Garante dir
         $mkOut = []; $mkRet = 0;
         ShellHelper::exec('/usr/bin/mkdir', ['-p', self::MANAGED_DIR], $mkOut, $mkRet, true);

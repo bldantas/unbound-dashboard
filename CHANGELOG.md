@@ -1,5 +1,46 @@
 # Changelog
 
+## v2.31.1 — 2026-05-21
+
+### fix(tls): aplicar regras AppArmor automaticamente em gerar/upload/importar
+
+Servidor de teste do user instalou v2.31.0, importou cert Let's Encrypt
+pelo botão novo, mas Unbound entrou em loop:
+
+```
+error: error for private key file: /etc/unbound/certs/dashboard.key
+error: Error in SSL_CTX use_PrivateKey_file ... Permission denied
+fatal error: could not set up listen SSL_CTX
+```
+
+Mesmo problema do AppArmor que vimos no v2.30.3: o profile distro do
+Unbound só permite `/etc/unbound/*.key*` (sem subdir). O snippet em
+`system/apparmor/usr.sbin.unbound.local.snippet` continuava sendo
+aplicação **manual** — fácil de esquecer.
+
+**Fix**: novo helper `tools/setup-apparmor-certs.sh` idempotente que:
+
+- Se `/etc/apparmor.d/usr.sbin.unbound` não existe (CentOS, Alpine,
+  sistemas sem AppArmor) → exit 0, no-op.
+- Se as regras já estão em `local/usr.sbin.unbound` (marker comment) →
+  skip, no-op.
+- Senão: anexa as 5 linhas necessárias e roda `apparmor_parser -r`.
+
+Invocado **automaticamente** pelo `TlsCertManager` nos 3 flows que
+instalam cert:
+- `generateSelfSigned` → `_installFromTmp` chama `_ensureApparmorRules`
+- `uploadCert` → idem
+- `importFromLetsEncrypt` → chama direto antes do install
+
+Sudoers ganha 1 entry: `bash /var/www/.../tools/setup-apparmor-certs.sh`.
+
+Smoke: rodei o helper 2x — segunda vez disse "regras já presentes",
+não duplicou.
+
+VERSION 2.31.0 → 2.31.1.
+
+---
+
 ## v2.31.0 — 2026-05-21
 
 ### feat(tls): botão "Importar Let's Encrypt" — detecta + copia + auto-renova
