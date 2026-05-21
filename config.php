@@ -117,6 +117,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $resDns = $networkManager->setSystemDNS($dns);
         $message = ($resHn['success'] && $resDns['success']) ? "Rede do host salva." : "Erro na rede.";
         $messageType = ($resHn['success'] && $resDns['success']) ? 'success' : 'error';
+    } elseif ($action === 'delete_interface') {
+        $requestedIface = trim((string)($_POST['iface_name'] ?? ''));
+        // Pra card da loopback, o "remover" age no alias lo.1 (mesma
+        // semântica do save_interface).
+        $targetIface = strtolower($requestedIface) === 'lo' ? 'lo.1' : $requestedIface;
+        $res = $networkManager->removeInterfaceConfig($targetIface);
+        $message = $res['message'];
+        $messageType = $res['success'] ? 'success' : 'error';
     } elseif ($action === 'save_interface') {
         $requestedIface = trim((string)($_POST['iface_name'] ?? ''));
         $ifaceFormKey = $requestedIface;
@@ -894,7 +902,11 @@ function field($key, $label, $desc = '', $def = '')
                                 </div>
                             </div>
                             <div class="space-y-6"><?php foreach ($ifacesDetails as $iface): if (strpos($iface['ifname'], 'veth') !== false || strpos($iface['ifname'], 'docker') !== false) continue;
-                                                        $ifConf = $networkManager->getInterfaceConfig($iface['ifname']); ?>
+                                                        // Card do `lo` reflete a config do alias `lo.1` (que é o que o
+                                                        // dashboard de fato escreve no /etc/network/interfaces). Sem esse
+                                                        // remap, os inputs aparecem vazios depois de salvar.
+                                                        $confLookup = $iface['ifname'] === 'lo' ? 'lo.1' : $iface['ifname'];
+                                                        $ifConf = $networkManager->getInterfaceConfig($confLookup); ?>
                                     <div class="glass-panel border-l-4 <?= $iface['ifname'] === 'lo' ? 'border-yellow-500' : 'border-blue-500' ?> border-slate-900/10 dark:border-white/5">
                                         <h4 class="text-lg font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6"><?= htmlspecialchars($iface['ifname']) ?></h4>
                                         <?php if ($iface['ifname'] === 'lo'): ?>
@@ -919,7 +931,16 @@ function field($key, $label, $desc = '', $def = '')
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="flex justify-end mt-6 pt-6 border-t border-slate-900/10 dark:border-white/5"><button type="submit" name="action" value="save_interface" onclick="setIfaceName('<?= htmlspecialchars($iface['ifname']) ?>')" class="glass-btn text-[10px] font-black uppercase"><?= $iface['ifname'] === 'lo' ? 'Salvar como LO.1' : 'Salvar Interface' ?></button></div>
+                                        <div class="flex justify-end gap-2 mt-6 pt-6 border-t border-slate-900/10 dark:border-white/5">
+                                            <?php if ($iface['ifname'] === 'lo' && trim($ifConf['address'] ?? '') !== ''): ?>
+                                                <button type="submit" name="action" value="delete_interface"
+                                                        onclick="setIfaceName('<?= htmlspecialchars($iface['ifname']) ?>'); return confirm('Remover o IP estático de lo.1 do /etc/network/interfaces?');"
+                                                        class="glass-btn text-[10px] font-black uppercase !bg-red-500/15 !text-red-600 dark:!text-red-400">
+                                                    Remover LO.1
+                                                </button>
+                                            <?php endif; ?>
+                                            <button type="submit" name="action" value="save_interface" onclick="setIfaceName('<?= htmlspecialchars($iface['ifname']) ?>')" class="glass-btn text-[10px] font-black uppercase"><?= $iface['ifname'] === 'lo' ? 'Salvar como LO.1' : 'Salvar Interface' ?></button>
+                                        </div>
                                     </div>
 
                                 <?php endforeach; ?>

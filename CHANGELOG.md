@@ -1,5 +1,42 @@
 # Changelog
 
+## v2.27.3 — 2026-05-21
+
+### fix(config-rede): IP da LO.1 não aparecia + faltava botão "Remover"
+
+Continuação do fix do v2.27.2. Depois de salvar IP no card da LO, o IP
+não voltava a aparecer no card (impedindo edição/exclusão).
+
+**Causa**: a UI itera `ip addr show` (mostra `lo`, não `lo.1`), e chamava
+`getInterfaceConfig('lo')` que busca `iface lo inet...` no
+`/etc/network/interfaces`. Mas o arquivo agora tem `iface lo.1 inet
+static`. Retorno: defaults vazios → card mostra inputs vazios.
+
+**Fix em config.php** (1 linha):
+
+```php
+$confLookup = $iface['ifname'] === 'lo' ? 'lo.1' : $iface['ifname'];
+$ifConf = $networkManager->getInterfaceConfig($confLookup);
+```
+
+Espelha o mapeamento já usado no save (`save_interface`).
+
+**Bonus — remover IP da LO.1**:
+
+- `NetworkManager::removeInterfaceConfig($iface)` novo: remove blocos
+  `auto`, `allow-hotplug` e `iface ... inet[6]` do iface alvo do
+  `/etc/network/interfaces`. Lock `interfaces`. Bloqueia `lo` raiz
+  (sem ela o sistema quebra), aceita aliases `lo.1`/`lo:1`. Netplan
+  retorna mensagem "ainda não suportado".
+- Best-effort `ifdown` após a remoção.
+- Handler `delete_interface` em `config.php` (mapeia `lo → lo.1`).
+- Botão "Remover LO.1" no card da loopback, só aparece se há IP
+  configurado. Confirm antes de submeter.
+
+VERSION 2.27.2 → 2.27.3.
+
+---
+
 ## v2.27.2 — 2026-05-21
 
 ### fix(config-rede): salvar IP na LO sempre gerava `iface lo.1 inet dhcp`

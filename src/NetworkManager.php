@@ -973,6 +973,96 @@ class NetworkManager {
     }
 
     /**
+     * Remove totalmente a config de uma interface do /etc/network/interfaces.
+     * Útil pra apagar aliases tipo lo.1 sem precisar editar o arquivo na mão.
+     *
+     * Bloqueia a loopback raiz (`lo`) — sem o bloco dela o sistema quebra
+     * pra tudo que depende de 127.0.0.1. Aliases (lo.1, lo:1) são OK.
+     */
+    public function removeInterfaceConfig(string $iface): array {
+        $iface = trim($iface);
+        if (!preg_match('/^[a-zA-Z0-9_.:-]+$/', $iface)) {
+            return ['success' => false, 'message' => 'Nome de interface inválido.'];
+        }
+        if ($this->isLoopbackInterface($iface)) {
+            return ['success' => false, 'message' => 'A loopback raiz (lo) não pode ser removida.'];
+        }
+        if ($this->detectBackend() === 'netplan') {
+            return ['success' => false, 'message' => 'Remoção via netplan ainda não suportada — edite o YAML em /etc/netplan/ manualmente.'];
+        }
+        if (!file_exists('/etc/network/interfaces')) {
+            return ['success' => false, 'message' => 'Arquivo /etc/network/interfaces não encontrado.'];
+        }
+
+        return $this->_withCategoryLock('interfaces', function() use ($iface) {
+            return $this->_doRemoveInterfaceConfig($iface);
+        });
+    }
+
+    private function _doRemoveInterfaceConfig(string $iface): array {
+        $ifacePattern = preg_quote($iface, '/');
+        $lines = file('/etc/network/interfaces');
+        $newLines = [];
+        $skip = false;
+        $removed = false;
+
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+
+            // Pula linhas `auto <iface>` e `allow-hotplug <iface>` do alvo
+            if (preg_match("/^auto\s+$ifacePattern$/", $trimmed) ||
+                preg_match("/^allow-hotplug\s+$ifacePattern$/", $trimmed)) {
+                $removed = true;
+                continue;
+            }
+
+            // Início de bloco `iface <iface> inet[6]` do alvo
+            if (preg_match("/^iface\s+$ifacePattern\s+inet/", $trimmed)) {
+                $skip = true;
+                $removed = true;
+                continue;
+            }
+
+            // Próximo bloco encontra → para de pular
+            if ($skip && (
+                preg_match("/^iface\s+/", $trimmed) ||
+                preg_match("/^auto\s+/", $trimmed) ||
+                preg_match("/^allow-hotplug\s+/", $trimmed)
+            )) {
+                $skip = false;
+            }
+
+            if (!$skip) $newLines[] = $line;
+        }
+
+        if (!$removed) {
+            return ['success' => false, 'message' => "Interface $iface não estava no /etc/network/interfaces."];
+        }
+
+        // Limpa linhas em branco no fim
+        while (count($newLines) > 0 && trim(end($newLines)) === '') {
+            array_pop($newLines);
+        }
+        $newLines[] = "\n";
+
+        $newContent = implode("", $newLines);
+        $tmpFile = dirname(__FILE__) . '/data/tmp/interfaces_new';
+        file_put_contents($tmpFile, $newContent);
+        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, '/etc/network/interfaces'], $output, $returnVar, true);
+
+        if ($returnVar !== 0) {
+            return ['success' => false, 'message' => 'Erro ao salvar: ' . implode(" ", $output)];
+        }
+
+        // Best-effort: derruba a interface se estiver up. Falha silenciosa
+        // (talvez nunca tenha sido instanciada).
+        $dnOut = []; $dnRet = 0;
+        \App\ShellHelper::exec('/usr/sbin/ifdown', [$iface], $dnOut, $dnRet, true);
+
+        return ['success' => true, 'message' => "Interface $iface removida do /etc/network/interfaces."];
+    }
+
+    /**
      * Aplica as mudanças de rede reiniciando a interface.
      * Em netplan, o apply já aconteceu no updateInterfaceConfig() — esse
      * método é no-op nesse caso. Em ifupdown, dispara ifdown/ifup.
