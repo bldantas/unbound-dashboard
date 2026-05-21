@@ -1,5 +1,35 @@
 # Changelog
 
+## v2.30.7 — 2026-05-21
+
+### fix(tls): proteção contra sobrescrever cert Let's Encrypt
+
+Cenário: user instalou cert Let's Encrypt manualmente em
+`/etc/unbound/certs/dashboard.{crt,key}` (v2.30.6), tudo funcionando.
+Depois clicou em "Gerar Self-Signed" na UI achando que era teste —
+o handler sobrescreveu o cert LE com um self-signed, e DoH/DoT
+pararam de funcionar pros clientes (browsers recusam self-signed).
+
+**Detecção** (`TlsCertManager`):
+
+- `_readCertInfo` agora extrai também o `issuer` do cert.
+- Novo campo `is_letsencrypt` no `getStatus()` que retorna `true`
+  quando o issuer contém "Let's Encrypt" ou "letsencrypt".
+
+**UI** (`config.php` tab-tls):
+
+- Card "Certificado ativo" muda de verde pra azul quando é LE,
+  com badge "Let's Encrypt", e exibe o issuer.
+- Aviso destacado: "Este é um certificado Let's Encrypt válido
+  publicamente. Clicar em 'Gerar Self-Signed' ou 'Upload PEM' vai
+  sobrescrever ele — o DoH/DoT vai parar de funcionar."
+- Botões "Gerar Self-Signed" e "Upload PEM" ganham
+  `confirm()` antes de abrir o modal quando cert ativo é LE.
+
+VERSION 2.30.6 → 2.30.7.
+
+---
+
 ## v2.30.6 — 2026-05-21
 
 ### feat(tls): hook pra reusar Let's Encrypt do Apache no DoT/DoH

@@ -861,15 +861,27 @@ function field($key, $label, $desc = '', $def = '')
                                 <p class="text-xs text-slate-400 mb-4 leading-relaxed">Gere ou envie um par de cert+key armazenado em <code class="text-slate-300">/etc/unbound/certs/dashboard.{crt,key}</code>. Os campos de caminho acima podem apontar pra esses arquivos.</p>
 
                                 <?php if ($tlsCertStatus['managed_by_dashboard']): ?>
-                                    <div class="p-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 mb-4">
-                                        <p class="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-2">Certificado ativo</p>
+                                    <?php $isLE = !empty($tlsCertStatus['is_letsencrypt']); ?>
+                                    <div class="p-4 rounded-2xl border <?= $isLE ? 'border-blue-500/30 bg-blue-500/10' : 'border-emerald-500/30 bg-emerald-500/10' ?> mb-4">
+                                        <p class="text-[10px] font-black <?= $isLE ? 'text-blue-600 dark:text-blue-400' : 'text-emerald-600 dark:text-emerald-400' ?> uppercase tracking-widest mb-2">
+                                            Certificado ativo
+                                            <?php if ($isLE): ?>
+                                                <span class="ml-2 px-2 py-0.5 rounded-md bg-blue-500/20 border border-blue-500/40 text-[9px]">Let's Encrypt</span>
+                                            <?php endif; ?>
+                                        </p>
                                         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-[11px] font-mono">
                                             <div><span class="text-slate-500">CN:</span> <span class="text-slate-900 dark:text-white"><?= htmlspecialchars($tlsCertStatus['subject'] ?? '?') ?></span></div>
                                             <div><span class="text-slate-500">Expira:</span> <span class="text-slate-900 dark:text-white"><?= $tlsCertStatus['expires_at'] ? date('d/m/Y H:i', $tlsCertStatus['expires_at']) : '?' ?></span></div>
+                                            <div class="sm:col-span-2"><span class="text-slate-500">Emissor:</span> <span class="text-slate-900 dark:text-white break-all"><?= htmlspecialchars($tlsCertStatus['issuer'] ?? '?') ?></span></div>
                                             <?php if (!empty($tlsCertStatus['sans'])): ?>
                                                 <div class="sm:col-span-2"><span class="text-slate-500">SAN:</span> <span class="text-slate-900 dark:text-white break-all"><?= htmlspecialchars(implode(', ', $tlsCertStatus['sans'])) ?></span></div>
                                             <?php endif; ?>
                                         </dl>
+                                        <?php if ($isLE): ?>
+                                            <p class="text-[10px] text-blue-700 dark:text-blue-300 mt-3 leading-relaxed">
+                                                ⚠ Este é um certificado <b>Let's Encrypt válido publicamente</b>. Clicar em "Gerar Self-Signed" ou "Upload PEM" vai <b>sobrescrever</b> ele — o DoH/DoT vai parar de funcionar nos clientes que validam o cert. Só clica se realmente quiser trocar.
+                                            </p>
+                                        <?php endif; ?>
                                     </div>
                                 <?php else: ?>
                                     <div class="p-4 rounded-2xl border border-slate-500/20 bg-slate-500/5 mb-4 text-[11px] text-slate-500">
@@ -877,11 +889,16 @@ function field($key, $label, $desc = '', $def = '')
                                     </div>
                                 <?php endif; ?>
 
+                                <?php
+                                $tlsActionGuard = !empty($tlsCertStatus['is_letsencrypt'])
+                                    ? "if (!confirm('O cert ativo é Let\\'s Encrypt válido publicamente. Sobrescrever vai quebrar DoT/DoH pros clientes. Continuar?')) return;"
+                                    : '';
+                                ?>
                                 <div class="flex flex-wrap gap-2">
-                                    <button type="button" onclick="document.getElementById('tls-generate-modal').classList.remove('hidden')" class="glass-btn text-[10px] uppercase font-black !bg-cyan-600 !text-white flex items-center gap-2">
+                                    <button type="button" onclick="<?= $tlsActionGuard ?> document.getElementById('tls-generate-modal').classList.remove('hidden')" class="glass-btn text-[10px] uppercase font-black !bg-cyan-600 !text-white flex items-center gap-2">
                                         🔐 Gerar Self-Signed
                                     </button>
-                                    <button type="button" onclick="document.getElementById('tls-upload-modal').classList.remove('hidden')" class="glass-btn text-[10px] uppercase font-black flex items-center gap-2">
+                                    <button type="button" onclick="<?= $tlsActionGuard ?> document.getElementById('tls-upload-modal').classList.remove('hidden')" class="glass-btn text-[10px] uppercase font-black flex items-center gap-2">
                                         ⬆ Upload PEM
                                     </button>
                                     <?php if ($tlsCertStatus['managed_by_dashboard']): ?>

@@ -53,12 +53,16 @@ class TlsCertManager
 
         $expiresAt = null;
         $subject = null;
+        $issuer = null;
+        $isLetsEncrypt = false;
         $sans = [];
 
         if ($crtExists) {
             $info = $this->_readCertInfo(self::MANAGED_CRT);
             $expiresAt = $info['expires_at'] ?? null;
             $subject = $info['subject'] ?? null;
+            $issuer = $info['issuer'] ?? null;
+            $isLetsEncrypt = $info['is_letsencrypt'] ?? false;
             $sans = $info['sans'] ?? [];
         }
 
@@ -67,6 +71,8 @@ class TlsCertManager
             'managed_by_dashboard' => $managed,
             'expires_at'           => $expiresAt,
             'subject'              => $subject,
+            'issuer'               => $issuer,
+            'is_letsencrypt'       => $isLetsEncrypt,
             'sans'                 => $sans,
             'crt_path'             => self::MANAGED_CRT,
             'key_path'             => self::MANAGED_KEY,
@@ -410,12 +416,12 @@ class TlsCertManager
         $out = []; $ret = 0;
         ShellHelper::exec(
             '/usr/bin/openssl',
-            ['x509', '-in', $path, '-noout', '-enddate', '-subject', '-ext', 'subjectAltName'],
+            ['x509', '-in', $path, '-noout', '-enddate', '-subject', '-issuer', '-ext', 'subjectAltName'],
             $out, $ret, false
         );
         if ($ret !== 0) return [];
 
-        $info = ['expires_at' => null, 'subject' => null, 'sans' => []];
+        $info = ['expires_at' => null, 'subject' => null, 'issuer' => null, 'sans' => [], 'is_letsencrypt' => false];
         foreach ($out as $line) {
             if (str_starts_with($line, 'notAfter=')) {
                 $info['expires_at'] = strtotime(substr($line, 9)) ?: null;
@@ -424,6 +430,13 @@ class TlsCertManager
                     $info['subject'] = trim($m[1]);
                 } else {
                     $info['subject'] = trim(substr($line, 8));
+                }
+            } elseif (str_starts_with($line, 'issuer=')) {
+                $info['issuer'] = trim(substr($line, 7));
+                // Detecta Let's Encrypt (CN=R3, R10, R11, R12, R13… ou contém "Let's Encrypt")
+                if (stripos($info['issuer'], "let's encrypt") !== false
+                    || stripos($info['issuer'], 'letsencrypt') !== false) {
+                    $info['is_letsencrypt'] = true;
                 }
             } elseif (preg_match('/^\s*(DNS|IP Address):/', $line)) {
                 foreach (preg_split('/,\s*/', trim($line)) as $token) {
