@@ -1,5 +1,42 @@
 # Changelog
 
+## v2.31.2 — 2026-05-22
+
+### fix(logs): Unbound não escrevia em arquivo + dashboard apontava pro path errado
+
+User notou que não havia entrada de `/var/log/unbound.log` em nenhum
+arquivo de config. Investigação revelou bugs encadeados:
+
+1. **Unbound sem `logfile:`**: usando default stderr → journald. Arquivo
+   `/var/log/unbound.log` existia vazio, e o dir `/var/log/unbound/` tinha
+   logs antigos de 1º mai (config sumiu naquele dia, ninguém notou).
+2. **Dashboard apontava pro path errado**: `live_log.php`, `health.php`,
+   `logs.php` e sudoers referenciam `/var/log/unbound.log` (plano), mas
+   o dir owned por unbound é `/var/log/unbound/` (subdir).
+
+**Fix em 3 frentes**:
+
+- **`generateModularConfigs`** ganha 2 diretivas novas no `general.conf`:
+  ```
+  use-syslog: no
+  logfile: "/var/log/unbound/unbound.log"
+  ```
+  Forçando escrita em arquivo (não mais só journald).
+- **Refs alinhadas** pro path correto:
+  - `api/live_log.php`: `/var/log/unbound/unbound.log`
+  - `health.php`: idem
+  - `logs.php`: tenta o subdir primeiro, plano como fallback legado
+  - `sudoers`: nova entry `tail -n 300 /var/log/unbound/unbound.log`
+    (mantém o legado pra compat).
+
+Smoke ao vivo: após apply + restart, novos eventos aparecem em tempo
+real em `/var/log/unbound/unbound.log`. `logs.php` e o live log do
+dashboard voltam a funcionar.
+
+VERSION 2.31.1 → 2.31.2.
+
+---
+
 ## v2.31.1 — 2026-05-21
 
 ### fix(tls): aplicar regras AppArmor automaticamente em gerar/upload/importar

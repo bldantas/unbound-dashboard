@@ -19,7 +19,10 @@ function detectSyslogPath(): string {
 
 // Detecta arquivo de log do Unbound, com fallback pra journalctl.
 function detectUnboundLogPath(): string {
-    $paths = ['/var/log/unbound.log', '/var/log/unbound/unbound.log'];
+    // Path principal (v2.31.2+): /var/log/unbound/unbound.log. Mantemos
+    // o legado como fallback pra instalações antigas que ainda escrevem
+    // no plano.
+    $paths = ['/var/log/unbound/unbound.log', '/var/log/unbound.log'];
     foreach ($paths as $p) {
         if (file_exists($p) && is_readable($p)) return $p;
     }

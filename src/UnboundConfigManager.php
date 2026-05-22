@@ -391,6 +391,12 @@ class UnboundConfigManager
         $genContent .= "    log-queries: yes\n";
         $genContent .= "    log-replies: yes\n";
         $genContent .= "    log-time-ascii: yes\n";
+        // Unbound default: stderr → journald. Mas o dashboard (live_log,
+        // health, logs.php) lê o arquivo direto, então força logfile.
+        // /var/log/unbound/ é dir owned por unbound:unbound (criado pelo
+        // pacote distro), permite escrita sem mexer em perms de /var/log.
+        $genContent .= "    use-syslog: no\n";
+        $genContent .= "    logfile: \"/var/log/unbound/unbound.log\"\n";
         $genContent .= "    extended-statistics: yes\n";
         $genContent .= "    statistics-interval: 0\n";
         $genContent .= "    statistics-cumulative: no\n";

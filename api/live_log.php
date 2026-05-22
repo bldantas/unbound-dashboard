@@ -8,7 +8,7 @@ if (!\App\Auth::isAdmin()) {
 }
 header('Content-Type: application/json');
 
-$logFile = '/var/log/unbound.log';
+$logFile = '/var/log/unbound/unbound.log';
 $output = [];
 \App\ShellHelper::exec('/usr/bin/tail', ['-n', '300', $logFile], $output, $tmpRet, true);
 if (empty($output)) {

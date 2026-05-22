@@ -27,6 +27,7 @@ www-data ALL=(ALL) NOPASSWD: \
     /usr/bin/hostnamectl set-hostname *, \
     /usr/bin/tail -n 300 /var/log/syslog, \
     /usr/bin/tail -n 300 /var/log/unbound.log, \
+    /usr/bin/tail -n 300 /var/log/unbound/unbound.log, \
     /usr/bin/journalctl -u unbound -n 300 --no-pager, \
     /usr/local/bin/unbound-health-fix.sh, \
     /usr/sbin/netplan apply, \

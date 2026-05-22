@@ -146,7 +146,7 @@ $components = [
     ['name' => 'Configuração (unbound.conf)',     'path' => '/etc/unbound/unbound.conf',                            'type' => 'file'],
     ['name' => 'Chaves TLS (RNDC Remote)',        'path' => '/etc/unbound/unbound_control.pem',                     'type' => 'file'],
     ['name' => 'DNSSEC Root Anchors',             'path' => '/var/lib/unbound/root.key',                            'type' => 'file'],
-    ['name' => 'Arquivo de Log (Daemon)',         'path' => '/var/log/unbound.log',                                 'type' => 'file'],
+    ['name' => 'Arquivo de Log (Daemon)',         'path' => '/var/log/unbound/unbound.log',                         'type' => 'file'],
     ['name' => 'Permissões Sudo (Dashboard)',     'path' => '/etc/sudoers.d/unbound-dashboard',                     'type' => 'file'],
     ['name' => 'Banco DuckDB',                    'path' => '/var/lib/unbound-dashboard/unbound_dash.duckdb',       'type' => 'file'],
     ['name' => 'Env do api_service',              'path' => '/etc/unbound-dashboard/api-v1.env',                    'type' => 'file'],
