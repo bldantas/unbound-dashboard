@@ -113,28 +113,102 @@ $currentPage = 'index.php';
                 \App\ShellHelper::exec('/usr/bin/uptime', ['-p'], $upOut, $r, false);
                 $systemUptime = trim($upOut[0] ?? '?');
                 $allOk = !in_array(false, $statusServices, true);
+
+                // === Detecta portas escutadas pelo Unbound ===
+                // Lê config pra saber qual porta é DoT vs DoH (sem ler, só
+                // detectamos "TLS" genérico). Parser leve via regex.
+                $tlsPortCfg = 0;
+                $httpsPortCfg = 0;
+                $genConf = '/etc/unbound/includes/general.conf';
+                if (is_readable($genConf)) {
+                    $g = file_get_contents($genConf);
+                    if (preg_match('/^\s*tls-port:\s*(\d+)/m', $g, $m))   $tlsPortCfg = (int)$m[1];
+                    if (preg_match('/^\s*https-port:\s*(\d+)/m', $g, $m)) $httpsPortCfg = (int)$m[1];
+                }
+
+                $ssOut = [];
+                \App\ShellHelper::exec('/usr/bin/ss', ['-lntup'], $ssOut, $r, false);
+                // Mapa: port → {protos: [tcp,udp], owner: 'unbound'|other}
+                $listenPorts = [];
+                foreach ($ssOut as $line) {
+                    if (!preg_match('/^(tcp|udp)\s+/i', $line)) continue;
+                    if (!preg_match('/[:.](\d+)\s+[\d\.\*\[\]:]+\s*(?:users:\(\("([^"]+)")?/i', $line, $m)) continue;
+                    $proto = stripos($line, 'tcp') === 0 ? 'tcp' : 'udp';
+                    $port  = (int) $m[1];
+                    $owner = $m[2] ?? '';
+                    if (!isset($listenPorts[$port])) $listenPorts[$port] = ['protos' => [], 'owner' => ''];
+                    if (!in_array($proto, $listenPorts[$port]['protos'], true)) $listenPorts[$port]['protos'][] = $proto;
+                    if ($owner !== '' && $listenPorts[$port]['owner'] === '') $listenPorts[$port]['owner'] = $owner;
+                }
+
+                // Define os chips: nome lógico + estado
+                $portChips = [];
+                $checkPort = function (int $p, string $label, ?string $expectedOwner = 'unbound') use ($listenPorts) {
+                    if ($p <= 0) return null;
+                    $info = $listenPorts[$p] ?? null;
+                    $up = $info !== null && ($expectedOwner === null || $info['owner'] === '' || $info['owner'] === $expectedOwner);
+                    return [
+                        'label' => $label,
+                        'port'  => $p,
+                        'up'    => $up,
+                        'protos'=> $info['protos'] ?? [],
+                        'owner' => $info['owner'] ?? null,
+                    ];
+                };
+                $portChips[] = $checkPort(53, 'DNS', 'unbound');
+                if ($tlsPortCfg > 0)   $portChips[] = $checkPort($tlsPortCfg,  'DoT',  'unbound');
+                if ($httpsPortCfg > 0) $portChips[] = $checkPort($httpsPortCfg, 'DoH', 'unbound');
+                $portChips = array_filter($portChips);
             ?>
-            <div class="glass-panel border-l-4 <?= $allOk ? 'border-emerald-500' : 'border-amber-500' ?> flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-widest font-black">
-                <span class="<?= $allOk ? 'text-emerald-500' : 'text-amber-500' ?>">
-                    <?= $allOk ? '● Sistema saudável' : '⚠ Atenção' ?>
-                </span>
-                <span class="text-slate-500 font-bold normal-case tracking-normal">·</span>
-                <?php foreach ($statusServices as $svc => $active):
-                    $shortName = preg_replace('/\.service$/', '', $svc);
-                    $shortName = preg_replace('/^unbound-dashboard-/', '', $shortName);
-                    ?>
-                    <span class="flex items-center gap-1 <?= $active ? 'text-emerald-500' : 'text-red-500' ?>">
-                        <span class="w-1.5 h-1.5 rounded-full <?= $active ? 'bg-emerald-500' : 'bg-red-500 animate-pulse' ?>"></span>
-                        <?= htmlspecialchars($shortName) ?>
+            <div class="glass-panel border-l-4 <?= $allOk ? 'border-emerald-500' : 'border-amber-500' ?> space-y-2">
+                <!-- Linha 1: serviços + uptime -->
+                <div class="flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-widest font-black">
+                    <span class="<?= $allOk ? 'text-emerald-500' : 'text-amber-500' ?>">
+                        <?= $allOk ? '● Sistema saudável' : '⚠ Atenção' ?>
                     </span>
-                <?php endforeach; ?>
-                <span class="text-slate-500 font-bold normal-case tracking-normal">·</span>
-                <span class="text-slate-500">Uptime: <span class="font-mono text-slate-900 dark:text-white"><?= htmlspecialchars($systemUptime) ?></span></span>
-                <span class="ml-auto flex items-center gap-2 text-slate-500">
-                    <span>Última atualização:</span>
-                    <span id="lastPollTime" class="font-mono text-emerald-500"><?= date('H:i:s') ?></span>
-                    <button type="button" id="pauseAutoUpdate" class="ml-2 glass-btn !py-1 !px-2 text-[9px] uppercase font-black" title="Pausar atualização automática a cada 5s">⏸ Pause</button>
-                </span>
+                    <span class="text-slate-500 font-bold normal-case tracking-normal">·</span>
+                    <?php foreach ($statusServices as $svc => $active):
+                        $shortName = preg_replace('/\.service$/', '', $svc);
+                        $shortName = preg_replace('/^unbound-dashboard-/', '', $shortName);
+                        ?>
+                        <span class="flex items-center gap-1 <?= $active ? 'text-emerald-500' : 'text-red-500' ?>">
+                            <span class="w-1.5 h-1.5 rounded-full <?= $active ? 'bg-emerald-500' : 'bg-red-500 animate-pulse' ?>"></span>
+                            <?= htmlspecialchars($shortName) ?>
+                        </span>
+                    <?php endforeach; ?>
+                    <span class="text-slate-500 font-bold normal-case tracking-normal">·</span>
+                    <span class="text-slate-500">Uptime: <span class="font-mono text-slate-900 dark:text-white"><?= htmlspecialchars($systemUptime) ?></span></span>
+                    <span class="ml-auto flex items-center gap-2 text-slate-500">
+                        <span>Última atualização:</span>
+                        <span id="lastPollTime" class="font-mono text-emerald-500"><?= date('H:i:s') ?></span>
+                        <button type="button" id="pauseAutoUpdate" class="ml-2 glass-btn !py-1 !px-2 text-[9px] uppercase font-black" title="Pausar atualização automática a cada 5s">⏸ Pause</button>
+                    </span>
+                </div>
+
+                <!-- Linha 2: portas escutadas pelo Unbound -->
+                <?php if (!empty($portChips)): ?>
+                    <div class="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-widest font-black pt-2 border-t border-slate-900/10 dark:border-white/5">
+                        <span class="text-slate-500 mr-1">Portas:</span>
+                        <?php foreach ($portChips as $chip):
+                            $protoStr = !empty($chip['protos']) ? strtoupper(implode('/', $chip['protos'])) : '';
+                            $cls = $chip['up']
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                                : 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30';
+                            $tooltip = $chip['up']
+                                ? "Listening ({$protoStr}) — owner: " . ($chip['owner'] ?: '?')
+                                : 'Inativa — Unbound não está escutando nessa porta';
+                            ?>
+                            <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border <?= $cls ?>" title="<?= htmlspecialchars($tooltip) ?>">
+                                <span class="w-1.5 h-1.5 rounded-full <?= $chip['up'] ? 'bg-emerald-500' : 'bg-red-500' ?>"></span>
+                                <?= htmlspecialchars($chip['label']) ?>
+                                <span class="font-mono"><?= (int) $chip['port'] ?></span>
+                                <?php if ($protoStr): ?>
+                                    <span class="opacity-60 normal-case">[<?= htmlspecialchars($protoStr) ?>]</span>
+                                <?php endif; ?>
+                            </span>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
             </div>
 
             <!-- GRID DE METRICAS PRINCIPAIS -->

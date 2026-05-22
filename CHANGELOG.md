@@ -1,5 +1,47 @@
 # Changelog
 
+## v2.31.3 — 2026-05-22
+
+### feat(dashboard): widget de portas DNS/DoT/DoH no painel de saúde
+
+Painel "Sistema saudável" no `/index.php` mostrava só serviços (unbound,
+api, redis, apache) e uptime. Adicionei segunda linha com chips das
+portas que o Unbound realmente está escutando — verde quando UP,
+vermelho quando inativa.
+
+**Detecção** (PHP inline no index.php):
+
+- Lê `tls-port` e `https-port` direto do `/etc/unbound/includes/general.conf`
+  via regex leve (sem precisar parseConfig completo).
+- `ss -lntup` retorna sockets TCP + UDP com owner do processo.
+- Cruza: mostra apenas portas relevantes (53, DoT, DoH) com owner
+  `unbound`. Distingue cores e protocolo.
+
+**Visual**:
+
+```
+Portas:  ● DNS 53 [UDP/TCP]   ● DoT 853 [UDP/TCP]   ● DoH 8443 [UDP/TCP]
+```
+
+- Chip verde + bolinha = listening + owner `unbound`
+- Chip vermelho = config tem a porta, mas socket não está aberto
+  (Unbound não recarregou, conflito, etc)
+- Tooltip mostra protocolo + owner pra debug
+- DoT/DoH só aparecem se `tls-port`/`https-port` estão configurados
+
+Atualiza a cada page load (mesma cadência do resto do painel).
+
+Smoke ao vivo neste server:
+```
+Porta 53:   UDP/TCP — owner=unbound  ✓
+Porta 853:  UDP/TCP — owner=unbound  ✓
+Porta 8443: UDP/TCP — owner=unbound  ✓
+```
+
+VERSION 2.31.2 → 2.31.3.
+
+---
+
 ## v2.31.2 — 2026-05-22
 
 ### fix(logs): Unbound não escrevia em arquivo + dashboard apontava pro path errado
