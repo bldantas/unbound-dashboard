@@ -173,6 +173,66 @@ async def top_clients(window: Window, limit: int = 20) -> list[dict]:
     return out
 
 
+async def search_queries(
+    *,
+    window: Window = "24h",
+    client_ip: str | None = None,
+    domain: str | None = None,
+    query_type: str | None = None,
+    action: str | None = None,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[int, list[dict]]:
+    """Busca paginada em query_logs com filtros combinados.
+
+    Retorna (total_filtered, rows). Filtros são AND. Strings são LIKE %x%.
+    Window aplica ALWAYS — sem timeout cap a query roda full-scan dos 20M.
+    """
+    secs = window_seconds(window)
+    conds = ["timestamp >= epoch(NOW()) - ?"]
+    args: list = [secs]
+    if client_ip:
+        conds.append("client_ip LIKE ?")
+        args.append(f"%{client_ip}%")
+    if domain:
+        conds.append("LOWER(domain) LIKE ?")
+        args.append(f"%{domain.lower()}%")
+    if query_type:
+        conds.append("query_type = ?")
+        args.append(query_type)
+    if action:
+        conds.append("action = ?")
+        args.append(action)
+    where = " AND ".join(conds)
+
+    total_row = await db_fetchone(
+        f"SELECT COUNT(*) AS n FROM query_logs WHERE {where}",
+        args,
+    )
+    total = int(total_row["n"]) if total_row else 0
+
+    rows = await db_fetchall(
+        f"""
+        SELECT timestamp, client_ip, domain, query_type, action
+        FROM query_logs
+        WHERE {where}
+        ORDER BY timestamp DESC
+        LIMIT ? OFFSET ?
+        """,
+        args + [int(limit), int(offset)],
+    )
+    return total, [
+        {
+            "timestamp": int(r["timestamp"] or 0),
+            "client_ip": str(r["client_ip"] or ""),
+            "domain": str(r["domain"] or ""),
+            "query_type": str(r["query_type"] or ""),
+            "action": str(r["action"] or ""),
+        }
+        for r in rows
+    ]
+
+
 async def action_breakdown(window: Window) -> list[dict]:
     """Distribuição por action — pra donut chart de blocked vs resolved vs cached."""
     secs = window_seconds(window)

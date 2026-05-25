@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.35.0 — 2026-05-25
+
+### feat(query-search): busca avançada em query_logs com export CSV
+
+Nova página `/query_search.php` — filtros combinados sobre 20M+ queries
+indexadas no DuckDB. Substituível ao "logs.php" pra investigação real
+(esse continua só pra ver journald/syslog do daemon).
+
+**Filtros AND**: janela (1h/24h/7d/30d), cliente IP (LIKE), domínio
+(LIKE), tipo de query, ação. Paginação 25/50/100/200 por página.
+Tabela mostra timestamp + cliente + domínio + tipo + ação colorida.
+
+**Export CSV** até 100k linhas por busca (mesmo conjunto de filtros).
+Download programático via fetch+blob — header `Authorization: Bearer`
+não passaria num `window.open` direto.
+
+#### Endpoints novos `/api/v1/analytics`
+
+- `GET /queries/search?window=&client_ip=&domain=&query_type=&action=&page=&per_page=`
+- `GET /queries/export-csv?...&limit=N` (até 100k)
+
+Capability `dashboard.read`. Auto-busca inicial mostra as últimas
+queries da janela default (24h).
+
 ## v2.34.0 — 2026-05-25
 
 ### feat(analytics): página de análise profunda com janela ajustável
