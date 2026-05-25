@@ -33,10 +33,26 @@ $isAdmin = Auth::isAdmin();
                     </h1>
                     <p class="page-subtitle">RRset records resolvidos e msg cache de queries recentes (snapshot do <code>unbound-control dump_cache</code>).</p>
                 </div>
-                <button type="button" id="btnRefreshCache" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black flex items-center gap-2" title="Re-executa dump_cache (ignora cache de 30s)">
-                    <svg id="iconRefreshCache" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                    <span id="btnRefreshLabel">Atualizar</span>
-                </button>
+                <div class="flex flex-wrap gap-2 items-center">
+                    <button type="button" id="btnLookup" class="glass-btn text-[10px] uppercase font-black flex items-center gap-2" title="Lookup detalhado de um domínio (TTL atual, delegation point, DNSSEC)">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <span>Lookup</span>
+                    </button>
+                    <?php if ($isAdmin): ?>
+                        <button type="button" id="btnReloadUnbound" class="glass-btn text-[10px] uppercase font-black flex items-center gap-2" title="Recarrega config sem reiniciar (preserva cache)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                            <span>Reload config</span>
+                        </button>
+                        <button type="button" id="btnFlushAll" class="glass-btn !bg-red-600 !text-white text-[10px] uppercase font-black flex items-center gap-2" title="Esvazia todo o cache do Unbound (não reinicia)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2"></path></svg>
+                            <span>Flush total</span>
+                        </button>
+                    <?php endif; ?>
+                    <button type="button" id="btnRefreshCache" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black flex items-center gap-2" title="Re-executa dump_cache (ignora cache de 30s)">
+                        <svg id="iconRefreshCache" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        <span id="btnRefreshLabel">Atualizar</span>
+                    </button>
+                </div>
             </header>
 
             <!-- Stats cards -->
@@ -494,6 +510,70 @@ $isAdmin = Auth::isAdmin();
 
         // Refresh button
         document.getElementById('btnRefreshCache').addEventListener('click', () => loadCache(true));
+
+        // Lookup (qualquer usuário)
+        document.getElementById('btnLookup').addEventListener('click', async () => {
+            const domain = window.customPrompt
+                ? await window.customPrompt('Domínio pra consultar (ex: google.com)', 'Lookup no cache')
+                : prompt('Domínio pra consultar:');
+            if (!domain) return;
+            const fd = new FormData();
+            fd.append('csrf_token', CSRF_TOKEN);
+            fd.append('domain', domain.trim());
+            try {
+                const res = await fetch('api/cache_lookup.php', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.success) {
+                    const text = data.output || '(sem dados — domínio não está no cache)';
+                    if (window.customAlert) await window.customAlert('<pre class="text-xs font-mono whitespace-pre-wrap break-all">' + escHtml(text) + '</pre>', 'Lookup: ' + domain, 'info');
+                    else alert(text);
+                } else {
+                    if (window.AppUI?.toast) window.AppUI.toast('Falha: ' + (data.message || 'erro'), 'error');
+                }
+            } catch (err) {
+                if (window.AppUI?.toast) window.AppUI.toast('Falha: ' + err.message, 'error');
+            }
+        });
+
+        // Reload config (admin)
+        document.getElementById('btnReloadUnbound')?.addEventListener('click', async () => {
+            const ok = window.customConfirm
+                ? await window.customConfirm('Recarregar config do Unbound? <b>Preserva o cache</b> em memória.', 'Reload config')
+                : confirm('Recarregar config?');
+            if (!ok) return;
+            const fd = new FormData();
+            fd.append('csrf_token', CSRF_TOKEN);
+            try {
+                const res = await fetch('api/cache_reload.php', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.success && window.AppUI?.toast) window.AppUI.toast(data.message, 'success');
+                else if (window.AppUI?.toast) window.AppUI.toast('Falha: ' + (data.message || 'erro'), 'error');
+            } catch (err) {
+                if (window.AppUI?.toast) window.AppUI.toast('Falha: ' + err.message, 'error');
+            }
+        });
+
+        // Flush total (admin) — destrutivo, dois passos de confirmação
+        document.getElementById('btnFlushAll')?.addEventListener('click', async () => {
+            const ok = window.customConfirm
+                ? await window.customConfirm('<b>Esvaziar TODO o cache</b> do Unbound? Hit ratio cai pra ~0% temporariamente até reaquecer.', 'Flush total?')
+                : confirm('Esvaziar TODO o cache?');
+            if (!ok) return;
+            const fd = new FormData();
+            fd.append('csrf_token', CSRF_TOKEN);
+            try {
+                const res = await fetch('api/cache_flush_all.php', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.success) {
+                    if (window.AppUI?.toast) window.AppUI.toast(data.message + ' ' + (data.output || ''), 'success');
+                    setTimeout(() => loadCache(true), 500);
+                } else if (window.AppUI?.toast) {
+                    window.AppUI.toast('Falha: ' + (data.message || 'erro'), 'error');
+                }
+            } catch (err) {
+                if (window.AppUI?.toast) window.AppUI.toast('Falha: ' + err.message, 'error');
+            }
+        });
 
         // Initial load
         loadCache(false);

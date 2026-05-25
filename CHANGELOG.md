@@ -1,5 +1,36 @@
 # Changelog
 
+## v2.37.0 — 2026-05-25
+
+### feat(cache): flush total + lookup + reload (sem restart) na página de Cache
+
+A `cache.php` já tinha stats, distribuição de TTL, top types/tlds e
+flush por domínio. Agora ganha 3 ações cirúrgicas que evitam o restart
+pesado pra mudanças de config / limpeza:
+
+- **Flush total** (admin) — `unbound-control flush_zone .` esvazia
+  rrset+msg+key caches inteiros. Não reinicia o daemon. Hit ratio cai
+  pra ~0% temporariamente. Confirmação dupla.
+- **Lookup** (qualquer user) — `unbound-control lookup <domain>` retorna
+  delegation point, NS records cacheados, TTL atual, DNSSEC chain. Útil
+  pra diagnosticar por que um domínio resolve do jeito que resolve.
+- **Reload config** (admin) — `unbound-control reload` recarrega o
+  unbound.conf sem perder o cache em memória. Alternativa mais leve
+  ao restart via systemctl (que é o que o "Aplicar & Recarregar" das
+  outras páginas usa).
+
+Endpoints novos:
+- `POST /api/v1/cache_flush_all.php`
+- `POST /api/v1/cache_lookup.php`
+- `POST /api/v1/cache_reload.php`
+
+Cada um valida CSRF, escapa input (lookup: pattern domain estrito),
+chama `unbound-control` via sudo, retorna stdout. Padrão idêntico
+ao `api/cache_flush.php` existente.
+
+Smoke test em prod: flush_zone . removeu 17.300 rrsets + 7.280 messages
++ 159 key entries num só comando.
+
 ## v2.36.0 — 2026-05-25
 
 ### feat(anomaly): detector heurístico de DGA, NXDOMAIN spike e novos clientes
