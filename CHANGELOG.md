@@ -1,5 +1,48 @@
 # Changelog
 
+## v2.34.0 — 2026-05-25
+
+### feat(analytics): página de análise profunda com janela ajustável
+
+Nova página `/analytics.php` consolidando o que estava fragmentado entre
+`threats.php` (só bloqueios) e `history.php` (só performance). Janela
+deslizante única (1h / 24h / 7d / 30d) reaplica filtro em todos os cards.
+
+#### Conteúdo
+
+- **4 cards de métricas:** queries totais, bloqueadas (% do total), cache
+  hit (% hit rate), domínios únicos (+ contadores secundários: clientes
+  únicos, NXDOMAIN upstream)
+- **Line chart temporal** com 3 séries sobrepostas: total / bloqueadas /
+  cache hit, bucketing aritmético (60s/15min/2h/8h conforme janela)
+- **Donut de ações:** resolved / cached / blocked / nxdomain_upstream
+- **Donut de tipos de query:** A / AAAA / HTTPS / PTR / SVCB / SRV / MX
+  / NS / TXT / SOA / CNAME / WKS / HINFO (todos os tipos presentes)
+- **Top 20 domínios** com filtro de ação (todas / blocked / resolved /
+  nxdomain)
+- **Top 20 clientes** com total + ratio bloqueado + domínios únicos
+
+#### Endpoints novos `/api/v1/analytics`
+
+- `GET /summary?window=...`
+- `GET /timeseries?window=...` (com bucket auto-escolhido)
+- `GET /by-query-type?window=...`
+- `GET /action-breakdown?window=...`
+- `GET /top-domains?window=...&limit=...&action=...`
+- `GET /top-clients?window=...&limit=...`
+
+Capability `dashboard.read` (qualquer usuário autenticado).
+
+Sidebar ganhou entrada "Analítico" abaixo de "Pol. Cliente".
+
+#### Detalhes técnicos
+
+- Bucketing via `CAST(timestamp / bucket AS BIGINT) * bucket` — divisão
+  pura `/` em DuckDB é float, dava 1 bucket por segundo. Fix valida
+  buckets corretos pra janelas 1h até 30d.
+- DuckDB com zonemap por coluna roda agregação sobre 20M+ rows em
+  ~ms; nenhuma índice precisa ser criado.
+
 ## v2.33.0 — 2026-05-25
 
 ### feat(policies): regras DNS por cliente (split-horizon)
