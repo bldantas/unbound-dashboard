@@ -1,13 +1,28 @@
-"""Endpoints administrativos /api/v1/blocklist — usados pelo UnboundConfigManager."""
+"""Endpoints administrativos /api/v1/blocklist.
+
+Pós-V9 (multi-source) expõe três famílias:
+- Catálogo de fontes:        /sources, /sources/{slug}, /sources/{slug}/sync
+- Allowlist global:          /exceptions, /exceptions/{domain}
+- Pra UnboundConfigManager:  /domains-to-block (gera o blocked_domains.conf)
+
+Endpoints legados (/counts, /search, /clear-category, /bulk-insert) seguem
+intactos pra não quebrar callers PHP atuais — implementação usa os repos
+novos por trás dos panos.
+"""
 
 from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
 from app.core.deps import require_capability
-from app.repositories.duckdb import threats_repo
+from app.repositories.duckdb import (
+    blocklist_exceptions_repo,
+    blocklist_sources_repo,
+    threats_repo,
+)
+from app.workers import blocklist_syncer
 
 router = APIRouter(prefix="/api/v1/blocklist", tags=["blocklist"])
 
@@ -99,6 +114,153 @@ async def bulk_insert(
     _: Annotated[dict, Depends(require_capability("blocklist.write"))],
     entries: list[dict],
 ) -> dict:
-    """Bulk UPSERT. Body: [{domain, category, severity}]."""
+    """Bulk UPSERT (legacy shim). Body: [{domain, category, severity}].
+
+    Pós-V9 mapeia category → primeira source que casa. Novos chamadores devem
+    usar POST /sources/{slug}/sync no lugar.
+    """
     inserted = await threats_repo.bulk_insert(entries)
     return {"inserted": inserted}
+
+
+# ============================================================
+# Sources (catálogo de fontes curadas)
+# ============================================================
+
+
+def _shape_source(row: dict) -> dict:
+    """Normaliza retorno do row → JSON friendly (last_sync ISO etc)."""
+    last_sync = row.get("last_sync")
+    return {
+        "slug": row["slug"],
+        "name": row["name"],
+        "description": row.get("description"),
+        "url": row["url"],
+        "format": row["format"],
+        "category": row["category"],
+        "severity": row["severity"],
+        "index_enabled": bool(row["index_enabled"]),
+        "block_enabled": bool(row["block_enabled"]),
+        "is_builtin": bool(row.get("is_builtin", True)),
+        "sort_order": int(row.get("sort_order") or 100),
+        "last_sync": last_sync.isoformat() if last_sync else None,
+        "last_count": int(row.get("last_count") or 0),
+        "last_error": row.get("last_error"),
+    }
+
+
+@router.get("/sources")
+async def list_sources(
+    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
+) -> dict:
+    """Lista todas as sources curadas com flags e estatísticas."""
+    rows = await blocklist_sources_repo.list_all()
+    return {"sources": [_shape_source(r) for r in rows]}
+
+
+@router.patch("/sources/{slug}")
+async def update_source(
+    slug: str,
+    _: Annotated[dict, Depends(require_capability("blocklist.write"))],
+    body: dict = Body(...),
+) -> dict:
+    """Toggle index_enabled e/ou block_enabled.
+
+    Body: {"index_enabled": bool?, "block_enabled": bool?}
+    Se index_enabled=false e count>0, mantém entries (usuário pode reativar
+    depois sem perder dados; pra zerar use POST /sources/{slug}/sync com
+    force depois de desligar, ou DELETE explícito futuramente).
+    """
+    src = await blocklist_sources_repo.get(slug)
+    if not src:
+        raise HTTPException(status_code=404, detail=f"source '{slug}' não existe")
+
+    idx = body.get("index_enabled")
+    blk = body.get("block_enabled")
+    if idx is None and blk is None:
+        raise HTTPException(status_code=400, detail="forneça index_enabled e/ou block_enabled")
+
+    await blocklist_sources_repo.set_flags(
+        slug,
+        index_enabled=bool(idx) if idx is not None else None,
+        block_enabled=bool(blk) if blk is not None else None,
+    )
+    updated = await blocklist_sources_repo.get(slug)
+    return {"source": _shape_source(updated)}
+
+
+@router.post("/sources/{slug}/sync")
+async def sync_source(
+    slug: str,
+    _: Annotated[dict, Depends(require_capability("blocklist.write"))],
+    force: bool = Query(True, description="Se true, sincroniza mesmo se last_sync recente"),
+) -> dict:
+    """Dispara sync sob demanda. Retorna {status, count, error}."""
+    src = await blocklist_sources_repo.get(slug)
+    if not src:
+        raise HTTPException(status_code=404, detail=f"source '{slug}' não existe")
+    result = await blocklist_syncer.sync_source(slug, force=force)
+    return result
+
+
+@router.get("/domains-to-block")
+async def domains_to_block(
+    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
+) -> dict:
+    """União dos domínios em sources com block_enabled=true MENOS exceptions.
+
+    Consumido pelo PHP UnboundConfigManager pra regerar
+    /etc/unbound/includes/blocked_domains.conf. Resposta pode ser pesada
+    (centenas de milhares); não pagina.
+    """
+    domains = await blocklist_sources_repo.domains_to_block()
+    return {"count": len(domains), "domains": domains}
+
+
+# ============================================================
+# Allowlist (blocklist_exceptions)
+# ============================================================
+
+
+@router.get("/exceptions")
+async def list_exceptions(
+    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
+) -> dict:
+    """Lista todas as exceções da allowlist."""
+    rows = await blocklist_exceptions_repo.list_all()
+    return {
+        "count": len(rows),
+        "exceptions": [
+            {
+                "domain": r["domain"],
+                "reason": r.get("reason"),
+                "created_by": r.get("created_by"),
+                "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/exceptions", status_code=status.HTTP_201_CREATED)
+async def add_exception(
+    user: Annotated[dict, Depends(require_capability("blocklist.write"))],
+    body: dict = Body(...),
+) -> dict:
+    """Adiciona exceção. Body: {"domain": str, "reason": str?}."""
+    domain = (body.get("domain") or "").strip().lower()
+    if not domain:
+        raise HTTPException(status_code=400, detail="domain é obrigatório")
+    reason = (body.get("reason") or "").strip() or None
+    created_by = user.get("username") if isinstance(user, dict) else None
+    added = await blocklist_exceptions_repo.add(domain, reason=reason, created_by=created_by)
+    return {"added": added, "domain": domain}
+
+
+@router.delete("/exceptions/{domain}")
+async def remove_exception(
+    domain: str,
+    _: Annotated[dict, Depends(require_capability("blocklist.write"))],
+) -> dict:
+    removed = await blocklist_exceptions_repo.remove(domain)
+    return {"removed": removed, "domain": domain.lower().strip()}

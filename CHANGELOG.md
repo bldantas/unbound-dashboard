@@ -1,5 +1,68 @@
 # Changelog
 
+## v2.32.0 — 2026-05-25
+
+### feat(blocklists): múltiplas fontes simultâneas + allowlist (ANATEL fica separada)
+
+Antes: o "catálogo de inteligência" (StevenBlack/Hagezi) **não bloqueava** no
+Unbound — só populava o DuckDB pra busca. O único bloqueio real era a lista
+ANATEL judicial. Pra escolher entre StevenBlack OU Hagezi era toggle exclusivo
+(uma de cada vez).
+
+Agora: schema multi-source com toggles independentes `indexar` (popula DuckDB)
+e `bloquear` (gera `local-zone always_nxdomain` no Unbound). 10 presets curados,
+todos podem estar ativos simultaneamente:
+
+- **anatel** (Judicial) — bloqueio judicial brasileiro, fica em `blocklist.php`
+  (página dedicada, **não unificada** com as outras)
+- **stevenblack, hagezi_light/normal/pro** (Malware/Adware)
+- **oisd_small/big, adguard_dns** (Malware/Adware)
+- **nocoin, easyprivacy** (Tracking)
+
+Outras peças:
+
+- **Allowlist global** (`blocklist_exceptions`): domínios que sempre resolvem
+  normalmente, mesmo presentes em alguma fonte. Sobrescreve via
+  `local-zone transparent` no final do `blocked_domains.conf`.
+- **Worker `blocklist_syncer`**: roda 1x/h, baixa fontes com `index_enabled=true`,
+  parsea por formato (`hosts`, `domains`, `unbound_localzone`, `adblock`),
+  popula em batches de 5000.
+- **Nova UI** (`blocklists.php`): 3 tabs — Fontes (toggles + sync individual),
+  Busca no Catálogo (paginada, reaproveita `/api/v1/blocklist/search`),
+  Exceções (CRUD da allowlist).
+- **Página ANATEL** (`blocklist.php`) preservada intacta — escolha de UX
+  deliberada porque ANATEL é mandato judicial, não opção do usuário.
+
+Migrations:
+
+- **V9**: tabelas `blocklist_sources` (catálogo + flags + last_sync),
+  `blocklist_entries` (PK composta `domain+source_slug`, substitui
+  `blocklist_domains`), `blocklist_exceptions` (allowlist). Backfill
+  preservando estado: ANATEL → `anatel`; catálogo atual → fonte do
+  setting `blacklist_source`.
+- **V10**: corrige URL do Hagezi Normal (`normal.txt` → `multi.txt`,
+  o repo renomeou).
+
+Endpoints REST novos em `/api/v1/blocklist`:
+
+- `GET /sources` — lista todas as fontes com flags e estatísticas
+- `PATCH /sources/{slug}` — toggle `index_enabled` e/ou `block_enabled`
+- `POST /sources/{slug}/sync` — força sync sob demanda
+- `GET /domains-to-block` — união de sources com `block_enabled=true`
+  menos exceptions (consumido pelo PHP `UnboundConfigManager` pra gerar
+  o `blocked_domains.conf`)
+- `GET /exceptions`, `POST /exceptions`, `DELETE /exceptions/{domain}`
+
+`UnboundConfigManager.generateBlockedDomainsConf` agora consulta a API
+(via `$_SESSION['api_jwt']`) e gera 3 seções: blocklists ativas (NXDOMAIN),
+bloqueios manuais legados (formato `static + 0.0.0.0`, preservado), e
+allowlist (`transparent`). Fallback pro caminho legado quando sessão sem
+JWT (cron CLI).
+
+Validação smoke: gerado `blocked_domains.conf` com 444.635 NXDOMAIN
+(ANATEL+Hagezi normal) + 1 transparent, `unbound-checkconf` aprovou
+sem erros.
+
 ## v2.31.4 — 2026-05-25
 
 ### fix(api): log_watcher lia `/var/log/syslog` (vazio desde `use-syslog: no`) → alerta `no_queries` em loop

@@ -773,29 +773,81 @@ class UnboundConfigManager
         $content = "# Arquivo gerado automaticamente pelo Unbound Dashboard\n";
         $content .= "server:\n";
 
-        // 1. Inserir lista oficial se habilitada
-        $settings = $this->loadSettings();
-        if ($settings['official_blocklist_enabled'] ?? false) {
-            if (file_exists($this->officialBlocklistPath)) {
-                $content .= "\n    # --- LISTA OFICIAL ANATEL ---\n";
-                // Indenta as linhas da lista oficial para ficarem dentro do bloco server
-                $officialLines = explode("\n", file_get_contents($this->officialBlocklistPath));
-                foreach ($officialLines as $line) {
-                    if (trim($line) !== "") {
-                        $content .= "    " . trim($line) . "\n";
+        // 1. Domínios da API (multi-source: ANATEL + outras blocklists ativas).
+        //    Inclui já filtragem por exceções (allowlist). Se a API não responder
+        //    (sessão sem JWT, api_service down), cai pra comportamento legado:
+        //    lê só o arquivo flat oficial_blocklist.conf da ANATEL.
+        $usedApi = false;
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($jwt !== '') {
+            require_once __DIR__ . '/ApiClient.php';
+            $resp = ApiClient::get('/api/v1/blocklist/domains-to-block', $jwt);
+            if (($resp['ok'] ?? false) && is_array($resp['data']['domains'] ?? null)) {
+                $apiDomains = $resp['data']['domains'];
+                $count = count($apiDomains);
+                $content .= "\n    # --- BLOCKLISTS ATIVAS (via API, {$count} domínios) ---\n";
+                foreach ($apiDomains as $domain) {
+                    $domain = trim((string) $domain, " .");
+                    if ($domain !== '') {
+                        $content .= "    local-zone: \"{$domain}.\" always_nxdomain\n";
                     }
                 }
-                $content .= "    # --- FIM LISTA OFICIAL ---\n\n";
+                $content .= "    # --- FIM BLOCKLISTS ATIVAS ---\n\n";
+                $usedApi = true;
             }
         }
 
-        foreach ($domains as $domain) {
-            $domain = trim($domain, " .");
-            if (!empty($domain)) {
-                $content .= "    local-zone: \"{$domain}.\" static\n";
-                $content .= "    local-data: \"{$domain}. IN A 0.0.0.0\"\n";
+        // Fallback legado: ANATEL via arquivo flat (mantém compat com cron CLI).
+        if (!$usedApi) {
+            $settings = $this->loadSettings();
+            if ($settings['official_blocklist_enabled'] ?? false) {
+                if (file_exists($this->officialBlocklistPath)) {
+                    $content .= "\n    # --- LISTA OFICIAL ANATEL (fallback legado) ---\n";
+                    $officialLines = explode("\n", file_get_contents($this->officialBlocklistPath));
+                    foreach ($officialLines as $line) {
+                        if (trim($line) !== "") {
+                            $content .= "    " . trim($line) . "\n";
+                        }
+                    }
+                    $content .= "    # --- FIM LISTA OFICIAL ---\n\n";
+                }
             }
         }
+
+        // 2. Bloqueio manual do usuário (blocklist.json). Formato legado:
+        //    `local-zone static + local-data IN A 0.0.0.0` — preserva comportamento
+        //    pra usuários que dependam disso.
+        if (!empty($domains)) {
+            $content .= "    # --- BLOQUEIOS MANUAIS ---\n";
+            foreach ($domains as $domain) {
+                $domain = trim($domain, " .");
+                if (!empty($domain)) {
+                    $content .= "    local-zone: \"{$domain}.\" static\n";
+                    $content .= "    local-data: \"{$domain}. IN A 0.0.0.0\"\n";
+                }
+            }
+            $content .= "    # --- FIM BLOQUEIOS MANUAIS ---\n\n";
+        }
+
+        // 3. Allowlist (blocklist_exceptions): sobrescreve qualquer bloqueio
+        //    anterior fazendo o Unbound resolver normalmente. DEVE vir POR ÚLTIMO.
+        if ($usedApi && $jwt !== '') {
+            $respEx = ApiClient::get('/api/v1/blocklist/exceptions', $jwt);
+            if (($respEx['ok'] ?? false) && is_array($respEx['data']['exceptions'] ?? null)) {
+                $exceptions = $respEx['data']['exceptions'];
+                if (!empty($exceptions)) {
+                    $content .= "    # --- ALLOWLIST (exceções, " . count($exceptions) . ") ---\n";
+                    foreach ($exceptions as $ex) {
+                        $d = trim((string) ($ex['domain'] ?? ''), " .");
+                        if ($d !== '') {
+                            $content .= "    local-zone: \"{$d}.\" transparent\n";
+                        }
+                    }
+                    $content .= "    # --- FIM ALLOWLIST ---\n";
+                }
+            }
+        }
+
         file_put_contents($this->tempBlockedConfPath, $content);
         chmod($this->tempBlockedConfPath, 0664);
     }

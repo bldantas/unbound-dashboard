@@ -40,6 +40,7 @@ from app.routers import (
 from app.routers import unbound as unbound_router
 from app.workers import (
     AlertChecker,
+    BlocklistSyncer,
     HostPoller,
     LogWatcher,
     StatsAggregator,
@@ -102,6 +103,7 @@ async def lifespan(app: FastAPI):
     unbound_collector = UnboundCollector()
     update_checker = UpdateChecker()
     host_poller = HostPoller()
+    blocklist_syncer_worker = BlocklistSyncer()
     _background_tasks.extend(
         [
             asyncio.create_task(_supervised("log_watcher", log_watcher), name="log_watcher"),
@@ -118,6 +120,9 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(
                 _supervised("host_poller", host_poller), name="host_poller"
             ),
+            asyncio.create_task(
+                _supervised("blocklist_syncer", blocklist_syncer_worker), name="blocklist_syncer"
+            ),
         ]
     )
     log.info("workers iniciados, API pronta")
@@ -132,6 +137,7 @@ async def lifespan(app: FastAPI):
     await unbound_collector.stop()
     await update_checker.stop()
     await host_poller.stop()
+    await blocklist_syncer_worker.stop()
     for task in _background_tasks:
         task.cancel()
     await asyncio.gather(*_background_tasks, return_exceptions=True)
