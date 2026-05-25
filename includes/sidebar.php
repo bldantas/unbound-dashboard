@@ -107,6 +107,12 @@ $currentPage = basename($_SERVER['PHP_SELF']);
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                     <span>Anomalias</span>
                 </a>
+                <?php if (\App\Auth::isAdmin()): ?>
+                <a href="backup_offsite.php" class="nav-link <?= $currentPage == 'backup_offsite.php' ? 'active' : '' ?>">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path></svg>
+                    <span>Backup S3</span>
+                </a>
+                <?php endif; ?>
                 <?php endif; ?>
             </div>
         </div>

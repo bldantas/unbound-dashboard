@@ -1,5 +1,68 @@
 # Changelog
 
+## v2.38.0 — 2026-05-25
+
+### feat(backup-offsite): upload automático pra S3-compatible
+
+Backup local (`/var/backups/unbound-dashboard/`, restore-backup.sh)
+continua intacto. Adiciona camada offsite: worker que sobe DuckDB +
+configs do Unbound pra qualquer storage S3-compatible.
+
+**Compatível com**: AWS S3, MinIO, Wasabi, Cloudflare R2, Backblaze B2
+— todos usam mesma API. Endpoint vazio = AWS default; demais usam URL
+custom.
+
+Conteúdo do tarball:
+- `duckdb/unbound_dash.duckdb` (banco inteiro)
+- `etc/unbound/unbound.conf`
+- `etc/unbound/includes/*.conf` (modular conf, blocked_domains,
+  anti_doh, views, etc)
+- `src/data/{settings,blocklist,local_records}.json`
+
+#### Settings (chaves `backup_s3_*` em `settings`, sem nova migration)
+
+`backup_s3_enabled`, `endpoint`, `bucket`, `region`, `prefix`,
+`access_key`, `secret_key`, `retention_count` (mantém só N mais
+recentes no remote), `schedule_hours` (default 24h). Credenciais
+armazenadas plaintext (mesmo padrão do SMTP existente).
+
+Status pós-upload (`backup_s3_last_*`): `upload_at`, `status`
+(`ok`/`error`), `error`, `size_bytes`, `key`.
+
+#### Worker `BackupUploader`
+
+Loop horário; se `enabled='1'` E elapsed_hours >= `schedule_hours`,
+dispara upload via `run_in_executor` (boto3 sync). Falha não derruba
+o worker.
+
+#### Retenção remota
+
+Lista objects no prefixo, ordena por `LastModified` desc, deleta
+todos exceto os N mais recentes (`retention_count`). Roda em cada
+upload pra manter o bucket limpo.
+
+#### Endpoints `/api/v1/backup-offsite`
+
+- `GET /settings` — config + status + defaults. `secret_key` retorna
+  vazio, vem mascarado em `secret_key_masked` (•••• + 4 chars finais)
+- `PUT /settings` — atualiza. `secret_key` vazio = preserva o anterior.
+- `POST /test` — `head_bucket()` valida credenciais + bucket existe
+- `POST /upload-now` — dispara upload imediato (não respeita schedule)
+- `GET /history?limit=100` — lista objects no bucket ordenados desc
+
+Capabilities: `config.read_sensitive` (GET) / `config.write` (PUT/POST).
+
+#### UI `/backup_offsite.php` (admin only)
+
+- Painel de status (verde/âmbar) + toggle ativar/pausar
+- 4 cards: último upload / status / tamanho / key remota
+- Form completo com placeholder de exemplo pra cada provider
+  (AWS/MinIO/Wasabi/R2/B2)
+- Botões: Testar conexão / Upload agora / Salvar
+- Tabela de backups no bucket (key, tamanho, quando) com Atualizar
+
+Sidebar (admin): nova entrada "Backup S3" abaixo de "Anomalias".
+
 ## v2.37.0 — 2026-05-25
 
 ### feat(cache): flush total + lookup + reload (sem restart) na página de Cache

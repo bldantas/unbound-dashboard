@@ -26,6 +26,10 @@ dependencies = [
     # webhooks Slack/Discord/Teams. NÃO mover pra dev — `uv sync --no-dev`
     # quebra o startup do api_service.
     "httpx>=0.27",
+    # boto3 é dep de produção: services/backup_offsite_service.py faz upload
+    # dos backups DuckDB+config pra S3-compatible (AWS S3, MinIO, Wasabi,
+    # Cloudflare R2, Backblaze B2). Usado pelo BackupUploader worker.
+    "boto3>=1.35",
 ]
 
 [dependency-groups]

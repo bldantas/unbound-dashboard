@@ -26,6 +26,7 @@ from app.routers import (
     api_tokens,
     audit,
     auth,
+    backup_offsite,
     blocklist,
     exports,
     health,
@@ -43,6 +44,7 @@ from app.routers import unbound as unbound_router
 from app.workers import (
     AlertChecker,
     AnomalyDetector,
+    BackupUploader,
     BlocklistSyncer,
     HostPoller,
     LogWatcher,
@@ -108,6 +110,7 @@ async def lifespan(app: FastAPI):
     host_poller = HostPoller()
     blocklist_syncer_worker = BlocklistSyncer()
     anomaly_detector = AnomalyDetector()
+    backup_uploader = BackupUploader()
     _background_tasks.extend(
         [
             asyncio.create_task(_supervised("log_watcher", log_watcher), name="log_watcher"),
@@ -130,6 +133,9 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(
                 _supervised("anomaly_detector", anomaly_detector), name="anomaly_detector"
             ),
+            asyncio.create_task(
+                _supervised("backup_uploader", backup_uploader), name="backup_uploader"
+            ),
         ]
     )
     log.info("workers iniciados, API pronta")
@@ -146,6 +152,7 @@ async def lifespan(app: FastAPI):
     await host_poller.stop()
     await blocklist_syncer_worker.stop()
     await anomaly_detector.stop()
+    await backup_uploader.stop()
     for task in _background_tasks:
         task.cancel()
     await asyncio.gather(*_background_tasks, return_exceptions=True)
@@ -178,6 +185,7 @@ app.include_router(analytics.router)
 app.include_router(api_tokens.router)
 app.include_router(audit.router)
 app.include_router(auth.router)
+app.include_router(backup_offsite.router)
 app.include_router(blocklist.router)
 app.include_router(exports.router)
 app.include_router(health.router)
