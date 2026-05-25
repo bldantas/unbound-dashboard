@@ -124,6 +124,106 @@ async def search_queries(
     }
 
 
+# ============================================================
+# Anomaly detection (B.5)
+# ============================================================
+
+_ANOMALY_KEYS = [
+    "anomaly_enabled",
+    "anomaly_dga_window_seconds",
+    "anomaly_dga_entropy_min",
+    "anomaly_dga_min_length",
+    "anomaly_dga_min_count_per_client",
+    "anomaly_nxdomain_window_seconds",
+    "anomaly_nxdomain_spike_ratio",
+    "anomaly_nxdomain_spike_min_count",
+    "anomaly_new_client_baseline_days",
+    "anomaly_new_client_window_seconds",
+    "anomaly_new_client_min_queries",
+]
+
+
+@router.get("/anomaly/settings")
+async def get_anomaly_settings(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+) -> dict:
+    from app.repositories.duckdb import settings_repo
+    from app.workers.anomaly_detector import DEFAULTS
+
+    out = {}
+    for k in _ANOMALY_KEYS:
+        v = await settings_repo.get(k, DEFAULTS[k])
+        out[k] = v
+    return {"settings": out, "defaults": DEFAULTS}
+
+
+@router.put("/anomaly/settings")
+async def update_anomaly_settings(
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+    body: dict,
+) -> dict:
+    from app.repositories.duckdb import settings_repo
+
+    entries = []
+    for k, v in body.items():
+        if k in _ANOMALY_KEYS:
+            entries.append({"setting_key": k, "setting_value": str(v)})
+    if not entries:
+        return {"updated": 0}
+    n = await settings_repo.bulk_upsert(entries)
+    return {"updated": n}
+
+
+@router.get("/anomaly/recent")
+async def get_anomaly_recent(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+    limit: int = Query(100, ge=1, le=500),
+    include_resolved: bool = Query(False),
+) -> dict:
+    """Lista detecções (alerts com type LIKE 'anomaly_%')."""
+    from app.repositories.duckdb.connection import db_fetchall
+
+    where = "type LIKE 'anomaly_%'"
+    if not include_resolved:
+        where += " AND resolved_at IS NULL"
+
+    rows = await db_fetchall(
+        f"""
+        SELECT id, type, severity, message, started_at, resolved_at
+        FROM alerts
+        WHERE {where}
+        ORDER BY started_at DESC
+        LIMIT ?
+        """,
+        [int(limit)],
+    )
+    return {
+        "items": [
+            {
+                "id": int(r["id"]),
+                "type": str(r["type"]),
+                "category": str(r["type"]).split(":")[0],
+                "subject": ":".join(str(r["type"]).split(":")[1:]) if ":" in str(r["type"]) else "",
+                "severity": str(r["severity"]),
+                "message": str(r.get("message") or ""),
+                "started_at": r["started_at"].isoformat() if r.get("started_at") else None,
+                "resolved_at": r["resolved_at"].isoformat() if r.get("resolved_at") else None,
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.post("/anomaly/run-now")
+async def run_anomaly_now(
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Roda os 3 checks uma vez (independente de anomaly_enabled). Útil pra teste."""
+    from app.workers import anomaly_detector as ad
+
+    return await ad.run_once()
+
+
 @router.get("/queries/export-csv")
 async def export_csv(
     _: Annotated[dict, Depends(require_capability("dashboard.read"))],

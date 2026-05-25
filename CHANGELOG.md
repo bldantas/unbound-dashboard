@@ -1,5 +1,48 @@
 # Changelog
 
+## v2.36.0 — 2026-05-25
+
+### feat(anomaly): detector heurístico de DGA, NXDOMAIN spike e novos clientes
+
+Novo worker `anomaly_detector` reusa o sistema de `alerts` existente
+(mesmo dedupe, mesmo webhook). Opt-in via setting `anomaly_enabled`
+(default off — pra evitar barulho na primeira instalação).
+
+#### 3 detectores no MVP
+
+- **DGA** (Domain Generation Algorithm): Shannon entropy ≥ 3.5 bits/char
+  no label esquerdo + length ≥ 12 chars. Cliente com X+ domínios
+  suspeitos vira alerta. Pega botnets, malware C2, alguns CDNs
+  agressivos (que aparecem como falso positivo — daí thresholds
+  configuráveis).
+- **NXDOMAIN spike por cliente**: ratio nxdomain_upstream / total ≥ 50%
+  com count mínimo 20 em janela 10min. Indica DGA em ação, typosquatting
+  bot, ou alguém digitando errado no Windows.
+- **Cliente novo**: client_ip ativo nas últimas 24h que NÃO apareceu
+  em baseline (7d antes), com mínimo 10 queries. Detecta device novo
+  / vazamento de DNS / IPv6 com privacy extensions (atenção: SLAAC
+  com privacy gera ruído em redes IPv6).
+
+Cada detecção vira um alerta com `type` composto (ex:
+`anomaly_dga:192.168.1.10`), severidade calibrada (DGA/NXDOMAIN =
+warning, novo cliente = info). Dispara webhook configurado.
+
+#### Endpoints `/api/v1/analytics/anomaly`
+
+- `GET /settings` — settings atuais + defaults
+- `PUT /settings` — atualiza thresholds (cap `config.write`)
+- `GET /recent?include_resolved=` — lista detecções (filter por type LIKE 'anomaly_%')
+- `POST /run-now` — executa os 3 checks imediatamente (não depende de `anomaly_enabled`)
+
+#### UI `/anomalies.php`
+
+- Painel de status (verde/âmbar) com toggle ativar/pausar
+- 10 limiares editáveis agrupados por detector
+- Botão "Rodar agora" pra disparar manual
+- Tabela com últimas 100 detecções (filtro: incluir resolvidas)
+
+Worker registrado no lifespan + sidebar com entrada "Anomalias".
+
 ## v2.35.0 — 2026-05-25
 
 ### feat(query-search): busca avançada em query_logs com export CSV
