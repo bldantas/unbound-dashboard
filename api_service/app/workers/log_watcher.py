@@ -1,23 +1,25 @@
 """
-LogWatcher — ingere logs do Unbound (via /var/log/syslog) em DuckDB.
+LogWatcher — ingere logs do Unbound em DuckDB.
 
-Substitui `scripts/log_ingester.php` da v1, mas durante a transição roda em
-PARALELO (dual-write). PHP continua escrevendo em MariaDB; este worker escreve
-em DuckDB. Quando paridade for confirmada, log_ingester.php é desativado.
+Path lido vem de `settings.unbound_log` (default `/var/log/unbound/unbound.log`,
+sobrescrevível via env `UNBOUND_LOG`). Funciona com qualquer arquivo que tenha
+o formato Unbound padrão `... unbound[pid:tid] info: IP DOMAIN. QTYPE IN [STATUS ...]`
+— inclusive `/var/log/syslog` se Unbound estiver com `use-syslog: yes`.
 
 Funcionamento:
-  1. Tail-follow `/var/log/syslog` em thread (open + seek end + readline loop).
+  1. Tail-follow o arquivo em thread (open + seek end + readline loop).
    Detecta rotação por inode (logrotate substitui o arquivo).
   2. Parseia linhas Unbound `info: ... DOMAIN. QTYPE IN [STATUS ...]`.
-  3. Classifica em 'blocked' (NXDOMAIN ou contém "0.0.0.0") ou 'resolved'
-     (NOERROR). Linhas de query (sem status) e SERVFAIL/REFUSED são ignoradas
-     — mesma política do PHP atual.
+  3. Classifica em 'blocked' (NXDOMAIN que casa local-zone ou contém "0.0.0.0"),
+     'nxdomain_upstream' (NXDOMAIN sem match) ou 'resolved' (NOERROR). Linhas
+     de query (sem status) e SERVFAIL/REFUSED são ignoradas.
   4. Bufferiza em asyncio.Queue (até 10K).
   5. Flush periódico (5s) em batch via `db_append("query_logs", df)` — pandas
      DataFrame + INSERT FROM SELECT (sequence id default preservado).
 
-Permissões: o serviço roda como `www-data`, que precisa estar no grupo `adm`
-para ler `/var/log/syslog` (executar `usermod -aG adm www-data` no host).
+Permissões: o serviço roda como `www-data`. `/var/log/unbound/unbound.log` é
+`unbound:unbound 644` (others have read). Se voltar pra syslog, precisa
+`usermod -aG adm www-data`.
 """
 
 from __future__ import annotations
@@ -96,7 +98,7 @@ class LogWatcher:
         log_path: str | None = None,
         matcher: BlockedMatcher | None = None,
     ) -> None:
-        self._path = Path(log_path or "/var/log/syslog")
+        self._path = Path(log_path or "/var/log/unbound/unbound.log")
         self._queue: asyncio.Queue[LogEntry] = asyncio.Queue(maxsize=BUFFER_MAXSIZE)
         self._running = False
         self._matcher = matcher or get_default_matcher()

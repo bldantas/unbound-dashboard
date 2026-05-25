@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI):
         log.warning("sessions.bootstrap_failed", error=str(exc))
 
     # Workers em background — supervisionados (restart on crash, backoff exponencial)
-    log_watcher = LogWatcher()
+    log_watcher = LogWatcher(log_path=settings.unbound_log)
     stats_aggregator = StatsAggregator()
     alert_checker = AlertChecker()
     unbound_collector = UnboundCollector()

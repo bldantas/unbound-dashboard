@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.31.4 — 2026-05-25
+
+### fix(api): log_watcher lia `/var/log/syslog` (vazio desde `use-syslog: no`) → alerta `no_queries` em loop
+
+Após o commit `661d148` mudar o Unbound pra escrever direto em
+`/var/log/unbound/unbound.log` (em vez de syslog), o `LogWatcher` do
+api_service continuou hardcoded em `/var/log/syslog`. Resultado: zero
+queries ingeridas em DuckDB, `stats_aggregator` parado em `total=87219`,
+e `AlertChecker` disparando `no_queries` a cada tick.
+
+A setting já existia (`settings.unbound_log`, default `/var/log/unbound/unbound.log`,
+overridável via env `UNBOUND_LOG`) — só não estava sendo passada no
+construtor. Fix de uma linha em `app/main.py:99`:
+`LogWatcher(log_path=settings.unbound_log)`. Default do próprio
+`LogWatcher` também atualizado pra refletir realidade atual.
+
+Validação ao vivo: ingestão voltou imediatamente (1211 queries em 60s),
+alerta id=14 auto-resolvido na tick seguinte.
+
 ## v2.31.3 — 2026-05-22
 
 ### feat(dashboard): widget de portas DNS/DoT/DoH no painel de saúde
