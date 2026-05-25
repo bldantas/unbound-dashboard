@@ -21,6 +21,8 @@ class UnboundConfigManager
     private string $settingsPath;
     private string $localRecordsJsonPath;
     private string $tempLocalRecordsPath;
+    private string $viewsConfPath;
+    private string $tempViewsConfPath;
 
     private string $confdDir;
     private array $modularFiles;
@@ -42,6 +44,8 @@ class UnboundConfigManager
         $this->settingsPath = dirname(__FILE__) . '/data/settings.json';
         $this->localRecordsJsonPath = dirname(__FILE__) . '/data/local_records.json';
         $this->tempLocalRecordsPath = $tempDir . 'unbound_local_records.tmp';
+        $this->viewsConfPath = $this->confdDir . '/views.conf';
+        $this->tempViewsConfPath = $tempDir . 'unbound_views.tmp';
 
         $this->modularFiles = [
             'interfaces' => $this->confdDir . '/interfaces.conf',
@@ -87,6 +91,21 @@ class UnboundConfigManager
         if (!file_exists($this->tempAntiDohPath)) {
             file_put_contents($this->tempAntiDohPath, "# Anti-DoH Filter\nserver:\n");
             @chmod($this->tempAntiDohPath, 0664);
+        }
+
+        // Garantir que views.conf existe (vazio = sem políticas, OK).
+        // O arquivo NÃO começa com `server:` porque mistura `server:` (pra
+        // access-control-view) e `view:` (top-level) — gera-se ambos blocks
+        // sob demanda. Quando vazio, o include é a no-op.
+        if (!file_exists($this->viewsConfPath)) {
+            // www-data não escreve direto em /etc/unbound/; só logamos a tentativa.
+            // O arquivo real é criado pelo applyConfig via sudo cp.
+            @file_put_contents($this->viewsConfPath, "# Client Policies — split-horizon DNS views\n# Auto-generated. Gerencie em Políticas por Cliente.\n");
+            @chmod($this->viewsConfPath, 0664);
+        }
+        if (!file_exists($this->tempViewsConfPath)) {
+            file_put_contents($this->tempViewsConfPath, "# Client Policies\n");
+            @chmod($this->tempViewsConfPath, 0664);
         }
 
         // Garantir que outros arquivos modulares existem
@@ -577,10 +596,116 @@ class UnboundConfigManager
         $content .= "    control-key-file: \"/etc/unbound/unbound_control.key\"\n";
         $content .= "    control-cert-file: \"/etc/unbound/unbound_control.pem\"\n";
 
+        // Views (split-horizon DNS, V11). Top-level include — o arquivo
+        // contém um bloco `server:` (com access-control-view) e blocos
+        // `view:` que mora fora do server. Sempre incluso; vazio = no-op.
+        $content .= "\n# Client Policies (split-horizon DNS views)\n";
+        $content .= "include: \"{$this->viewsConfPath}\"\n";
+
         $content .= "\n# Forward Zones\n";
         $content .= "include: \"{$this->modularFiles['forwarders']}\"\n";
 
         return $content;
+    }
+
+    /**
+     * Gera /etc/unbound/includes/views.conf a partir das policies enabled
+     * (via API /api/v1/policies/full-enabled).
+     *
+     * Estrutura do arquivo:
+     *   - bloco `server:` com 1..N linhas `access-control-view:` mapeando
+     *     CIDR → nome da view (= slug da policy)
+     *   - 1..N blocos `view: name: "<slug>"` com view-first: yes + blocks
+     *     (always_nxdomain) + allows (transparent)
+     *
+     * Se a sessão não tem JWT (cron CLI) ou a API falha, gera arquivo vazio
+     * inofensivo — Unbound continua funcionando, só não tem split-horizon.
+     */
+    public function generateViewsConf(): void
+    {
+        $content = "# Client Policies — split-horizon DNS views\n";
+        $content .= "# Auto-gerado pelo Unbound Dashboard. NÃO edite à mão.\n";
+        $content .= "# Gerencie em Políticas por Cliente.\n\n";
+
+        $policies = [];
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($jwt !== '') {
+            require_once __DIR__ . '/ApiClient.php';
+            $resp = ApiClient::get('/api/v1/policies/full-enabled', $jwt);
+            if (($resp['ok'] ?? false) && is_array($resp['data']['policies'] ?? null)) {
+                $policies = $resp['data']['policies'];
+            }
+        }
+
+        // Policies sem range são inúteis (nenhum cliente cai nelas) — skip
+        // e flag pra view também (view sem ACL é orfã).
+        $effective = array_filter(
+            $policies,
+            fn ($p) => !empty($p['ranges']) && (!empty($p['blocks']) || !empty($p['allows']))
+        );
+
+        if (empty($effective)) {
+            $content .= "# (nenhuma policy ativa com ranges + regras)\n";
+            file_put_contents($this->tempViewsConfPath, $content);
+            @chmod($this->tempViewsConfPath, 0664);
+            return;
+        }
+
+        // 1. Server block: mapeia clientes (CIDR) → view name (slug)
+        $content .= "server:\n";
+        foreach ($effective as $p) {
+            $slug = $this->_safeSlug((string) $p['slug']);
+            foreach ($p['ranges'] as $cidr) {
+                $cidrEsc = $this->_safeCidr((string) $cidr);
+                if ($cidrEsc !== null) {
+                    $content .= "    access-control-view: {$cidrEsc} {$slug}\n";
+                }
+            }
+        }
+
+        // 2. View blocks (top-level): cada policy tem sua view com blocks + allows
+        foreach ($effective as $p) {
+            $slug = $this->_safeSlug((string) $p['slug']);
+            $name = htmlspecialchars((string) ($p['name'] ?? $slug), ENT_QUOTES, 'UTF-8');
+            $content .= "\nview:\n";
+            $content .= "    name: \"{$slug}\"\n";
+            $content .= "    # {$name}\n";
+            // view-first: yes = se a view não tem regra, cai pro server: global.
+            // Garante herança das blocklists globais (decisão MVP — Bruno 2026-05-25).
+            $content .= "    view-first: yes\n";
+            foreach ($p['blocks'] ?? [] as $d) {
+                $domain = trim((string) $d, " .");
+                if ($domain !== '') {
+                    $content .= "    local-zone: \"{$domain}.\" always_nxdomain\n";
+                }
+            }
+            foreach ($p['allows'] ?? [] as $d) {
+                $domain = trim((string) $d, " .");
+                if ($domain !== '') {
+                    $content .= "    local-zone: \"{$domain}.\" transparent\n";
+                }
+            }
+        }
+
+        file_put_contents($this->tempViewsConfPath, $content);
+        @chmod($this->tempViewsConfPath, 0664);
+    }
+
+    /** Sanitiza slug pra uso em conf (alpha-num + _- já validado no backend, defesa extra). */
+    private function _safeSlug(string $s): string
+    {
+        return preg_replace('/[^a-zA-Z0-9_-]/', '', $s) ?: 'invalid';
+    }
+
+    /** Valida CIDR/IP. Retorna null se inválido — defesa contra injection no conf. */
+    private function _safeCidr(?string $s): ?string
+    {
+        $s = trim((string) $s);
+        // IPv4 simples ou IPv4/N
+        if (preg_match('/^(?:\d{1,3}\.){3}\d{1,3}(?:\/(?:3[0-2]|[12]?\d))?$/', $s)) return $s;
+        // IPv6 (heurística leve — fpilter apenas chars válidos + opcional /N)
+        if (preg_match('/^[0-9a-fA-F:]{2,}(?:\/(?:1[01]\d|12[0-8]|\d{1,2}))?$/', $s)) return $s;
+        return null;
     }
 
     /**
@@ -666,6 +791,10 @@ class UnboundConfigManager
             ?? ((bool) ($this->loadSettings()['anti_doh_enabled'] ?? false));
         $this->generateAntiDohConf((bool) $antiDohEnabled);
 
+        // Views (client policies, split-horizon). Sempre regera — sem session,
+        // gera arquivo vazio (no-op). Tem que rodar ANTES do checkconf.
+        $this->generateViewsConf();
+
         if (isset($newParams['local_records'])) {
             $this->saveLocalRecords($newParams['local_records']);
             $this->generateLocalRecordsConf($newParams['local_records']);
@@ -683,6 +812,12 @@ class UnboundConfigManager
         \App\ShellHelper::exec('/usr/bin/cp', [$this->tempAntiDohPath, $this->antiDohConfPath], $cpAntiDohOutput, $cpAntiDohReturn, true);
         if ($cpAntiDohReturn !== 0) {
             return ['success' => false, 'message' => "Falha ao salvar filtro Anti-DoH:\n" . implode("\n", $cpAntiDohOutput)];
+        }
+
+        // Move views.conf (client policies). Mesmo se vazio, garante atualização.
+        \App\ShellHelper::exec('/usr/bin/cp', [$this->tempViewsConfPath, $this->viewsConfPath], $cpViewsOutput, $cpViewsReturn, true);
+        if ($cpViewsReturn !== 0) {
+            return ['success' => false, 'message' => "Falha ao salvar views.conf:\n" . implode("\n", $cpViewsOutput)];
         }
 
         \App\ShellHelper::exec('/usr/bin/cp', [$this->tempLocalRecordsPath, $this->modularFiles['local_records']], $cpLocalOutput, $cpLocalReturn, true);
@@ -716,7 +851,9 @@ class UnboundConfigManager
         $checkRaw .= "    include: \"{$this->tempBlockedConfPath}\"\n";
         $checkRaw .= "    include: \"{$this->tempAntiDohPath}\"\n";
         $checkRaw .= "    include: \"{$this->tempLocalRecordsPath}\"\n";
-        $checkRaw .= "\ninclude: \"" . $tempDir . "unbound_forwarders.conf\"\n";
+        // Views (split-horizon) — top-level include porque mistura server:+view:
+        $checkRaw .= "\ninclude: \"{$this->tempViewsConfPath}\"\n";
+        $checkRaw .= "include: \"" . $tempDir . "unbound_forwarders.conf\"\n";
 
         $checkTempPath = $tempDir . "unbound_check.conf";
         file_put_contents($checkTempPath, $checkRaw);

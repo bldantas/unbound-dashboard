@@ -1,5 +1,85 @@
 # Changelog
 
+## v2.33.0 — 2026-05-25
+
+### feat(policies): regras DNS por cliente (split-horizon)
+
+Política DNS aplicada por IP/CIDR. Cada **policy** define um grupo lógico
+(ex.: "kids", "iot", "office") com:
+
+- **Ranges** — 1..N CIDRs/IPs que determinam quais clientes caem na policy
+- **Blocks** — domínios extras pra bloquear (`always_nxdomain` na view)
+- **Allows** — exceções específicas (`transparent` na view)
+
+Modelo de herança fixo (decisão MVP): policies **sempre herdam o global**.
+O `view: view-first: yes` do Unbound faz lookup cair pro `server:` global
+quando a view não tem regra. Clientes numa policy bloqueiam (blocklists
+globais ativas + blocks da policy) MENOS (allowlist global + allows da
+policy). Clientes fora de qualquer policy caem no global puro.
+
+**Fora do MVP:** override total (cada policy seleciona suas sources do
+catálogo), time-based blocking (janelas horárias). Encaixam por cima.
+
+#### Schema V11
+
+- `client_policies` (id, slug, name, description, enabled, sort_order)
+- `client_policy_ranges` (id, policy_id, cidr, label) — múltiplos por policy
+- `client_policy_blocks` (policy_id, domain) — PK composta
+- `client_policy_allows` (policy_id, domain) — PK composta
+
+Capabilities reaproveitadas (`blocklist.read`/`blocklist.write`).
+
+#### Endpoints REST `/api/v1/policies`
+
+- `GET /` — lista resumo com counts
+- `GET /{slug}` — detalhe completo (ranges + blocks + allows)
+- `GET /full-enabled` — consumido pelo PHP pra gerar `views.conf`
+- `POST /` — cria policy
+- `PATCH /{slug}` — atualiza name/description/enabled
+- `DELETE /{slug}` — deleta (cascateia ranges/blocks/allows)
+- `POST/DELETE /{slug}/ranges` — gerencia CIDRs
+- `POST/DELETE /{slug}/blocks` — gerencia bloqueios extras
+- `POST/DELETE /{slug}/allows` — gerencia exceções
+
+#### Gerador Unbound
+
+`UnboundConfigManager.generateViewsConf()` consulta a API (via
+`$_SESSION['api_jwt']`) e escreve `/etc/unbound/includes/views.conf` com:
+
+```
+server:
+    access-control-view: <CIDR> <slug>
+    ...
+
+view:
+    name: "<slug>"
+    view-first: yes
+    local-zone: "<block>." always_nxdomain
+    local-zone: "<allow>." transparent
+```
+
+`access-control-view` (em `server:`) e blocos `view:` (top-level) num
+único arquivo, incluído no `unbound.conf` principal via `generateRawConfig`.
+Validação CIDR/slug com regex antes de escrever no conf (defesa anti-injection).
+
+Sintaxe validada com `unbound-checkconf` no smoke test (policy "kids"
+com `192.168.20.0/24` + bloqueio `tiktok.com` + allow `educa.gov.br`
+= aprovado).
+
+#### UI
+
+Nova página `/client_policies.php`:
+
+- Cards por policy com 3 colunas inline (ranges, blocks, allows), cada
+  uma com add/remove inline e formato pattern-validated
+- Toggle ativar/pausar policy, delete policy completa
+- Modal "Nova Política" com validação de slug (regex `^[a-z][a-z0-9_-]{1,49}$`)
+- Banner "Aplicar & Recarregar Unbound" aparece após qualquer mudança
+- Reusa `api/blocklist_apply.php` (que já chama `applyConfig` regerando
+  blocked_domains + views + restart Unbound)
+
+Sidebar atualizada com entrada "Pol. Cliente" abaixo de Blocklists.
+
 ## v2.32.0 — 2026-05-25
 
 ### feat(blocklists): múltiplas fontes simultâneas + allowlist (ANATEL fica separada)
