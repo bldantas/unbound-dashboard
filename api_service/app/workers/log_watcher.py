@@ -153,6 +153,16 @@ class LogWatcher:
                     self._queue.put_nowait(entry)
                     queries_ingested.labels(action=entry[4]).inc()
                     worker_queue_size.set(self._queue.qsize())
+                    # Fan-out pra WebSocket subscribers (D.4 live stream).
+                    # Best-effort, não bloqueia o tail; broker drop-oldest se lento.
+                    from app.services import query_broker
+                    query_broker.publish({
+                        "timestamp": entry[0],
+                        "client_ip": entry[1],
+                        "domain":    entry[2],
+                        "query_type": entry[3],
+                        "action":    entry[4],
+                    })
                 except asyncio.QueueFull:
                     log.warning("log_watcher.queue_full")
                     worker_errors.labels(worker="log_watcher").inc()

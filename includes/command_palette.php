@@ -73,6 +73,7 @@
         { label: 'Políticas Cliente',   hint: 'Split-horizon por CIDR',       url: 'client_policies.php', kw: 'policies split-horizon view' },
         { label: 'Cache DNS',           hint: 'Lookup / flush / reload',      url: 'cache.php',           kw: 'cache rrset' },
         { label: 'Logs',                hint: 'Logs do sistema',              url: 'logs.php',            kw: 'logs syslog' },
+        { label: 'Stream ao Vivo',      hint: 'Feed WebSocket em tempo real', url: 'live_stream.php',     kw: 'stream live websocket realtime' },
         { label: 'Histórico',           hint: 'Histórico geral',              url: 'history.php',         kw: 'history' },
         { label: 'Alertas',             hint: 'Eventos críticos',             url: 'alerts.php',          kw: 'alerts thresholds' },
         { label: 'Diagnóstico',         hint: 'Health check do daemon',       url: 'diagnostics.php',     kw: 'diag health' },

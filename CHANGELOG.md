@@ -1,5 +1,43 @@
 # Changelog
 
+## v2.51.0 — 2026-05-26
+
+### feat(stream): WebSocket de queries em tempo real
+
+Fecha a Fase D. Endpoint WS `/api/v1/ws/queries` empurra cada query
+parseada pelo LogWatcher conforme chega — não-polling, latência ~ms.
+
+#### Backend
+
+- `query_broker.py` — pub/sub em memória com `queue.Queue` (thread-safe
+  porque LogWatcher publica de thread executor, não do event loop).
+  Cap 200 por subscriber, drop-oldest se cliente lento.
+- `log_watcher.py` chama `query_broker.publish(...)` após cada parse.
+- `routers/ws_queries.py` — accept WS, valida `?token=<JWT|api-token>`
+  (WS não tem header Authorization fácil do browser), subscribe e
+  loop empurrando JSON. Heartbeat `{"type":"ping"}` a cada 30s pra
+  proxy/cliente não dropar idle.
+
+#### Página `/live_stream.php`
+
+Feed com cap 200 linhas (mais antigas rolam fora). Cada linha tem
+hora com milissegundos, IP, domínio, tipo, badge da ação (blocked/
+resolved/nxdomain). Highlight verde rápido em row nova. Reconexão
+automática com backoff exponencial (1s → 15s max).
+
+Toolbar: filtro case-insensitive (IP ou domínio), select de ação,
+toggle pausar (segura buffer mas não desconecta), botão limpar.
+Contador total + QPS calculado em janela de 1s.
+
+Sidebar e Cmd+K ganharam entrada "Stream ao Vivo".
+
+#### Apache
+
+`/etc/apache2/conf-available/unbound-dashboard-api.conf` foi
+atualizado de `127.0.0.1:8000` pra `127.0.0.1:8001` em todos os
+ProxyPass (HTTP + WS). O arquivo estava desatualizado em relação ao
+runtime; agora bate. Aplica em `apachectl graceful`.
+
 ## v2.50.0 — 2026-05-26
 
 ### feat(notifications): bell icon no topbar + feed unificado

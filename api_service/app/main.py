@@ -44,6 +44,7 @@ from app.routers import (
     updates,
     users,
     webhooks,
+    ws_queries,
 )
 from app.routers import unbound as unbound_router
 from app.workers import (
@@ -216,3 +217,4 @@ app.include_router(unbound_router.router)
 app.include_router(updates.router)
 app.include_router(users.router)
 app.include_router(webhooks.router)
+app.include_router(ws_queries.router)
