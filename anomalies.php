@@ -68,13 +68,96 @@ $currentPage = 'anomalies.php';
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="thresholdsGrid"></div>
             </div>
 
+            <!-- Baseline ML (v2.79) -->
+            <div class="glass-panel border-l-4 border-slate-200 dark:border-white/5 mb-6" id="baselinePanel">
+                <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
+                    <div class="min-w-0">
+                        <p class="text-[10px] font-black uppercase tracking-widest mb-1 text-indigo-500">Baseline ML — sazonalidade aprendida</p>
+                        <p class="text-sm font-bold text-slate-900 dark:text-white" id="baselineStatusText">Carregando...</p>
+                        <p class="text-[11px] text-slate-500 mt-1">
+                            BaselineLearner roda 1×/dia, agrega <code class="font-mono">hourly_stats</code> em
+                            <b>168 buckets</b> (24h × 7d). Detector <b>baseline_deviation</b> compara última hora
+                            completa contra o baseline do mesmo bucket e alerta se está fora de ±Nσ.
+                            Captura padrões sazonais (ex: "8h de segunda" ≠ "8h de domingo").
+                        </p>
+                    </div>
+                    <?php if (\App\Auth::isAdmin()): ?>
+                        <div class="flex flex-col items-end gap-2">
+                            <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                                <span id="baselineEnabledLabel" class="text-[10px] font-black uppercase tracking-widest text-slate-500">Pausado</span>
+                                <span class="relative inline-block w-11 h-6">
+                                    <input type="checkbox" id="toggleBaselineEnabled" class="peer sr-only">
+                                    <span class="block w-11 h-6 rounded-full bg-slate-300 dark:bg-slate-700 peer-checked:bg-emerald-500 transition-colors"></span>
+                                    <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
+                                </span>
+                            </label>
+                            <button id="btnLearnNow" class="glass-btn !bg-indigo-600 !text-white text-[10px] uppercase font-black flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                                <span>Re-treinar agora</span>
+                            </button>
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
+                    <div>
+                        <label class="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Sensibilidade (σ)</label>
+                        <input type="number" step="0.1" min="1" max="6" id="baselineSigma" class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/40" <?= \App\Auth::isAdmin() ? '' : 'disabled' ?>>
+                        <span class="text-[10px] text-slate-400 mt-0.5 block">desvios padrão antes de alertar (3.0 = ~99.7%)</span>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Janela treino</label>
+                        <input type="number" min="1" max="52" id="baselineWeeks" class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/40" <?= \App\Auth::isAdmin() ? '' : 'disabled' ?>>
+                        <span class="text-[10px] text-slate-400 mt-0.5 block">semanas históricas (default 4)</span>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Mín amostras / bucket</label>
+                        <input type="number" min="2" max="50" id="baselineMinSamples" class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/40" <?= \App\Auth::isAdmin() ? '' : 'disabled' ?>>
+                        <span class="text-[10px] text-slate-400 mt-0.5 block">skipa buckets com menos amostras</span>
+                    </div>
+                    <div class="flex items-end">
+                        <?php if (\App\Auth::isAdmin()): ?>
+                            <button id="btnSaveBaseline" class="glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black w-full">Salvar baseline</button>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Heatmap 24h × 7d -->
+                <div class="overflow-x-auto">
+                    <div class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                        Volume médio por bucket — intensidade da cor = avg_queries (clique em uma célula pra detalhes)
+                    </div>
+                    <div id="baselineHeatmap" class="text-[10px] font-mono inline-block">
+                        <div class="px-4 py-6 text-center text-slate-500 italic">Carregando heatmap...</div>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-3 flex items-center gap-3 flex-wrap">
+                        <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-slate-200 dark:bg-slate-800"></span> sem amostras</span>
+                        <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-indigo-300/60"></span> baixo</span>
+                        <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-indigo-500"></span> médio</span>
+                        <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-indigo-800"></span> alto</span>
+                        <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm ring-2 ring-amber-500"></span> hora atual</span>
+                    </p>
+                </div>
+            </div>
+
             <!-- Detecções recentes -->
             <div class="glass-table-container border-slate-200 dark:border-white/5">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between flex-wrap gap-2">
                     <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">
                         Detecções (<span id="totalCount" class="text-indigo-500">—</span>)
                     </h3>
-                    <div class="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest">
+                    <div class="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest flex-wrap">
+                        <select id="filterCategory" class="glass-input text-[10px] !py-1">
+                            <option value="">Todos os detectores</option>
+                            <option value="anomaly_dga">DGA</option>
+                            <option value="anomaly_nxdomain_spike">NXDOMAIN spike</option>
+                            <option value="anomaly_new_client">Cliente novo</option>
+                            <option value="anomaly_tunneling">Tunneling</option>
+                            <option value="anomaly_beacon">Beaconing</option>
+                            <option value="anomaly_suspicious_tld">Suspicious TLD</option>
+                            <option value="anomaly_baseline_high">Baseline ↑</option>
+                            <option value="anomaly_baseline_low">Baseline ↓</option>
+                        </select>
                         <label class="inline-flex items-center gap-1 cursor-pointer">
                             <input type="checkbox" id="includeResolved" class="rounded text-indigo-500">
                             <span class="text-slate-500">Incluir resolvidas</span>
@@ -91,11 +174,12 @@ $currentPage = 'anomalies.php';
                                 <th class="w-40">Quando</th>
                                 <th class="w-32">Tipo</th>
                                 <th>Detecção</th>
-                                <th class="w-20">Status</th>
+                                <th class="w-24">Status</th>
+                                <th class="w-16"></th>
                             </tr>
                         </thead>
                         <tbody id="recentBody">
-                            <tr><td colspan="4" class="px-6 py-12 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Carregando...</td></tr>
+                            <tr><td colspan="5" class="px-6 py-12 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Carregando...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -267,13 +351,13 @@ $currentPage = 'anomalies.php';
     async function loadRecent() {
         const include = document.getElementById('includeResolved').checked;
         const tbody = document.getElementById('recentBody');
-        tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-12 text-center"><div class="w-6 h-6 mx-auto border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div></td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-12 text-center"><div class="w-6 h-6 mx-auto border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div></td></tr>`;
         try {
             const res = await fetch(`/api/v1/analytics/anomaly/recent?limit=100&include_resolved=${include}`, { headers: H });
             const data = await res.json();
             renderRecent(data.items || []);
         } catch (err) {
-            tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro: ${err.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro: ${err.message}</td></tr>`;
         }
     }
 
@@ -284,31 +368,59 @@ $currentPage = 'anomalies.php';
         'anomaly_tunneling':        { label: 'Tunneling',        color: 'rose' },
         'anomaly_beacon':           { label: 'Beaconing',        color: 'purple' },
         'anomaly_suspicious_tld':   { label: 'Suspicious TLD',   color: 'amber' },
+        'anomaly_baseline_high':    { label: 'Baseline ↑',       color: 'fuchsia' },
+        'anomaly_baseline_low':     { label: 'Baseline ↓',       color: 'cyan' },
     };
 
+    let _RECENT_ITEMS = [];
+
     function renderRecent(items) {
+        _RECENT_ITEMS = items;
         const tbody = document.getElementById('recentBody');
-        document.getElementById('totalCount').textContent = items.length;
-        if (!items.length) {
-            tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-12 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Nenhuma detecção ${document.getElementById('includeResolved').checked ? '' : 'ativa'}</td></tr>`;
+        const filter = document.getElementById('filterCategory').value;
+        const filtered = filter ? items.filter(it => it.category === filter) : items;
+        document.getElementById('totalCount').textContent = filtered.length + (filter && items.length !== filtered.length ? ` / ${items.length}` : '');
+        if (!filtered.length) {
+            tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-12 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Nenhuma detecção ${document.getElementById('includeResolved').checked ? '' : 'ativa'}${filter ? ' (filtro aplicado)' : ''}</td></tr>`;
             return;
         }
-        tbody.innerHTML = items.map(it => {
+        tbody.innerHTML = filtered.map(it => {
             const cat = CATEGORY_INFO[it.category] || { label: it.category, color: 'slate' };
             const d = it.started_at ? new Date(it.started_at) : null;
             const when = d ? (d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'}) + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit', second:'2-digit'})) : '—';
             const status = it.resolved_at
                 ? `<span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">Resolvida</span>`
                 : `<span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-${cat.color}-500/15 text-${cat.color}-600 dark:text-${cat.color}-400 border border-${cat.color}-500/30">Ativa</span>`;
+            const ackBtn = (IS_ADMIN && !it.resolved_at)
+                ? `<button class="btn-ack text-emerald-500 hover:text-emerald-700 text-[10px] uppercase font-black tracking-widest" data-id="${it.id}" title="Marcar como resolvida">✓ Ack</button>`
+                : '';
             return `
             <tr>
                 <td class="text-[11px] font-mono text-slate-500">${when}</td>
                 <td><span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-${cat.color}-500/15 text-${cat.color}-600 dark:text-${cat.color}-400 border border-${cat.color}-500/30">${cat.label}</span></td>
                 <td class="text-xs">${escapeHtml(it.message)}</td>
                 <td>${status}</td>
+                <td>${ackBtn}</td>
             </tr>`;
         }).join('');
+        tbody.querySelectorAll('.btn-ack').forEach(b => {
+            b.addEventListener('click', async (e) => {
+                const id = e.target.dataset.id;
+                e.target.disabled = true;
+                try {
+                    const r = await fetch('/api/v1/alerts/' + id + '/resolve', { method: 'POST', headers: H });
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    toast('Detecção resolvida', 'success');
+                    loadRecent();
+                } catch (err) {
+                    e.target.disabled = false;
+                    toast('Falha: ' + err.message, 'error');
+                }
+            });
+        });
     }
+
+    document.getElementById('filterCategory').addEventListener('change', () => renderRecent(_RECENT_ITEMS));
 
     // ============ Handlers ============
     document.getElementById('toggleEnabled').addEventListener('change', async (e) => {
@@ -359,8 +471,13 @@ $currentPage = 'anomalies.php';
     document.getElementById('btnDismissAll')?.addEventListener('click', async () => {
         const ok = await customConfirm('Marcar todas detecções ativas como resolvidas?', 'Resolver todas?');
         if (!ok) return;
-        // Não temos endpoint pra bulk-resolve; faço via individual update via alerts.php API se houver, ou chamo direto via DB. Simplificando — só recarrega após hint.
-        toast('Use o painel de Alertas pra resolver individualmente, ou aguarde auto-resolução.', 'info');
+        try {
+            const r = await fetch('/api/v1/analytics/anomaly/resolve-all', { method: 'POST', headers: H });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const d = await r.json();
+            toast(`${d.resolved || 0} detecção(ões) resolvidas`, 'success');
+            loadRecent();
+        } catch (err) { toast('Falha: ' + err.message, 'error'); }
     });
 
     function escapeHtml(s) {
@@ -429,9 +546,157 @@ $currentPage = 'anomalies.php';
         } catch (err) { toast('Falha: ' + err.message, 'error'); }
     });
 
+    // ============ Baseline ML (v2.79) ============
+    const DOW_LABELS = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']; // DuckDB DOW: 0=Sun..6=Sat
+
+    function colorForAvg(avg, maxAvg) {
+        if (!avg || maxAvg <= 0) return 'background-color: rgb(226 232 240 / 0.5)';
+        const ratio = Math.min(1, avg / maxAvg);
+        // gradiente indigo: claro → escuro
+        const r = Math.round(199 - 120 * ratio);   // 199 → 79
+        const g = Math.round(210 - 140 * ratio);   // 210 → 70
+        const b = Math.round(254 - 25  * ratio);   // 254 → 229
+        return `background-color: rgb(${r} ${g} ${b}); color: ${ratio > 0.5 ? 'white' : '#475569'};`;
+    }
+
+    async function loadBaseline() {
+        try {
+            const [bRes, cRes, sRes] = await Promise.all([
+                fetch('/api/v1/analytics/anomaly/baseline', { headers: H }),
+                fetch('/api/v1/analytics/anomaly/baseline/current', { headers: H }),
+                fetch('/api/v1/analytics/anomaly/settings', { headers: H }),
+            ]);
+            const b = await bRes.json();
+            const c = await cRes.json();
+            const s = await sRes.json();
+
+            // Inputs / toggle
+            const enabled = (s.settings.anomaly_baseline_enabled || '0') === '1';
+            document.getElementById('toggleBaselineEnabled').checked = enabled;
+            updateBaselinePanel(enabled);
+            document.getElementById('baselineSigma').value = s.settings.anomaly_baseline_sigma || '3.0';
+            document.getElementById('baselineWeeks').value = s.settings.anomaly_baseline_window_weeks || '4';
+            document.getElementById('baselineMinSamples').value = s.settings.anomaly_baseline_min_samples || '3';
+
+            // Status text
+            const lastRun = b.last_run ? new Date(b.last_run).toLocaleString('pt-BR') : 'nunca';
+            const learnedCount = b.buckets_learned || (b.buckets || []).length;
+            const txt = document.getElementById('baselineStatusText');
+            if (learnedCount === 0) {
+                txt.innerHTML = `<span class="text-amber-500">Sem baseline aprendido ainda.</span> Treina 1×/dia ou clique em "Re-treinar agora" se já tem dados.`;
+            } else {
+                txt.innerHTML = `Último treino: <b>${escapeHtml(lastRun)}</b> · <b>${learnedCount}/168</b> buckets com baseline`;
+                if (c.current && c.baseline && c.deviation_sigma !== null) {
+                    const dev = c.deviation_sigma.toFixed(2);
+                    const sign = c.deviation_sigma >= 0 ? '+' : '';
+                    const cls = Math.abs(c.deviation_sigma) >= c.sigma_threshold ? 'text-red-500' : 'text-emerald-500';
+                    txt.innerHTML += ` · Hora atual: <span class="${cls} font-mono">${sign}${dev}σ</span> do baseline`;
+                }
+            }
+
+            // Heatmap
+            renderHeatmap(b.buckets || [], c);
+        } catch (err) {
+            console.error('baseline', err);
+            document.getElementById('baselineStatusText').textContent = 'Falha: ' + err.message;
+        }
+    }
+
+    function updateBaselinePanel(enabled) {
+        const panel = document.getElementById('baselinePanel');
+        const label = document.getElementById('baselineEnabledLabel');
+        if (enabled) {
+            panel.classList.remove('border-amber-500');
+            panel.classList.add('border-emerald-500');
+            if (label) { label.textContent = 'Ativo'; label.classList.remove('text-slate-500'); label.classList.add('text-emerald-600', 'dark:text-emerald-400'); }
+        } else {
+            panel.classList.remove('border-emerald-500');
+            panel.classList.add('border-amber-500');
+            if (label) { label.textContent = 'Pausado'; label.classList.add('text-slate-500'); label.classList.remove('text-emerald-600', 'dark:text-emerald-400'); }
+        }
+    }
+
+    function renderHeatmap(buckets, current) {
+        const container = document.getElementById('baselineHeatmap');
+        // Mapa (dow, hod) → bucket
+        const map = {};
+        let maxAvg = 0;
+        buckets.forEach(b => {
+            map[b.day_of_week + ':' + b.hour_of_day] = b;
+            if (b.avg_queries > maxAvg) maxAvg = b.avg_queries;
+        });
+        const curHod = current?.current?.hour_of_day;
+        const curDow = current?.current?.day_of_week;
+
+        let html = '<table class="border-collapse"><thead><tr><th class="px-1 py-1"></th>';
+        for (let h = 0; h < 24; h++) {
+            html += `<th class="px-1 py-1 text-[9px] font-bold text-slate-400">${String(h).padStart(2,'0')}</th>`;
+        }
+        html += '</tr></thead><tbody>';
+        for (let d = 0; d < 7; d++) {
+            html += `<tr><td class="px-2 py-1 text-[9px] font-black text-slate-400">${DOW_LABELS[d]}</td>`;
+            for (let h = 0; h < 24; h++) {
+                const b = map[d + ':' + h];
+                const isCurrent = (d === curDow && h === curHod);
+                const ring = isCurrent ? 'box-shadow: inset 0 0 0 2px rgb(245 158 11);' : '';
+                if (b) {
+                    const style = colorForAvg(b.avg_queries, maxAvg);
+                    const tip = `${DOW_LABELS[d]} ${String(h).padStart(2,'0')}h · avg=${Math.round(b.avg_queries).toLocaleString('pt-BR')} qph · σ=${Math.round(b.stddev_queries)} · n=${b.sample_count}`;
+                    html += `<td class="w-6 h-6 text-center cursor-pointer hover:opacity-80" style="${style}${ring}" title="${escapeHtml(tip)}">${Math.round(b.avg_queries/1000)>=1?Math.round(b.avg_queries/1000)+'k':Math.round(b.avg_queries)}</td>`;
+                } else {
+                    html += `<td class="w-6 h-6 bg-slate-200 dark:bg-slate-800/40" style="${ring}" title="${DOW_LABELS[d]} ${String(h).padStart(2,'0')}h · sem amostras">·</td>`;
+                }
+            }
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    document.getElementById('toggleBaselineEnabled')?.addEventListener('change', async (e) => {
+        try {
+            await fetch('/api/v1/analytics/anomaly/settings', { method: 'PUT', headers: HJ, body: JSON.stringify({ anomaly_baseline_enabled: e.target.checked ? '1' : '0' }) });
+            updateBaselinePanel(e.target.checked);
+            toast(`Baseline ${e.target.checked ? 'ativado' : 'pausado'}`, 'success');
+        } catch (err) {
+            e.target.checked = !e.target.checked;
+            toast('Falha: ' + err.message, 'error');
+        }
+    });
+
+    document.getElementById('btnSaveBaseline')?.addEventListener('click', async () => {
+        const body = {
+            anomaly_baseline_sigma: document.getElementById('baselineSigma').value.trim(),
+            anomaly_baseline_window_weeks: document.getElementById('baselineWeeks').value.trim(),
+            anomaly_baseline_min_samples: document.getElementById('baselineMinSamples').value.trim(),
+        };
+        try {
+            const res = await fetch('/api/v1/analytics/anomaly/settings', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
+            const data = await res.json();
+            toast(`${data.updated} setting(s) baseline atualizado(s)`, 'success');
+        } catch (err) { toast('Falha: ' + err.message, 'error'); }
+    });
+
+    document.getElementById('btnLearnNow')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btnLearnNow');
+        btn.disabled = true;
+        const span = btn.querySelector('span');
+        const orig = span.textContent;
+        span.textContent = 'Treinando...';
+        try {
+            const res = await fetch('/api/v1/analytics/anomaly/baseline/learn-now', { method: 'POST', headers: H });
+            const data = await res.json();
+            if (!res.ok || data.ok === false) throw new Error(data.error || ('HTTP ' + res.status));
+            toast(`Baseline aprendido: ${data.learned || 0} buckets (${data.weeks || '?'}w)`, 'success');
+            await loadBaseline();
+        } catch (err) { toast('Falha: ' + err.message, 'error'); }
+        finally { btn.disabled = false; span.textContent = orig; }
+    });
+
     loadSettings();
     loadRecent();
     loadWhitelist();
+    loadBaseline();
 })();
 </script>
 

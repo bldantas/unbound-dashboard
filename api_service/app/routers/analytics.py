@@ -207,10 +207,16 @@ _ANOMALY_KEYS = [
     "anomaly_suspicious_tld_window_seconds",
     "anomaly_suspicious_tld_min_count",
     "anomaly_suspicious_tld_list",
+    # Baseline ML (v2.79)
+    "anomaly_baseline_enabled",
+    "anomaly_baseline_sigma",
+    "anomaly_baseline_window_weeks",
+    "anomaly_baseline_min_samples",
 ]
 
 _VALID_DETECTORS = {
     "", "dga", "nxdomain", "new_client", "tunneling", "beaconing", "suspicious_tld",
+    "baseline_deviation",
 }
 _VALID_KINDS = {"client_ip", "domain", "client_and_domain"}
 
@@ -380,6 +386,141 @@ async def delete_anomaly_whitelist(
     await db_execute("DELETE FROM anomaly_whitelist WHERE id = ?", [int(wid)])
     _whitelist_invalidate()
     return {"ok": True}
+
+
+# ---- Baseline ML (v2.79) ----
+
+
+@router.get("/anomaly/baseline")
+async def get_anomaly_baseline(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+) -> dict:
+    """Retorna 168 buckets (hour_of_day × day_of_week) com avg/stddev/n + meta."""
+    from app.repositories.duckdb import settings_repo
+    from app.repositories.duckdb.connection import db_fetchall
+
+    rows = await db_fetchall(
+        """
+        SELECT hour_of_day, day_of_week, sample_count,
+               avg_queries, stddev_queries, avg_blocked, stddev_blocked, learned_at
+        FROM anomaly_baseline
+        ORDER BY day_of_week, hour_of_day
+        """,
+    )
+    last_run = await settings_repo.get("anomaly_baseline_last_run", "")
+    buckets_learned = await settings_repo.get("anomaly_baseline_buckets_learned", "0")
+    return {
+        "buckets": [
+            {
+                "hour_of_day": int(r["hour_of_day"]),
+                "day_of_week": int(r["day_of_week"]),
+                "sample_count": int(r["sample_count"] or 0),
+                "avg_queries": float(r["avg_queries"] or 0),
+                "stddev_queries": float(r["stddev_queries"] or 0),
+                "avg_blocked": float(r["avg_blocked"] or 0),
+                "stddev_blocked": float(r["stddev_blocked"] or 0),
+                "learned_at": r["learned_at"].isoformat() if r.get("learned_at") else None,
+            }
+            for r in rows
+        ],
+        "last_run": last_run or "",
+        "buckets_learned": int(buckets_learned or 0),
+        "total_buckets": 168,
+    }
+
+
+@router.get("/anomaly/baseline/current")
+async def get_anomaly_baseline_current(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+) -> dict:
+    """Última hora completa vs baseline do mesmo bucket. Útil pra mostrar
+    "onde estamos" no heatmap em tempo real."""
+    from app.repositories.duckdb import settings_repo
+    from app.repositories.duckdb.connection import db_fetchone
+
+    row = await db_fetchone(
+        """
+        SELECT hour_start, total_queries, blocked_count,
+               EXTRACT(HOUR FROM to_timestamp(hour_start)) AS hod,
+               EXTRACT(DOW  FROM to_timestamp(hour_start)) AS dow
+        FROM hourly_stats
+        WHERE hour_start < epoch(date_trunc('hour', now()))
+        ORDER BY hour_start DESC
+        LIMIT 1
+        """,
+        [],
+    )
+    if not row:
+        return {"current": None, "baseline": None, "deviation_sigma": None}
+
+    hod, dow = int(row["hod"]), int(row["dow"])
+    qhour = int(row["total_queries"] or 0)
+    bhour = int(row["blocked_count"] or 0)
+
+    bl = await db_fetchone(
+        "SELECT avg_queries, stddev_queries, avg_blocked, stddev_blocked, sample_count "
+        "FROM anomaly_baseline WHERE hour_of_day = ? AND day_of_week = ?",
+        [hod, dow],
+    )
+    sigma = float(await settings_repo.get("anomaly_baseline_sigma", "3.0") or "3.0")
+    out = {
+        "current": {
+            "hour_of_day": hod,
+            "day_of_week": dow,
+            "total_queries": qhour,
+            "blocked_count": bhour,
+            "hour_start": int(row["hour_start"] or 0),
+        },
+        "baseline": None,
+        "deviation_sigma": None,
+        "sigma_threshold": sigma,
+    }
+    if bl:
+        avg = float(bl["avg_queries"] or 0)
+        sd = float(bl["stddev_queries"] or 0)
+        out["baseline"] = {
+            "avg_queries": avg,
+            "stddev_queries": sd,
+            "avg_blocked": float(bl["avg_blocked"] or 0),
+            "stddev_blocked": float(bl["stddev_blocked"] or 0),
+            "sample_count": int(bl["sample_count"] or 0),
+            "upper_threshold": avg + sigma * sd,
+            "lower_threshold": max(0.0, avg - sigma * sd),
+        }
+        if sd > 0:
+            out["deviation_sigma"] = (qhour - avg) / sd
+    return out
+
+
+@router.post("/anomaly/baseline/learn-now")
+async def anomaly_baseline_learn_now(
+    request: Request,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Força re-treino do BaselineLearner (1 ciclo). Idempotente."""
+    learner = getattr(request.app.state, "baseline_learner", None)
+    if learner is None:
+        return {"ok": False, "error": "baseline_learner não registrado"}
+    result = await learner.run_now()
+    return {"ok": True, **result}
+
+
+@router.post("/anomaly/resolve-all")
+async def anomaly_resolve_all(
+    _: Annotated[dict, Depends(require_capability("alerts.resolve"))],
+) -> dict:
+    """Marca todas as detecções anomaly_* ativas como resolved_at=NOW()."""
+    from app.repositories.duckdb.connection import db_execute, db_fetchone
+
+    cnt_row = await db_fetchone(
+        "SELECT COUNT(*) AS n FROM alerts WHERE type LIKE 'anomaly_%' AND resolved_at IS NULL"
+    )
+    n = int((cnt_row or {}).get("n", 0))
+    if n > 0:
+        await db_execute(
+            "UPDATE alerts SET resolved_at = NOW() WHERE type LIKE 'anomaly_%' AND resolved_at IS NULL"
+        )
+    return {"resolved": n}
 
 
 @router.get("/queries/export-csv")

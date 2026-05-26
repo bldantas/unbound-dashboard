@@ -68,6 +68,11 @@ DEFAULTS = {
     "anomaly_suspicious_tld_window_seconds": "3600",   # 1h
     "anomaly_suspicious_tld_min_count":      "20",     # queries non-blocked pro cliente
     "anomaly_suspicious_tld_list":           ".xyz,.top,.tk,.ml,.ga,.cf,.gq,.icu,.work,.click,.download,.stream,.country,.review,.zip,.mov,.rest",
+    # Baseline ML (v2.79)
+    "anomaly_baseline_enabled":              "0",      # opt-in (depende de hourly_stats com >= min_samples)
+    "anomaly_baseline_sigma":                "3.0",    # N desvios padrão pra alertar
+    "anomaly_baseline_window_weeks":         "4",      # quantas semanas pra treinar
+    "anomaly_baseline_min_samples":          "3",      # mínimo de amostras por bucket
 }
 
 
@@ -530,9 +535,9 @@ async def _check_baseline_deviation() -> int:
     Alerta se total_queries excede `avg + N * stddev` ou
     `avg - N * stddev` (N configurável, default 3).
     """
-    if not await _setting_bool("anomaly_baseline_enabled", "0"):
+    if not await _setting_bool("anomaly_baseline_enabled", DEFAULTS["anomaly_baseline_enabled"]):
         return 0
-    n_sigma = await _setting_float("anomaly_baseline_sigma", "3.0")
+    n_sigma = await _setting_float("anomaly_baseline_sigma", DEFAULTS["anomaly_baseline_sigma"])
 
     # Última hora completa = hora atual menos 1h (hour_start no DB é
     # truncado a hora, então o último completo é o anterior à hora corrente)
