@@ -33,6 +33,7 @@ from app.routers import (
     history,
     host,
     hosts,
+    observability,
     policies,
     stats,
     threats,
@@ -199,6 +200,7 @@ app.include_router(health.router)
 app.include_router(history.router)
 app.include_router(host.router)
 app.include_router(hosts.router)
+app.include_router(observability.router)
 app.include_router(policies.router)
 app.include_router(stats.router)
 app.include_router(threats.router)

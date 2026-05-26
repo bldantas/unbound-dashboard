@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.40.0 — 2026-05-26
+
+### feat(observability): página dedicada com KPIs, séries temporais e status de workers
+
+`/observability.php` nova. Reúne em uma só tela o que estava espalhado:
+
+- **6 cards KPI** — QPS, hit ratio %, latência avg, latência mediana,
+  DNSSEC %, uptime. Lê `/api/v1/unbound/stats` (cache 60s).
+- **Gráfico latência 1h** — avg vs median, 60 samples (line). Consome a
+  série temporal já produzida pelo UnboundCollector.
+- **Gráfico QPM 1h** — hits vs miss empilhados (bar), derivados dos
+  counters do mesmo time_series.
+- **Gráfico queries/h 24h** — total vs blocked (line). Usa
+  `hourly_stats` da V12 introduzida em v2.39.0.
+- **Tabela workers** — 10 workers em background, badge running/done,
+  tick (s/min/h), última execução relativa ("3min atrás"),
+  descrição + extras (active_alerts, last_deleted, etc).
+
+#### Endpoints novos
+
+- `GET /api/v1/observability/time-series` — espelha `time_series.json`
+- `GET /api/v1/observability/workers` — agrega status das tasks
+  (`asyncio.all_tasks`) + last_run conhecido (settings, latest_stats,
+  blocklist_sources, managed_hosts, alerts)
+
+Auto-refresh a cada 30s. Sidebar ganhou entrada "Observabilidade" logo
+após "Cache DNS".
+
 ## v2.39.0 — 2026-05-26
 
 ### feat(retention): hourly rollups + prune configurável de query_logs
