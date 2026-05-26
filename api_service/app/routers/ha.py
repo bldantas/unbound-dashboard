@@ -54,8 +54,9 @@ async def create_peer(
     api_url = str(body.get("api_url", "")).strip()
     role = str(body.get("role", "secondary"))
     priority = int(body.get("priority", 100))
+    keep_raw = bool(body.get("keep_raw", False))
     try:
-        out = await ha_service.create_peer(label, api_url, role, priority)
+        out = await ha_service.create_peer(label, api_url, role, priority, keep_raw=keep_raw)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await admin_audit_service.log(

@@ -1,5 +1,70 @@
 # Changelog
 
+## v2.71.0 — 2026-05-26
+
+### feat(secrets): cipher_service com Fernet + cifra OIDC + HA tokens
+
+Fecha duas dívidas técnicas registradas como TODO nas v2.64 e v2.65:
+- OIDC `client_secret` em texto plano no DB
+- HA peers só guardavam bcrypt (sem como autenticar healthcheck)
+
+Master key via env var `SECRETS_MASTER_KEY` (32-byte urlsafe Fernet).
+Gere com: `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
+
+#### Service `cipher_service`
+
+- `is_available()` — true se key configurada e válida
+- `encrypt(plaintext)` — retorna `"enc:v1:<fernet-token>"`. Sem key,
+  fallback plaintext + warning log
+- `decrypt(value)` — se prefixado com `enc:v1:`, decifra; senão
+  retorna inalterado (legacy plaintext compat)
+- `is_encrypted(value)`, `status()`
+- Cache do objeto Fernet (instancia 1x)
+
+#### Migration V20 `secrets_encryption`
+
+- `ALTER TABLE oidc_config ADD COLUMN client_secret_encrypted`
+- `ALTER TABLE ha_peers ADD COLUMN api_token_raw_encrypted`
+- Colunas legacy mantidas pra rollback; aplicação prioriza encrypted no read
+
+#### Wires
+
+- **oidc_service**: `update_config` cifra `client_secret` antes do INSERT
+  e zera a coluna legacy. `get_config` decifra ao retornar. Compat com
+  rows antigos plaintext via fallback.
+- **ha_service**: `create_peer` agora aceita `keep_raw=True` (default
+  False). Quando true, guarda o token raw cifrado em
+  `api_token_raw_encrypted` pra healthcheck autenticado.
+- **HAPeerMonitor**: `check_peer` decifra o token quando disponível e
+  envia `X-Api-Token` + `Authorization: Bearer` — peers com /health
+  protegido agora retornam `ok` em vez de `unauthorized`.
+
+#### Endpoint admin `GET /api/v1/admin/secrets-store/status`
+
+Retorna `{available, prefix, algorithm, key_source, secrets_inventory}`.
+Inventory mostra quantos OIDC secrets estão cifrados vs legacy e
+quantos HA peers têm raw cifrado.
+
+#### UI
+
+- `/sso.php`: banner colorido (verde se ativo, âmbar com instruções
+  se inativo) + indicador no campo client_secret (🔐 cifrado vs
+  🔓 plaintext)
+- `/cluster.php`: toggle "🔐 Healthcheck autenticado" no form de
+  novo peer
+
+#### Aviso na inicialização
+
+Se `SECRETS_MASTER_KEY` não está configurada, log warning
+`secrets_store.master_key_missing` com hint de como gerar.
+
+#### Testes
+
+`test_cipher_service.py` — 12 casos: is_available com/sem key,
+encrypt fallback, prefix, roundtrip com UTF-8/special chars, legacy
+passthrough, empty handling, invalid token, key faltando após cifrar,
+status payload, master key inválida.
+
 ## v2.70.0 — 2026-05-26
 
 ### feat(external-health): monitor SLA externo + script standalone

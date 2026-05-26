@@ -36,10 +36,7 @@ $currentPage = 'sso.php';
                 <p class="page-subtitle">Integração com IdPs OpenID Connect (Google Workspace, Microsoft Entra ID, Keycloak, Authentik, etc) via Authorization Code flow.</p>
             </header>
 
-            <div class="glass-panel border-amber-200 dark:border-amber-500/30 bg-amber-50/40 dark:bg-amber-500/5 mb-6 p-4 text-xs">
-                <p class="text-amber-700 dark:text-amber-300 font-black uppercase tracking-widest text-[10px] mb-1">⚠ Aviso</p>
-                <p class="text-slate-600 dark:text-slate-400">O <code>client_secret</code> é armazenado em texto plano no DB nesta versão. Pra produção sensível, considere migrar pra secrets store cifrado (TODO).</p>
-            </div>
+            <div id="secretsBanner" class="hidden glass-panel mb-6 p-4 text-xs"></div>
 
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
@@ -131,9 +128,30 @@ $currentPage = 'sso.php';
         $('sDomains').value = d.allowed_email_domains || '';
         $('sAutoCreate').checked = !!d.auto_create_users;
         $('sDefaultRole').value = d.default_role || 'viewer';
-        $('secretStatus').textContent = d.has_secret
-            ? '🔒 Secret cadastrado (vazio = preserva).'
-            : '⚠ Nenhum secret cadastrado.';
+        if (d.has_secret) {
+            $('secretStatus').textContent = d.secret_encrypted
+                ? '🔐 Secret cifrado (vazio no input = preserva).'
+                : '🔓 Secret em texto plano (vazio = preserva). Re-salve pra cifrar.';
+        } else {
+            $('secretStatus').textContent = '⚠ Nenhum secret cadastrado.';
+        }
+    }
+
+    async function loadSecretsBanner() {
+        const r = await fetch('/api/v1/admin/secrets-store/status', { headers: H });
+        if (!r.ok) return;
+        const s = await r.json();
+        const banner = $('secretsBanner');
+        if (s.available) {
+            banner.className = 'glass-panel border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-500/5 mb-6 p-4 text-xs';
+            banner.innerHTML = `<p class="text-emerald-700 dark:text-emerald-300 font-black uppercase tracking-widest text-[10px] mb-1">🔐 Secrets store ativo</p>
+                <p class="text-slate-600 dark:text-slate-400">Algoritmo: <code>${s.algorithm}</code>. Source: <code>${s.key_source}</code>.</p>`;
+        } else {
+            banner.className = 'glass-panel border-amber-200 dark:border-amber-500/30 bg-amber-50/40 dark:bg-amber-500/5 mb-6 p-4 text-xs';
+            banner.innerHTML = `<p class="text-amber-700 dark:text-amber-300 font-black uppercase tracking-widest text-[10px] mb-1">⚠ Secrets store inativo</p>
+                <p class="text-slate-600 dark:text-slate-400"><code>SECRETS_MASTER_KEY</code> não está configurada — client_secret será gravado em texto plano. Gere com <code>python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'</code> e adicione no <code>/etc/unbound-dashboard/api-v1.env</code>.</p>`;
+        }
+        banner.classList.remove('hidden');
     }
 
     $('btnSave').addEventListener('click', async () => {
@@ -161,6 +179,7 @@ $currentPage = 'sso.php';
     });
 
     load();
+    loadSecretsBanner();
 })();
 </script>
 

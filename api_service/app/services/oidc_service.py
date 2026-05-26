@@ -13,7 +13,8 @@ Authentik, etc). Flow:
 6. Emite JWT local + redireciona pra UI
 
 NÃO usa PKCE (TODO se IdP exigir).
-NÃO cifra client_secret em DB (TODO secrets store).
+client_secret é cifrado via cipher_service (Fernet) se SECRETS_MASTER_KEY
+estiver configurada — fallback plaintext sem ela.
 """
 
 from __future__ import annotations
@@ -42,9 +43,14 @@ _JWKS_CACHE_TTL = 3600.0
 # ---------- Config ----------
 
 async def get_config(include_secret: bool = False) -> dict:
+    from app.services import cipher_service
     row = await db_fetchone("SELECT * FROM oidc_config WHERE id = 1", [])
     if not row:
         return {"enabled": False}
+    # Prioriza encrypted; fallback legacy plaintext
+    encrypted = row.get("client_secret_encrypted") or ""
+    legacy = row.get("client_secret") or ""
+    has_secret = bool(encrypted or legacy)
     out = {
         "enabled": bool(row.get("enabled")),
         "issuer_url": row.get("issuer_url") or "",
@@ -53,20 +59,25 @@ async def get_config(include_secret: bool = False) -> dict:
         "allowed_email_domains": row.get("allowed_email_domains") or "",
         "auto_create_users": bool(row.get("auto_create_users")),
         "default_role": row.get("default_role") or "viewer",
-        "has_secret": bool(row.get("client_secret")),
+        "has_secret": has_secret,
+        "secret_encrypted": bool(encrypted),
         "updated_at": row["updated_at"].isoformat() if isinstance(row.get("updated_at"), datetime) else None,
     }
     if include_secret:
-        out["client_secret"] = row.get("client_secret") or ""
+        if encrypted:
+            out["client_secret"] = cipher_service.decrypt(encrypted)
+        else:
+            out["client_secret"] = legacy
     return out
 
 
 async def update_config(body: dict) -> dict:
+    from app.services import cipher_service
     fields = []
     params: list = []
     allowed = {
         "enabled": "BOOLEAN", "issuer_url": "STR", "client_id": "STR",
-        "client_secret": "STR", "scopes": "STR",
+        "client_secret": "SECRET", "scopes": "STR",
         "allowed_email_domains": "STR", "auto_create_users": "BOOLEAN",
         "default_role": "ROLE",
     }
@@ -84,7 +95,14 @@ async def update_config(body: dict) -> dict:
             if k == "issuer_url":
                 v = v.rstrip("/")
         # Não sobrescrever client_secret com string vazia (preserva o atual)
-        if k == "client_secret" and v == "":
+        if typ == "SECRET":
+            if v == "":
+                continue
+            # Cifra e grava na coluna _encrypted; zera a legacy
+            fields.append("client_secret_encrypted = ?")
+            params.append(cipher_service.encrypt(v))
+            fields.append("client_secret = ?")
+            params.append("")
             continue
         fields.append(f"{k} = ?")
         params.append(v)

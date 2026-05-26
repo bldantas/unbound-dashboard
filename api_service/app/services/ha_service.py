@@ -53,6 +53,7 @@ def _row_to_dict(r: dict, include_token_hash: bool = False) -> dict:
         "role": r["role"],
         "priority": int(r.get("priority", 100)),
         "enabled": bool(r["enabled"]),
+        "has_raw_token": bool(r.get("api_token_raw_encrypted")),
         "last_check_at": _to_iso(r.get("last_check_at")),
         "last_check_status": r.get("last_check_status"),
         "last_check_latency_ms": r.get("last_check_latency_ms"),
@@ -75,8 +76,15 @@ async def list_peers() -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
-async def create_peer(label: str, api_url: str, role: str, priority: int = 100) -> dict:
-    """Gera token raw + salva hash. Retorna o raw 1x (depois nunca mais)."""
+async def create_peer(label: str, api_url: str, role: str, priority: int = 100, keep_raw: bool = False) -> dict:
+    """Gera token raw + salva hash. Retorna o raw 1x.
+
+    Se `keep_raw=True`, também guarda o raw cifrado (cipher_service) em
+    `api_token_raw_encrypted` — usado pelo HAPeerMonitor pra healthcheck
+    autenticado contra `/api/v1/health` do peer.
+    """
+    from app.services import cipher_service
+
     label = label.strip()
     api_url = api_url.strip().rstrip("/")
     if role not in VALID_ROLES:
@@ -86,17 +94,19 @@ async def create_peer(label: str, api_url: str, role: str, priority: int = 100) 
 
     raw_token = secrets.token_urlsafe(32)
     token_hash = bcrypt.hashpw(raw_token.encode(), bcrypt.gensalt()).decode()
+    encrypted = cipher_service.encrypt(raw_token) if keep_raw else None
 
     await db_execute(
         """
-        INSERT INTO ha_peers (label, api_url, api_token_hash, role, priority)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO ha_peers (label, api_url, api_token_hash, api_token_raw_encrypted, role, priority)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        [label, api_url, token_hash, role, int(priority)],
+        [label, api_url, token_hash, encrypted, role, int(priority)],
     )
     row = await db_fetchone("SELECT * FROM ha_peers WHERE label = ?", [label])
     out = _row_to_dict(row)
     out["api_token"] = raw_token  # 1x — UI exibe pra copiar
+    out["keep_raw"] = bool(keep_raw)
     return out
 
 
@@ -137,31 +147,35 @@ async def delete_peer(peer_id: int) -> bool:
 # ---------- Healthcheck ----------
 
 async def check_peer(peer_id: int) -> dict:
-    """GET <api_url>/api/v1/health com X-Api-Token. Atualiza last_check_*.
+    """GET <api_url>/api/v1/health. Atualiza last_check_*.
 
-    Como guardamos só o hash, NÃO podemos chamar o peer aqui — o caller
-    precisa passar o token raw. Pra healthcheck via worker, exportamos
-    tokens raws de um secret store futuro (ou skip e só roda manual).
-
-    Por enquanto: assume token raw vem do peer registrado externamente.
-    Sem token raw, marca status='unauthorized' e segue.
+    Se o peer foi criado com `keep_raw=True`, decifra o token e manda
+    via X-Api-Token (auth real). Senão, faz check anônimo — provável
+    `unauthorized` se /health for protegido.
     """
+    from app.services import cipher_service
+
     row = await db_fetchone("SELECT * FROM ha_peers WHERE id = ?", [int(peer_id)])
     if not row:
         return {"ok": False, "error": "peer not found"}
 
     api_url = row["api_url"]
+    encrypted_token = row.get("api_token_raw_encrypted")
+    headers: dict[str, str] = {}
+    if encrypted_token:
+        token = cipher_service.decrypt(encrypted_token)
+        if token:
+            headers["X-Api-Token"] = token
+            headers["Authorization"] = f"Bearer {token}"
+
     started = time.time()
     status = "down"
     payload = None
     latency_ms = None
 
-    # Não temos token raw aqui — fazemos check anônimo (vai dar 401 se a API
-    # requer auth, ou 200 se /health for público). Healthcheck mais sofisticado
-    # exigiria um secrets table separado.
     try:
         async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT, verify=False) as client:
-            r = await client.get(f"{api_url}/api/v1/health")
+            r = await client.get(f"{api_url}/api/v1/health", headers=headers)
             latency_ms = int((time.time() - started) * 1000)
             if r.status_code == 200:
                 status = "ok"

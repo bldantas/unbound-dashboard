@@ -47,6 +47,7 @@ from app.routers import (
     oidc,
     policies,
     rate_limits,
+    secrets as secrets_router,
     stats,
     threats,
     updates,
@@ -114,6 +115,15 @@ async def lifespan(app: FastAPI):
 
     # Migrations DuckDB idempotentes
     run_migrations()
+
+    # Aviso se SECRETS_MASTER_KEY não está configurada (cifra de OIDC/HA secrets)
+    from app.services import cipher_service
+    if not cipher_service.is_available():
+        log.warning(
+            "secrets_store.master_key_missing",
+            hint="Defina SECRETS_MASTER_KEY no env pra cifrar OIDC client_secret + HA tokens. "
+                 "Gere: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'",
+        )
 
     # Rehidrata Redis com sessões persistidas no DuckDB (sobreviver restart Redis)
     try:
@@ -263,6 +273,7 @@ app.include_router(observability.router)
 app.include_router(oidc.router)
 app.include_router(policies.router)
 app.include_router(rate_limits.router)
+app.include_router(secrets_router.router)
 app.include_router(stats.router)
 app.include_router(threats.router)
 app.include_router(unbound_router.router)

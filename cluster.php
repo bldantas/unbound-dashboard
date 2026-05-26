@@ -106,6 +106,10 @@ $isAdmin = Auth::isAdmin();
                         <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Prioridade</span>
                         <input type="number" id="nPriority" value="100" min="0" max="1000" class="glass-input w-24 font-mono">
                     </label>
+                    <label class="flex items-center gap-2 cursor-pointer mb-1" title="Guarda o token cifrado pra que o HAPeerMonitor consiga autenticar nos healthchecks">
+                        <input type="checkbox" id="nKeepRaw" class="w-4 h-4">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">🔐 Healthcheck autenticado</span>
+                    </label>
                     <button type="button" id="btnCreate" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Adicionar</button>
                 </div>
             </div>
@@ -237,6 +241,7 @@ $isAdmin = Auth::isAdmin();
                 api_url: $('nUrl').value.trim(),
                 role: $('nRole').value,
                 priority: parseInt($('nPriority').value || '100', 10),
+                keep_raw: $('nKeepRaw').checked,
             };
             if (!body.label || !body.api_url) {
                 (window.customAlert || alert)('Label e URL obrigatórios.');
