@@ -67,3 +67,19 @@ async def update_ratelimit(
 ) -> dict:
     n = await dns_security_service.update_ratelimit_settings(body)
     return {"updated": n}
+
+
+@router.get("/privacy/settings")
+async def get_privacy(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+) -> dict:
+    return await dns_security_service.get_privacy_settings()
+
+
+@router.put("/privacy/settings")
+async def update_privacy(
+    body: dict,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    n = await dns_security_service.update_privacy_settings(body)
+    return {"updated": n}

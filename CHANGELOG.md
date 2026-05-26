@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.48.0 — 2026-05-26
+
+### feat(dns-privacy): qname-minimisation toggle + status DoH inbound
+
+Kickoff da Fase D. Toggle pra `qname-minimisation` (RFC 7816) e display
+informativo do DoH server.
+
+#### qname-minimisation
+
+3 modos: `no` (default), `yes` (relaxed), `strict` (RFC ao pé da letra).
+Emite `server:` block extra no `forwarders.conf` controlado pelo
+api_service — não conflita com `optimization.conf` gerenciado pelo PHP
+porque unbound merge múltiplos `server:` blocks.
+
+#### DoH Inbound (info-only)
+
+Mostra status atual: porta (`https-port` do general.conf) e URL pronta
+pra colar no Firefox/Chrome: `https://<hostname>:8443/dns-query`.
+Não edita config — só lê. Setup avançado fica pelo PHP/manual.
+
+#### Endpoints
+
+`GET/PUT /api/v1/dns-security/privacy/settings`
+
 ## v2.47.0 — 2026-05-26
 
 ### feat(geoip): enrichment IP→país + top países em Ameaças

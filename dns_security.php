@@ -98,6 +98,54 @@ $isAdmin = Auth::isAdmin();
                 </div>
             </div>
 
+            <!-- Privacidade (qname-minimisation) -->
+            <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
+                <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Privacidade (QNAME Minimisation)</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">RFC 7816: ao resolver `foo.example.com.`, o Unbound pergunta ao root só `com.`, depois ao TLD só `example.com.`, e só pro auth final pergunta o nome completo. Reduz vazamento pros operadores de DNS upstream. Modo `strict` segue o RFC ao pé da letra (mais privacidade, mas pode quebrar com auths mal-configurados).</p>
+                </div>
+                <div class="p-6">
+                    <div class="flex flex-wrap gap-6">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="qnameMode" value="no" id="qnNo" class="w-4 h-4">
+                            <span class="text-xs font-black uppercase tracking-widest">Off</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="qnameMode" value="yes" id="qnYes" class="w-4 h-4">
+                            <span class="text-xs font-black uppercase tracking-widest">Yes (relaxed)</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="qnameMode" value="strict" id="qnStrict" class="w-4 h-4">
+                            <span class="text-xs font-black uppercase tracking-widest">Strict (RFC 7816)</span>
+                        </label>
+                    </div>
+                </div>
+                <?php if ($isAdmin): ?>
+                <div class="px-6 py-4 border-t border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex flex-wrap gap-2 justify-end">
+                    <button type="button" id="btnQnSave" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Salvar</button>
+                    <button type="button" id="btnQnApply" class="glass-btn !bg-amber-600 !text-white text-[10px] uppercase font-black">Aplicar + Restart</button>
+                </div>
+                <?php endif; ?>
+            </div>
+
+            <!-- DoH inbound (info-only) -->
+            <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
+                <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">DoH Inbound (DNS-over-HTTPS server)</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Unbound aceita consultas DNS via HTTPS pra clientes (Firefox/Chrome configurados com URL). Configuração atual via `interfaces.conf` e `general.conf` (gerenciados pelo PHP — não editáveis aqui).</p>
+                </div>
+                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Porta</p>
+                        <p id="dohPort" class="font-mono text-slate-700 dark:text-slate-300">8443</p>
+                    </div>
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">URL pra cliente</p>
+                        <p id="dohUrl" class="font-mono text-slate-700 dark:text-slate-300 break-all">https://&lt;hostname&gt;:8443/dns-query</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Rate-limit -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
@@ -290,6 +338,41 @@ $isAdmin = Auth::isAdmin();
         });
     }
     loadRatelimit();
+
+    // === Privacy (qname-minimisation) ===
+    async function loadPrivacy() {
+        const r = await fetch('/api/v1/dns-security/privacy/settings', { headers: H });
+        if (!r.ok) return;
+        const d = await r.json();
+        const mode = (d.settings?.dns_qname_min_mode || 'no').toLowerCase();
+        const sel = mode === 'strict' ? 'qnStrict' : (mode === 'yes' ? 'qnYes' : 'qnNo');
+        $(sel).checked = true;
+    }
+
+    if (IS_ADMIN) {
+        $('btnQnSave')?.addEventListener('click', async () => {
+            const mode = document.querySelector('input[name=qnameMode]:checked')?.value || 'no';
+            const r = await fetch('/api/v1/dns-security/privacy/settings', {
+                method: 'PUT', headers: HJ, body: JSON.stringify({ dns_qname_min_mode: mode }),
+            });
+            (window.customAlert || alert)(r.ok ? 'Salvo. Clique em Aplicar pra recarregar o Unbound.' : 'Erro.');
+        });
+
+        $('btnQnApply')?.addEventListener('click', async () => {
+            const ok = await (window.customConfirm ? customConfirm('Aplicar e restart Unbound? ~2s de interrupção.') : Promise.resolve(confirm('Aplicar?')));
+            if (!ok) return;
+            const r = await fetch('/api/v1/dns-security/apply', { method: 'POST', headers: H });
+            const d = await r.json().catch(() => ({}));
+            (window.customAlert || alert)(r.ok && d.ok ? 'qname-minimisation aplicada.' : `Falha em "${d.stage || '?'}": ${d.error || r.statusText}`);
+        });
+    }
+    loadPrivacy();
+
+    // Preenche URL DoH usando o hostname atual
+    const dohUrlEl = $('dohUrl');
+    if (dohUrlEl) {
+        dohUrlEl.textContent = `https://${window.location.hostname}:8443/dns-query`;
+    }
 })();
 </script>
 

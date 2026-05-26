@@ -87,6 +87,11 @@ RATELIMIT_DEFAULTS = {
     "dns_ratelimit_domain_factor": "10",
 }
 
+# Privacy (D.1): qname-minimisation (RFC 7816). Modo "strict" segue o RFC ao pé da
+# letra — mais privado mas quebra com alguns auths mal-configurados.
+PRIVACY_KEYS = ("dns_qname_min_mode",)
+PRIVACY_DEFAULTS = {"dns_qname_min_mode": "no"}  # no | yes | strict
+
 
 async def get_settings() -> dict[str, Any]:
     out = {}
@@ -126,6 +131,35 @@ async def update_ratelimit_settings(body: dict[str, Any]) -> int:
     return await settings_repo.bulk_upsert(entries)
 
 
+async def get_privacy_settings() -> dict[str, Any]:
+    out = {}
+    for k in PRIVACY_KEYS:
+        out[k] = await settings_repo.get(k, PRIVACY_DEFAULTS[k])
+    return {"settings": out, "defaults": PRIVACY_DEFAULTS}
+
+
+async def update_privacy_settings(body: dict[str, Any]) -> int:
+    entries = []
+    for k, v in body.items():
+        if k in PRIVACY_KEYS:
+            val = str(v).lower()
+            if k == "dns_qname_min_mode" and val not in ("no", "yes", "strict"):
+                val = "no"
+            entries.append({"setting_key": k, "setting_value": val})
+    if not entries:
+        return 0
+    return await settings_repo.bulk_upsert(entries)
+
+
+def _build_privacy_block(qname_min_mode: str) -> str:
+    """server: block com qname-minimisation. Vazio se modo=no."""
+    if qname_min_mode == "yes":
+        return "server:\n    qname-minimisation: yes\n    qname-minimisation-strict: no\n"
+    if qname_min_mode == "strict":
+        return "server:\n    qname-minimisation: yes\n    qname-minimisation-strict: yes\n"
+    return ""
+
+
 def _build_ratelimit_block(
     *,
     ip_enabled: bool,
@@ -150,16 +184,29 @@ def _build_ratelimit_block(
     return "\n".join(lines) + "\n"
 
 
-def _build_forwarders_conf(mode: str, provider: str, custom_json: str, ratelimit_block: str = "") -> str:
+def _build_forwarders_conf(
+    mode: str,
+    provider: str,
+    custom_json: str,
+    ratelimit_block: str = "",
+    privacy_block: str = "",
+) -> str:
     """Gera conteúdo do forwarders.conf conforme settings.
 
-    `ratelimit_block` é concatenado ao final — unbound aceita múltiplos `server:`
-    blocks (são merged), então pode coexistir com o `server:` do tls-cert-bundle.
+    Os blocos extras (ratelimit, privacy) são concatenados ao final — unbound
+    aceita múltiplos `server:` blocks (são merged), então coexistem com o
+    `server:` do tls-cert-bundle.
     """
+    def _append_extras(body: str) -> str:
+        for extra in (ratelimit_block, privacy_block):
+            if extra:
+                body += "\n" + extra
+        return body
+
     header = "# Gerado por dns_security_service — NÃO edite à mão (será sobrescrito).\n"
     if mode == "recursive":
         body = header + "# Modo recursivo — sem forward-zone, Unbound resolve do root.\n"
-        return body + ("\n" + ratelimit_block if ratelimit_block else "")
+        return _append_extras(body)
 
     if provider == "custom":
         try:
@@ -172,7 +219,7 @@ def _build_forwarders_conf(mode: str, provider: str, custom_json: str, ratelimit
 
     if not addresses:
         body = header + "# Lista vazia — fallback recursivo.\n"
-        return body + ("\n" + ratelimit_block if ratelimit_block else "")
+        return _append_extras(body)
 
     lines = [
         header,
@@ -191,7 +238,7 @@ def _build_forwarders_conf(mode: str, provider: str, custom_json: str, ratelimit
             continue
         lines.append(f"    forward-addr: {addr}@{port}#{host}")
     body = "\n".join(lines) + "\n"
-    return body + ("\n" + ratelimit_block if ratelimit_block else "")
+    return _append_extras(body)
 
 
 async def _run(cmd: list[str]) -> tuple[int, str, str]:
@@ -224,7 +271,10 @@ async def apply() -> dict[str, Any]:
         dom_factor=await settings_repo.get_int("dns_ratelimit_domain_factor", 10),
     )
 
-    content = _build_forwarders_conf(mode, provider, custom, ratelimit_block)
+    qname_mode = (await settings_repo.get("dns_qname_min_mode", "no") or "no").lower()
+    privacy_block = _build_privacy_block(qname_mode)
+
+    content = _build_forwarders_conf(mode, provider, custom, ratelimit_block, privacy_block)
 
     # Snapshot do conteúdo atual pra rollback
     target = Path(TARGET_FORWARDERS)
