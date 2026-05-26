@@ -89,6 +89,37 @@ async def upload_now(
     return result
 
 
+@router.post("/restore-test")
+async def restore_test_endpoint(
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+    body: dict | None = None,
+) -> dict:
+    """Baixa um backup recente (ou key específica se passada) e valida
+    integridade do DuckDB sem restaurar no DB real.
+
+    Body opcional: `{"key": "s3-key.tar.gz"}` pra testar uma versão específica.
+    """
+    cfg = await svc.load_config()
+    if not cfg.get("backup_s3_bucket"):
+        raise HTTPException(status_code=400, detail="Configure bucket antes de testar restore")
+    key = (body or {}).get("key")
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, svc.restore_test, cfg, key)
+
+    # Persiste status do último restore-test em settings (UI mostra "última verificação")
+    from datetime import datetime, timezone
+    from app.repositories.duckdb import settings_repo
+    ts_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    entries = [
+        {"setting_key": "backup_s3_last_restore_test_at", "setting_value": ts_iso},
+        {"setting_key": "backup_s3_last_restore_test_ok", "setting_value": "1" if result.get("success") else "0"},
+        {"setting_key": "backup_s3_last_restore_test_error", "setting_value": str(result.get("error") or "")},
+        {"setting_key": "backup_s3_last_restore_test_key", "setting_value": str(result.get("key") or "")},
+    ]
+    await settings_repo.bulk_upsert(entries)
+    return result
+
+
 @router.get("/history")
 async def history(
     _: Annotated[dict, Depends(require_capability("config.read_sensitive"))],

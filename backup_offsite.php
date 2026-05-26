@@ -82,6 +82,10 @@ $currentPage = 'backup_offsite.php';
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
                             <span>Upload agora</span>
                         </button>
+                        <button id="btnRestoreTest" class="glass-btn !bg-amber-600 !text-white text-[10px] uppercase font-black flex items-center gap-2" title="Baixa o backup mais recente e valida integridade do DuckDB (sem restaurar no DB de produção)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                            <span>Testar restore</span>
+                        </button>
                         <button id="btnSave" class="glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black">Salvar</button>
                     </div>
                 </div>
@@ -331,6 +335,29 @@ $currentPage = 'backup_offsite.php';
                 loadHistory();
             } else {
                 if (window.customAlert) await window.customAlert('<pre class="text-xs whitespace-pre-wrap">' + escHtml(data.error || JSON.stringify(data)) + '</pre>', 'Upload falhou', 'error');
+                else alert('Falha: ' + (data.error || ''));
+            }
+        } catch (err) { toast('Falha: ' + err.message, 'error'); }
+        finally { btn.disabled = false; span.textContent = orig; }
+    });
+
+    document.getElementById('btnRestoreTest').addEventListener('click', async () => {
+        const ok = window.customConfirm
+            ? await window.customConfirm('Testar restore? Baixa o backup mais recente e valida o DuckDB extraído em /tmp (NÃO restaura no DB de produção).', 'Testar restore?')
+            : confirm('Testar restore?');
+        if (!ok) return;
+        const btn = document.getElementById('btnRestoreTest');
+        btn.disabled = true;
+        const span = btn.querySelector('span');
+        const orig = span.textContent;
+        span.textContent = 'Testando...';
+        try {
+            const res = await fetch('/api/v1/backup-offsite/restore-test', { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: '{}' });
+            const data = await res.json();
+            if (data.success) {
+                toast(`Restore OK · ${data.tables_count} tabelas · ${data.users_count} users · ${data.migrations_applied} migrations · ${fmtSize(data.size_bytes)}`, 'success');
+            } else {
+                if (window.customAlert) await window.customAlert('<pre class="text-xs whitespace-pre-wrap">' + escHtml(data.error || JSON.stringify(data)) + '</pre>', 'Restore falhou', 'error');
                 else alert('Falha: ' + (data.error || ''));
             }
         } catch (err) { toast('Falha: ' + err.message, 'error'); }

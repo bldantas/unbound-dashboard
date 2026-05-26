@@ -1,5 +1,40 @@
 # Changelog
 
+## v2.68.0 — 2026-05-26
+
+### feat(backup): restore-test — valida integridade do backup S3
+
+Backup que não foi testado não é backup. Adiciona `restore_test()` ao
+`backup_offsite_service`: baixa um archive recente do S3, extrai em
+`/tmp/restore_test_*`, abre o DuckDB em read-only e valida:
+
+1. Archive baixa e extrai sem erro
+2. Contém `duckdb/unbound_dash.duckdb`
+3. `SELECT COUNT(*) FROM schema_migrations > 0`
+4. `SELECT COUNT(*) FROM users >= 1`
+5. Conta tabelas no `information_schema.tables`
+
+Retorna `{success, key, size_bytes, migrations_applied, users_count, tables_count}`
+ou `{success: false, error: ...}`. Sem `key` no body → pega o backup
+mais recente do bucket/prefix.
+
+#### Endpoint novo
+
+- `POST /api/v1/backup-offsite/restore-test` — body opcional
+  `{"key": "..."}`. Persiste status do último teste em settings
+  (`backup_s3_last_restore_test_at/ok/error/key`) pra UI exibir.
+
+#### UI
+
+- `/backup_offsite.php` ganhou botão "Testar restore" (amber) ao
+  lado do "Upload agora". Toast de sucesso mostra `N tabelas · M
+  users · K migrations · size`.
+
+Próximas iterações sugeridas (não nesta release):
+- Worker que roda restore-test 1x/semana automaticamente
+- Múltiplos destinos S3 (atualmente 1 só)
+- Schedule diário/semanal além do hourly atual
+
 ## v2.67.0 — 2026-05-26
 
 ### feat(approvals): workflow 2nd-approver (opt-in, infra)

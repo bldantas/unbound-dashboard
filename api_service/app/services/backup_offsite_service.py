@@ -255,6 +255,90 @@ def list_remote(cfg: dict[str, str], limit: int = 100) -> list[dict]:
     return objs[:limit]
 
 
+def restore_test(cfg: dict[str, str], key: str | None = None) -> dict:
+    """Download de um backup S3 + verifica integridade do DuckDB extraído.
+
+    Sem `key`: pega o mais recente do bucket/prefix.
+    Não restaura no DB de produção — apenas valida em /tmp/restore_test_*.
+
+    Validação:
+    1. Archive baixa e extrai sem erro
+    2. Contém `duckdb/unbound_dash.duckdb` (path do arcname em _create_archive)
+    3. DuckDB abre read-only e `SELECT COUNT(*) FROM schema_migrations` retorna > 0
+    4. Tabela `users` existe e tem >= 1 row
+
+    Sync (chamado via run_in_executor).
+    """
+    import shutil
+    import tempfile
+    import duckdb
+
+    bucket = cfg.get("backup_s3_bucket", "").strip()
+    if not bucket:
+        return {"success": False, "error": "bucket vazio"}
+
+    try:
+        c = _client(cfg)
+        # Resolve a key mais recente se não passada
+        if not key:
+            prefix = _normalize_prefix(cfg.get("backup_s3_prefix", ""))
+            resp = c.list_objects_v2(Bucket=bucket, Prefix=prefix)
+            objs = [o for o in resp.get("Contents", []) if o["Key"].endswith(".tar.gz")]
+            if not objs:
+                return {"success": False, "error": "nenhum backup encontrado no bucket"}
+            objs.sort(key=lambda o: o["LastModified"], reverse=True)
+            key = objs[0]["Key"]
+    except ClientError as e:
+        return {"success": False, "error": f"S3 list: {e}"}
+
+    tmpdir = tempfile.mkdtemp(prefix="restore_test_")
+    archive_local = f"{tmpdir}/{Path(key).name}"
+
+    try:
+        c.download_file(bucket, key, archive_local)
+        size = Path(archive_local).stat().st_size
+
+        with tarfile.open(archive_local, "r:gz") as tar:
+            tar.extractall(tmpdir, filter="data")
+
+        # arcname em _create_archive é `duckdb/<nome>` (Path.name do db_path)
+        db_files = list(Path(tmpdir).glob("duckdb/*.duckdb"))
+        if not db_files:
+            return {"success": False, "error": "archive não contém duckdb/*.duckdb"}
+        db_extracted = db_files[0]
+
+        # Valida DuckDB
+        with duckdb.connect(str(db_extracted), read_only=True) as conn:
+            n_mig = int(conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0])
+            if n_mig == 0:
+                return {"success": False, "error": "schema_migrations vazio"}
+            n_users = int(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0])
+            if n_users < 1:
+                return {"success": False, "error": "tabela users vazia"}
+
+            tables_row = conn.execute(
+                "SELECT COUNT(DISTINCT table_name) FROM information_schema.tables WHERE table_schema='main'"
+            ).fetchone()
+            n_tables = int(tables_row[0]) if tables_row else 0
+
+        return {
+            "success": True,
+            "key": key,
+            "size_bytes": size,
+            "migrations_applied": n_mig,
+            "users_count": n_users,
+            "tables_count": n_tables,
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        # Limpa tmpdir
+        try:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def upload_backup(cfg: dict[str, str]) -> dict:
     """Cria archive + faz upload + aplica retenção. Sync (chamado via run_in_executor)."""
     bucket = cfg.get("backup_s3_bucket", "").strip()
