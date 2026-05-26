@@ -92,6 +92,25 @@ RATELIMIT_DEFAULTS = {
 PRIVACY_KEYS = ("dns_qname_min_mode",)
 PRIVACY_DEFAULTS = {"dns_qname_min_mode": "no"}  # no | yes | strict
 
+# Hardening v2 (D.2). Cada chave é "0"/"1". Override semântico: as diretivas que
+# colocamos aqui *sobrepõem* o que está em /etc/unbound/includes/security.conf
+# (Unbound faz merge de múltiplos blocos `server:` e a última diretiva vence).
+HARDENING_KEYS = (
+    "dns_hide_identity",
+    "dns_hide_version",
+    "dns_aggressive_nsec",
+    "dns_use_caps_for_id",
+    "dns_harden_glue",
+    "dns_harden_dnssec_stripped",
+    "dns_harden_below_nxdomain",
+    "dns_harden_referral_path",
+    "dns_harden_algo_downgrade",
+    "dns_deny_any",
+    "dns_ecs_off",
+    "dns_tls_strict_verify",
+)
+HARDENING_DEFAULTS = {k: "0" for k in HARDENING_KEYS}
+
 
 async def get_settings() -> dict[str, Any]:
     out = {}
@@ -151,6 +170,72 @@ async def update_privacy_settings(body: dict[str, Any]) -> int:
     return await settings_repo.bulk_upsert(entries)
 
 
+async def get_hardening_settings() -> dict[str, Any]:
+    out = {}
+    for k in HARDENING_KEYS:
+        out[k] = await settings_repo.get(k, HARDENING_DEFAULTS[k])
+    return {"settings": out, "defaults": HARDENING_DEFAULTS}
+
+
+async def update_hardening_settings(body: dict[str, Any]) -> int:
+    entries = []
+    for k, v in body.items():
+        if k in HARDENING_KEYS:
+            val = "1" if str(v) in ("1", "true", "True", "on", "yes") else "0"
+            entries.append({"setting_key": k, "setting_value": val})
+    if not entries:
+        return 0
+    return await settings_repo.bulk_upsert(entries)
+
+
+def _build_hardening_block(flags: dict[str, bool]) -> str:
+    """Bloco `server:` com diretivas de hardening + privacy v2.
+
+    Vazio se nenhum toggle estiver ativo. A semântica de cada flag está
+    documentada em HARDENING_KEYS — todas mapeiam 1:1 pra uma diretiva
+    `<key>: yes` (algumas têm forma especial, tratadas abaixo).
+
+    ECS-off: emite `send-client-subnet: 0.0.0.0/0` apagando a allowlist
+    + `client-subnet-always-forward: no`. Isso evita propagar a subnet
+    do cliente pros auths upstream.
+
+    TLS strict: emite `tls-system-cert: yes` — Unbound exige cert válido
+    do upstream DoT contra o trust store do sistema (já temos
+    `tls-cert-bundle` mas sem essa flag a validação de hostname pode
+    ser permissiva em alguns builds).
+    """
+    if not any(flags.values()):
+        return ""
+    lines = ["server:"]
+    if flags.get("dns_hide_identity"):
+        lines.append("    hide-identity: yes")
+    if flags.get("dns_hide_version"):
+        lines.append("    hide-version: yes")
+    if flags.get("dns_aggressive_nsec"):
+        lines.append("    aggressive-nsec: yes")
+    if flags.get("dns_use_caps_for_id"):
+        lines.append("    use-caps-for-id: yes")
+    if flags.get("dns_harden_glue"):
+        lines.append("    harden-glue: yes")
+    if flags.get("dns_harden_dnssec_stripped"):
+        lines.append("    harden-dnssec-stripped: yes")
+    if flags.get("dns_harden_below_nxdomain"):
+        lines.append("    harden-below-nxdomain: yes")
+    if flags.get("dns_harden_referral_path"):
+        lines.append("    harden-referral-path: yes")
+    if flags.get("dns_harden_algo_downgrade"):
+        lines.append("    harden-algo-downgrade: yes")
+    if flags.get("dns_deny_any"):
+        lines.append("    deny-any: yes")
+    if flags.get("dns_ecs_off"):
+        lines.append("    client-subnet-always-forward: no")
+    if flags.get("dns_tls_strict_verify"):
+        lines.append("    tls-system-cert: yes")
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines) + "\n"
+
+
 def _build_privacy_block(qname_min_mode: str) -> str:
     """server: block com qname-minimisation. Vazio se modo=no."""
     if qname_min_mode == "yes":
@@ -190,15 +275,16 @@ def _build_forwarders_conf(
     custom_json: str,
     ratelimit_block: str = "",
     privacy_block: str = "",
+    hardening_block: str = "",
 ) -> str:
     """Gera conteúdo do forwarders.conf conforme settings.
 
-    Os blocos extras (ratelimit, privacy) são concatenados ao final — unbound
-    aceita múltiplos `server:` blocks (são merged), então coexistem com o
-    `server:` do tls-cert-bundle.
+    Os blocos extras (ratelimit, privacy, hardening) são concatenados ao final
+    — unbound aceita múltiplos `server:` blocks (são merged), então coexistem
+    com o `server:` do tls-cert-bundle.
     """
     def _append_extras(body: str) -> str:
-        for extra in (ratelimit_block, privacy_block):
+        for extra in (ratelimit_block, privacy_block, hardening_block):
             if extra:
                 body += "\n" + extra
         return body
@@ -274,7 +360,14 @@ async def apply() -> dict[str, Any]:
     qname_mode = (await settings_repo.get("dns_qname_min_mode", "no") or "no").lower()
     privacy_block = _build_privacy_block(qname_mode)
 
-    content = _build_forwarders_conf(mode, provider, custom, ratelimit_block, privacy_block)
+    hardening_flags = {}
+    for k in HARDENING_KEYS:
+        hardening_flags[k] = await settings_repo.get_bool(k, False)
+    hardening_block = _build_hardening_block(hardening_flags)
+
+    content = _build_forwarders_conf(
+        mode, provider, custom, ratelimit_block, privacy_block, hardening_block
+    )
 
     # Snapshot do conteúdo atual pra rollback
     target = Path(TARGET_FORWARDERS)

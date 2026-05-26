@@ -83,3 +83,19 @@ async def update_privacy(
 ) -> dict:
     n = await dns_security_service.update_privacy_settings(body)
     return {"updated": n}
+
+
+@router.get("/hardening/settings")
+async def get_hardening(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+) -> dict:
+    return await dns_security_service.get_hardening_settings()
+
+
+@router.put("/hardening/settings")
+async def update_hardening(
+    body: dict,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    n = await dns_security_service.update_hardening_settings(body)
+    return {"updated": n}

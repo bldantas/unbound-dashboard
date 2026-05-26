@@ -206,6 +206,113 @@ $isAdmin = Auth::isAdmin();
                 <?php endif; ?>
             </div>
 
+            <!-- Hardening v2 (D.2) -->
+            <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
+                <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Hardening & Privacidade Avançada</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Sobrepõem as defaults de <code>/etc/unbound/includes/security.conf</code>. Cada toggle ativa uma diretiva extra no <code>forwarders.conf</code> e exige Apply pra entrar em vigor.</p>
+                </div>
+                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <!-- Identidade -->
+                    <label class="flex items-start gap-3 cursor-pointer border border-slate-200 dark:border-white/10 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                        <input type="checkbox" id="hdHideIdentity" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px]">Hide Identity</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Oculta resposta a <code>id.server / hostname.bind</code>.</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer border border-slate-200 dark:border-white/10 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                        <input type="checkbox" id="hdHideVersion" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px]">Hide Version</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Oculta resposta a <code>version.server / version.bind</code>.</p>
+                        </div>
+                    </label>
+
+                    <!-- Cache & DNSSEC -->
+                    <label class="flex items-start gap-3 cursor-pointer border border-slate-200 dark:border-white/10 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                        <input type="checkbox" id="hdAggressiveNsec" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px]">Aggressive NSEC (RFC 8198)</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Cache negativo agressivo via DNSSEC — economiza consultas pros TLDs.</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer border border-slate-200 dark:border-white/10 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                        <input type="checkbox" id="hdUseCapsForId" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px]">0x20 Caps For ID</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Randomiza maiúsculas/minúsculas — mitiga cache poisoning.</p>
+                        </div>
+                    </label>
+
+                    <!-- Harden suite -->
+                    <label class="flex items-start gap-3 cursor-pointer border border-slate-200 dark:border-white/10 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                        <input type="checkbox" id="hdHardenGlue" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px]">Harden Glue</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Não aceita glue out-of-zone (anti-poisoning).</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer border border-slate-200 dark:border-white/10 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                        <input type="checkbox" id="hdHardenDnssecStripped" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px]">Harden DNSSEC Stripped</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Falha se RRSIG sumir de zona DNSSEC-signed.</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer border border-slate-200 dark:border-white/10 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                        <input type="checkbox" id="hdHardenBelowNxdomain" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px]">Harden Below NXDOMAIN</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Aceita NXDOMAIN de zonas signed sem reconsulta (RFC 8020).</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer border border-slate-200 dark:border-white/10 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                        <input type="checkbox" id="hdHardenReferralPath" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px]">Harden Referral Path</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Valida toda referência ao caminho do auth (custoso).</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer border border-slate-200 dark:border-white/10 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                        <input type="checkbox" id="hdHardenAlgoDowngrade" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px]">Harden Algo Downgrade</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Não aceita downgrade pra algoritmo DNSSEC mais fraco.</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer border border-slate-200 dark:border-white/10 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-white/5">
+                        <input type="checkbox" id="hdDenyAny" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px]">Deny ANY</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Recusa queries ANY (anti-amplification).</p>
+                        </div>
+                    </label>
+
+                    <!-- Privacy v2 -->
+                    <label class="flex items-start gap-3 cursor-pointer border border-emerald-200 dark:border-emerald-500/30 rounded-xl p-3 hover:bg-emerald-50 dark:hover:bg-emerald-500/5 bg-emerald-50/40 dark:bg-emerald-500/5">
+                        <input type="checkbox" id="hdEcsOff" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px] text-emerald-700 dark:text-emerald-300">ECS Off (EDNS Client Subnet)</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Nunca encaminha a subnet do cliente pros auths upstream. Mais privacidade.</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer border border-cyan-200 dark:border-cyan-500/30 rounded-xl p-3 hover:bg-cyan-50 dark:hover:bg-cyan-500/5 bg-cyan-50/40 dark:bg-cyan-500/5">
+                        <input type="checkbox" id="hdTlsStrictVerify" class="mt-0.5 w-4 h-4">
+                        <div>
+                            <p class="font-black uppercase tracking-widest text-[11px] text-cyan-700 dark:text-cyan-300">TLS Strict Verify (DoT)</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Valida cert do upstream DoT contra o CA store do sistema. Só faz sentido em modo DoT.</p>
+                        </div>
+                    </label>
+                </div>
+                <?php if ($isAdmin): ?>
+                <div class="px-6 py-4 border-t border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex flex-wrap gap-2 justify-end">
+                    <button type="button" id="btnHdSave" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Salvar hardening</button>
+                    <button type="button" id="btnHdApply" class="glass-btn !bg-amber-600 !text-white text-[10px] uppercase font-black">Aplicar + Restart Unbound</button>
+                </div>
+                <?php endif; ?>
+            </div>
+
             <?php include 'includes/footer.php'; ?>
         </div>
     </main>
@@ -367,6 +474,51 @@ $isAdmin = Auth::isAdmin();
         });
     }
     loadPrivacy();
+
+    // === Hardening v2 ===
+    const HD_KEYS = [
+        ['hdHideIdentity', 'dns_hide_identity'],
+        ['hdHideVersion', 'dns_hide_version'],
+        ['hdAggressiveNsec', 'dns_aggressive_nsec'],
+        ['hdUseCapsForId', 'dns_use_caps_for_id'],
+        ['hdHardenGlue', 'dns_harden_glue'],
+        ['hdHardenDnssecStripped', 'dns_harden_dnssec_stripped'],
+        ['hdHardenBelowNxdomain', 'dns_harden_below_nxdomain'],
+        ['hdHardenReferralPath', 'dns_harden_referral_path'],
+        ['hdHardenAlgoDowngrade', 'dns_harden_algo_downgrade'],
+        ['hdDenyAny', 'dns_deny_any'],
+        ['hdEcsOff', 'dns_ecs_off'],
+        ['hdTlsStrictVerify', 'dns_tls_strict_verify'],
+    ];
+
+    async function loadHardening() {
+        const r = await fetch('/api/v1/dns-security/hardening/settings', { headers: H });
+        if (!r.ok) return;
+        const d = await r.json();
+        const s = d.settings || {};
+        HD_KEYS.forEach(([el, key]) => {
+            const checkbox = $(el);
+            if (checkbox) checkbox.checked = String(s[key]) === '1';
+        });
+    }
+
+    if (IS_ADMIN) {
+        $('btnHdSave')?.addEventListener('click', async () => {
+            const body = {};
+            HD_KEYS.forEach(([el, key]) => { body[key] = $(el)?.checked ? '1' : '0'; });
+            const r = await fetch('/api/v1/dns-security/hardening/settings', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
+            (window.customAlert || alert)(r.ok ? 'Salvo. Clique em Aplicar pra recarregar o Unbound.' : 'Erro ao salvar.');
+        });
+
+        $('btnHdApply')?.addEventListener('click', async () => {
+            const ok = await (window.customConfirm ? customConfirm('Aplicar hardening e restart Unbound? ~2s de interrupção.') : Promise.resolve(confirm('Aplicar?')));
+            if (!ok) return;
+            const r = await fetch('/api/v1/dns-security/apply', { method: 'POST', headers: H });
+            const d = await r.json().catch(() => ({}));
+            (window.customAlert || alert)(r.ok && d.ok ? 'Hardening aplicado.' : `Falha em "${d.stage || '?'}": ${d.error || r.statusText}`);
+        });
+    }
+    loadHardening();
 
     // Preenche URL DoH usando o hostname atual
     const dohUrlEl = $('dohUrl');

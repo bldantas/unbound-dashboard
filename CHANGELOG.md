@@ -1,5 +1,39 @@
 # Changelog
 
+## v2.56.0 — 2026-05-26
+
+### feat(dns-security): hardening v2 — 12 toggles + ECS off + TLS strict verify
+
+Fecha a frente DNS Security & Privacy v2. Nova seção "Hardening &
+Privacidade Avançada" em `/dns_security.php` com 12 toggles que
+sobrepõem as defaults de `/etc/unbound/includes/security.conf` via
+diretivas extras no `forwarders.conf` dinâmico (Unbound faz merge
+de múltiplos blocos `server:` — a última diretiva vence).
+
+#### Toggles
+
+- **Hide Identity / Hide Version** — bloqueia respostas a
+  `id.server / hostname.bind` e `version.server / version.bind`.
+- **Aggressive NSEC (RFC 8198)** — cache negativo agressivo via
+  DNSSEC, reduz consultas pros TLDs.
+- **0x20 Caps For ID** — randomiza maiúsculas/minúsculas no QNAME
+  pra mitigar cache poisoning.
+- **Harden Glue / DNSSEC Stripped / Below NXDOMAIN / Referral Path /
+  Algo Downgrade** — suite completa de hardening DNSSEC + anti-poisoning.
+- **Deny ANY** — recusa queries ANY abertas (anti-amplification).
+- **ECS Off** — emite `client-subnet-always-forward: no` pra nunca
+  encaminhar subnet do cliente pros auths upstream (privacy).
+- **TLS Strict Verify** — emite `tls-system-cert: yes` pra validar
+  cert do upstream DoT contra o CA store do sistema.
+
+#### Endpoints
+
+- `GET /api/v1/dns-security/hardening/settings`
+- `PUT /api/v1/dns-security/hardening/settings`
+
+Todos os toggles default = off; ativos só após Apply (restart unbound
+com rollback automático, mesmo padrão dos outros blocos).
+
 ## v2.55.0 — 2026-05-26
 
 ### feat(anomaly): 3 detectores novos + whitelist + UI estendida
