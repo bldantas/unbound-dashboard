@@ -15,10 +15,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from app.core.deps import require_capability
-from app.services import external_health_service
+from app.core.deps import require_admin, require_capability
+from app.repositories.duckdb import settings_repo
+from app.services import admin_audit_service, external_health_service
 
 router = APIRouter(prefix="/api/v1/external-health", tags=["external-health"])
 
@@ -61,3 +62,45 @@ async def list_sources(
 ) -> dict:
     sources = await external_health_service.list_sources(hours=hours)
     return {"sources": sources, "count": len(sources)}
+
+
+def _coerce_int(v) -> int | None:
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+@router.get("/retention/settings")
+async def get_retention(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+) -> dict:
+    return {
+        "days": await settings_repo.get_int("external_health_retention_days", 90),
+        "default": 90,
+        "last_run": await settings_repo.get("external_health_pruner_last_run", "") or "",
+        "last_deleted": await settings_repo.get_int("external_health_pruner_last_deleted", 0),
+    }
+
+
+@router.put("/retention/settings")
+async def update_retention(
+    body: dict,
+    user: Annotated[dict, Depends(require_admin)],
+    request: Request,
+) -> dict:
+    days = int(body.get("days", 90))
+    if days < 7 or days > 3650:
+        raise HTTPException(status_code=400, detail="days must be 7..3650")
+    await settings_repo.bulk_upsert([
+        {"setting_key": "external_health_retention_days", "setting_value": str(days)}
+    ])
+    await admin_audit_service.log(
+        actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
+        actor_username=user.get("username"),
+        actor_ip=request.client.host if request.client else None,
+        action="external_health.retention.update",
+        category="config",
+        details={"days": days},
+    )
+    return {"days": days}

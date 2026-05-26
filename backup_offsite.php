@@ -154,6 +154,29 @@ $currentPage = 'backup_offsite.php';
                 </div>
             </div>
 
+            <!-- Auto restore-test (RestoreTestRunner) -->
+            <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
+                <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Auto Restore-Test</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Worker <code>RestoreTestRunner</code> baixa um backup do S3 e valida integridade do DuckDB. Tempo típico 5-30s dependendo do tamanho.</p>
+                </div>
+                <div class="p-6 flex flex-wrap items-end gap-4 text-xs">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="rtEnabled" class="w-4 h-4">
+                        <span class="text-[11px] font-black uppercase tracking-widest">Habilitar auto-teste</span>
+                    </label>
+                    <label class="flex flex-col">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Intervalo (horas, 1..720)</span>
+                        <input type="number" id="rtInterval" min="1" max="720" value="168" class="glass-input w-32 font-mono">
+                    </label>
+                    <button type="button" id="btnRtSave" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Salvar</button>
+                    <div class="ml-auto text-right text-[10px] text-slate-500">
+                        <p>Última: <span id="rtLastAt" class="font-mono text-slate-700 dark:text-slate-300">—</span> <span id="rtLastOk"></span></p>
+                        <p id="rtLastErr" class="text-red-500"></p>
+                    </div>
+                </div>
+            </div>
+
             <?php include 'includes/footer.php'; ?>
         </div>
     </main>
@@ -396,6 +419,35 @@ $currentPage = 'backup_offsite.php';
     document.getElementById('btnRefreshHistory').addEventListener('click', loadHistory);
 
     loadSettings();
+
+    // Auto restore-test panel — usa o mesmo /status endpoint via load
+    async function loadRestoreTestPanel() {
+        const r = await fetch('/api/v1/backup-offsite/settings', { headers: H });
+        if (!r.ok) return;
+        const data = await r.json();
+        const s = data.status || {};
+        document.getElementById('rtEnabled').checked = String(s.backup_s3_restore_test_enabled) === '1';
+        document.getElementById('rtInterval').value = parseInt(s.backup_s3_restore_test_interval_hours || '168', 10);
+        const at = s.backup_s3_last_restore_test_at || '';
+        document.getElementById('rtLastAt').textContent = at ? fmtDateBR(at) : 'nunca';
+        const ok = s.backup_s3_last_restore_test_ok;
+        const okEl = document.getElementById('rtLastOk');
+        if (at) okEl.innerHTML = String(ok) === '1' ? '<span class="text-emerald-500">✓</span>' : '<span class="text-red-500">✗</span>';
+        else okEl.textContent = '';
+        const err = s.backup_s3_last_restore_test_error || '';
+        document.getElementById('rtLastErr').textContent = err ? `Erro: ${err.slice(0, 80)}` : '';
+    }
+    document.getElementById('btnRtSave').addEventListener('click', async () => {
+        const body = {
+            backup_s3_restore_test_enabled: document.getElementById('rtEnabled').checked ? '1' : '0',
+            backup_s3_restore_test_interval_hours: String(Math.max(1, Math.min(720, parseInt(document.getElementById('rtInterval').value || '168', 10)))),
+        };
+        const r = await fetch('/api/v1/backup-offsite/settings', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
+        toast(r.ok ? 'Salvo. Aplica no próximo ciclo do worker.' : 'Erro ao salvar.', r.ok ? 'success' : 'error');
+        loadRestoreTestPanel();
+    });
+    loadRestoreTestPanel();
+    setInterval(loadRestoreTestPanel, 60000);
 })();
 </script>
 

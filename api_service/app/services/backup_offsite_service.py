@@ -46,6 +46,9 @@ SETTINGS_KEYS = [
     "backup_s3_secret_key",
     "backup_s3_retention_count",
     "backup_s3_schedule_hours",
+    # Auto restore-test (RestoreTestRunner v2.73)
+    "backup_s3_restore_test_enabled",
+    "backup_s3_restore_test_interval_hours",
 ]
 
 DEFAULTS = {
@@ -66,6 +69,13 @@ STATUS_KEYS = [
     "backup_s3_last_error",
     "backup_s3_last_size_bytes",
     "backup_s3_last_key",
+    # Auto restore-test (RestoreTestRunner v2.73)
+    "backup_s3_restore_test_enabled",
+    "backup_s3_restore_test_interval_hours",
+    "backup_s3_last_restore_test_at",
+    "backup_s3_last_restore_test_ok",
+    "backup_s3_last_restore_test_error",
+    "backup_s3_last_restore_test_key",
 ]
 
 # Paths incluídos no tarball

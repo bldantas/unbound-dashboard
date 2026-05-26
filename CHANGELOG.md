@@ -1,5 +1,47 @@
 # Changelog
 
+## v2.73.0 — 2026-05-26
+
+### chore(workers): 2 workers de manutenção automatizam TODOs registrados
+
+Fecha dois TODOs deixados nas v2.68 (restore-test S3) e v2.70 (external
+health probes) — agora rodam automaticamente sem precisar de cron externo.
+
+#### Worker `RestoreTestRunner` (1x/semana)
+
+- Pula se `backup_s3_restore_test_enabled` setting está off (default off)
+- Pula se backup S3 não está configurado (bucket vazio)
+- Tick configurável via `backup_s3_restore_test_interval_hours`
+  (default 168 = 7d, range 1..720)
+- Resultado em settings (`backup_s3_last_restore_test_*`) — UI exibe
+  igual ao teste manual
+- Initial delay 30min após boot pra não correr junto com upload
+
+#### Worker `ExternalHealthPruner` (1x/dia)
+
+- Setting `external_health_retention_days` (default 90, range 7..3650)
+- Apaga probes mais velhos que N dias via `prune_old(days)` já existente
+- Estado em `external_health_pruner_last_run` / `_last_deleted`
+- Initial delay 20min
+
+#### Endpoints novos `/api/v1/external-health`
+
+- `GET /retention/settings` — dias atual + default + last_run/last_deleted
+- `PUT /retention/settings` — admin only, valida 7..3650, auto-loga
+
+#### Backup service estendido
+
+- `SETTINGS_KEYS` aceita as 2 chaves novas (`*_enabled`,
+  `*_interval_hours`) pro PUT persistir
+- `STATUS_KEYS` aceita as 6 chaves de status do auto-teste
+
+#### UI
+
+- `/backup_offsite.php`: painel "Auto Restore-Test" com toggle
+  enabled, intervalo (h), indicador "Última: ✓/✗" + erro recente
+- `/external_health.php`: painel "Retenção" (admin) com input dias
+  + Salvar + indicador "Última prune / apagados"
+
 ## v2.72.0 — 2026-05-26
 
 ### feat(approvals): wire automático em endpoints sensíveis + dispatcher

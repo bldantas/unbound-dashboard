@@ -115,6 +115,27 @@ $isAdmin = Auth::isAdmin();
                 </div>
             </div>
 
+            <?php if ($isAdmin): ?>
+            <!-- Retention -->
+            <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
+                <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Retenção</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Worker <code>ExternalHealthPruner</code> apaga 1x/dia probes mais velhos que N dias. Default 90, mín 7, máx 3650.</p>
+                </div>
+                <div class="p-6 flex flex-wrap items-end gap-4 text-xs">
+                    <label class="flex flex-col">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Dias de retenção</span>
+                        <input type="number" id="ehRetDays" min="7" max="3650" class="glass-input w-32 font-mono">
+                    </label>
+                    <button type="button" id="btnEhRetSave" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Salvar</button>
+                    <div class="ml-auto text-right text-[10px] text-slate-500">
+                        <p>Última: <span id="ehPrunerLastAt" class="font-mono text-slate-700 dark:text-slate-300">—</span></p>
+                        <p>Apagados: <span id="ehPrunerLastDeleted" class="font-mono text-slate-700 dark:text-slate-300">—</span></p>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- Setup helper -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
@@ -225,6 +246,29 @@ $isAdmin = Auth::isAdmin();
     $('btnRefresh').addEventListener('click', refresh);
     $('fHours').addEventListener('change', refresh);
     $('fSource').addEventListener('change', refresh);
+
+    // Retention panel
+    async function loadRetention() {
+        const el = $('ehRetDays');
+        if (!el) return;
+        const r = await fetch('/api/v1/external-health/retention/settings', { headers: H });
+        if (!r.ok) return;
+        const d = await r.json();
+        el.value = d.days || 90;
+        $('ehPrunerLastAt').textContent = d.last_run ? d.last_run.replace('T',' ').slice(0,19) : 'nunca';
+        $('ehPrunerLastDeleted').textContent = (d.last_deleted ?? 0).toLocaleString('pt-BR');
+    }
+    const btnEhSave = $('btnEhRetSave');
+    if (btnEhSave) {
+        btnEhSave.addEventListener('click', async () => {
+            const days = parseInt($('ehRetDays').value || '90', 10);
+            const r = await fetch('/api/v1/external-health/retention/settings', { method: 'PUT', headers: {...H, 'Content-Type':'application/json'}, body: JSON.stringify({days}) });
+            (window.customAlert || alert)(r.ok ? 'Salvo.' : 'Erro.');
+            loadRetention();
+        });
+        loadRetention();
+    }
+
     refresh();
     setInterval(refresh, 60000);
 })();

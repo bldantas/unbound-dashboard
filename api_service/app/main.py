@@ -62,6 +62,7 @@ from app.workers import (
     AnomalyDetector,
     AuditPruner,
     BackupUploader,
+    ExternalHealthPruner,
     BlocklistSyncer,
     GeoBlockUpdater,
     HAPeerMonitor,
@@ -70,6 +71,7 @@ from app.workers import (
     NotificationPruner,
     PrometheusExporter,
     QueryLogPruner,
+    RestoreTestRunner,
     StatsAggregator,
     UnboundCollector,
     UpdateChecker,
@@ -152,6 +154,10 @@ async def lifespan(app: FastAPI):
     app.state.prometheus_exporter = prometheus_exporter
     ha_peer_monitor = HAPeerMonitor()
     app.state.ha_peer_monitor = ha_peer_monitor
+    external_health_pruner = ExternalHealthPruner()
+    app.state.external_health_pruner = external_health_pruner
+    restore_test_runner = RestoreTestRunner()
+    app.state.restore_test_runner = restore_test_runner
     geo_block_updater = GeoBlockUpdater()
     app.state.geo_block_updater = geo_block_updater
     _background_tasks.extend(
@@ -195,6 +201,14 @@ async def lifespan(app: FastAPI):
                 _supervised("ha_peer_monitor", ha_peer_monitor), name="ha_peer_monitor"
             ),
             asyncio.create_task(
+                _supervised("external_health_pruner", external_health_pruner),
+                name="external_health_pruner",
+            ),
+            asyncio.create_task(
+                _supervised("restore_test_runner", restore_test_runner),
+                name="restore_test_runner",
+            ),
+            asyncio.create_task(
                 _supervised("geo_block_updater", geo_block_updater), name="geo_block_updater"
             ),
         ]
@@ -219,6 +233,8 @@ async def lifespan(app: FastAPI):
     await audit_pruner.stop()
     await prometheus_exporter.stop()
     await ha_peer_monitor.stop()
+    await external_health_pruner.stop()
+    await restore_test_runner.stop()
     await geo_block_updater.stop()
     for task in _background_tasks:
         task.cancel()
