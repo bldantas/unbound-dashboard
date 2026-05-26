@@ -9,7 +9,7 @@ $currentPage = 'anomalies.php';
 <html lang="pt-BR">
 <head>
     <title>Detector de Anomalias - Unbound DNS</title>
-    <meta name="description" content="Detector heurístico de DGA, NXDOMAIN spike e novos clientes. Dispara alertas para o painel de Alertas + webhooks configurados.">
+    <meta name="description" content="Detector heurístico (DGA, NXDOMAIN spike, novo cliente, DNS tunneling, beaconing, suspicious TLDs) + whitelist por cliente/domínio.">
     <?php include 'includes/head.php'; ?>
 </head>
 <body class="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 transition-colors duration-300">
@@ -29,11 +29,13 @@ $currentPage = 'anomalies.php';
                         <p class="text-[10px] font-black uppercase tracking-widest mb-1" id="statusLabel">Detector — Status</p>
                         <p class="text-sm font-bold text-slate-900 dark:text-white" id="statusText">Carregando...</p>
                         <p class="text-[11px] text-slate-500 mt-1">
-                            3 detectores heurísticos rodando a cada 5min sobre query_logs:
-                            <b>DGA</b> (entropia + length nos labels), <b>NXDOMAIN spike</b> (ratio anormal por cliente),
-                            <b>Cliente novo</b> (IP visto nas 24h sem aparecer em 7d antes).
-                            Detecções viram alertas em <a href="alerts.php" class="text-orange-500 hover:underline font-bold">Alertas</a>
-                            (e disparam webhooks/SMTP configurados).
+                            6 detectores heurísticos rodando a cada 5min sobre query_logs:
+                            <b>DGA</b>, <b>NXDOMAIN spike</b>, <b>Cliente novo</b>,
+                            <b>DNS tunneling</b> (subdomínios longos+entropia alta), <b>Beaconing</b>
+                            (queries periódicas, baixo CV), <b>Suspicious TLDs</b>. Cada um pode ser ligado/desligado
+                            individualmente. Detecções viram alertas em
+                            <a href="alerts.php" class="text-orange-500 hover:underline font-bold">Alertas</a> +
+                            webhooks. Whitelist no fim da página suprime falso-positivos conhecidos.
                         </p>
                     </div>
                     <?php if (\App\Auth::isAdmin()): ?>
@@ -99,6 +101,55 @@ $currentPage = 'anomalies.php';
                 </div>
             </div>
 
+            <!-- Whitelist (v2.55) -->
+            <div class="glass-table-container border-slate-200 dark:border-white/5 mt-8">
+                <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between flex-wrap gap-2">
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">
+                        Whitelist (<span id="whitelistCount" class="text-emerald-500">—</span>)
+                    </h3>
+                    <p class="text-[11px] text-slate-500">Suprime detecções por client_ip, domain (substring match) ou ambos. Detector vazio = todos.</p>
+                </div>
+                <?php if (\App\Auth::isAdmin()): ?>
+                <div class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-2 border-b border-slate-900/10 dark:border-white/5">
+                    <select id="wlKind" class="glass-input text-xs">
+                        <option value="client_ip">client_ip</option>
+                        <option value="domain">domain</option>
+                        <option value="client_and_domain">client_and_domain</option>
+                    </select>
+                    <input type="text" id="wlClient" placeholder="client_ip (ex: 192.168.1.10)" class="glass-input text-xs font-mono">
+                    <input type="text" id="wlDomain" placeholder="domain pattern (substring, lowercase)" class="glass-input text-xs font-mono">
+                    <select id="wlDetector" class="glass-input text-xs">
+                        <option value="">todos os detectores</option>
+                        <option value="dga">dga</option>
+                        <option value="nxdomain">nxdomain</option>
+                        <option value="new_client">new_client</option>
+                        <option value="tunneling">tunneling</option>
+                        <option value="beaconing">beaconing</option>
+                        <option value="suspicious_tld">suspicious_tld</option>
+                    </select>
+                    <input type="text" id="wlNote" placeholder="nota (opcional)" class="glass-input text-xs">
+                    <button id="btnAddWhitelist" class="glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black">+ Adicionar</button>
+                </div>
+                <?php endif; ?>
+                <div class="overflow-x-auto">
+                    <table class="glass-table">
+                        <thead>
+                            <tr>
+                                <th class="w-44">Kind</th>
+                                <th class="w-40">Client IP</th>
+                                <th>Domain pattern</th>
+                                <th class="w-32">Detector</th>
+                                <th>Nota</th>
+                                <th class="w-20"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="whitelistBody">
+                            <tr><td colspan="6" class="px-6 py-8 text-center text-slate-500 text-xs italic">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <?php include 'includes/footer.php'; ?>
         </div>
     </main>
@@ -114,16 +165,35 @@ $currentPage = 'anomalies.php';
     const IS_ADMIN = <?= \App\Auth::isAdmin() ? 'true' : 'false' ?>;
 
     const THRESHOLD_LABELS = {
-        'anomaly_dga_window_seconds':         { label: 'DGA: janela',                  unit: 'segundos', group: 'DGA' },
-        'anomaly_dga_entropy_min':            { label: 'DGA: entropia mín',            unit: 'bits/char (3.5+)', group: 'DGA' },
-        'anomaly_dga_min_length':             { label: 'DGA: comprimento mín',         unit: 'chars',    group: 'DGA' },
-        'anomaly_dga_min_count_per_client':   { label: 'DGA: domínios mín por cliente',unit: 'count',    group: 'DGA' },
-        'anomaly_nxdomain_window_seconds':    { label: 'NXDOMAIN: janela',             unit: 'segundos', group: 'NXDOMAIN' },
-        'anomaly_nxdomain_spike_ratio':       { label: 'NXDOMAIN: ratio (0.0-1.0)',    unit: 'fração',   group: 'NXDOMAIN' },
-        'anomaly_nxdomain_spike_min_count':   { label: 'NXDOMAIN: mín count',          unit: 'queries',  group: 'NXDOMAIN' },
-        'anomaly_new_client_baseline_days':   { label: 'Cliente novo: baseline',       unit: 'dias',     group: 'Novo cliente' },
-        'anomaly_new_client_window_seconds':  { label: 'Cliente novo: janela',         unit: 'segundos', group: 'Novo cliente' },
-        'anomaly_new_client_min_queries':     { label: 'Cliente novo: queries mín',    unit: 'count',    group: 'Novo cliente' },
+        'anomaly_dga_window_seconds':           { label: 'Janela',                       unit: 'segundos',         group: 'DGA' },
+        'anomaly_dga_entropy_min':              { label: 'Entropia mín',                 unit: 'bits/char (3.5+)', group: 'DGA' },
+        'anomaly_dga_min_length':               { label: 'Comprimento mín',              unit: 'chars',            group: 'DGA' },
+        'anomaly_dga_min_count_per_client':     { label: 'Domínios mín por cliente',     unit: 'count',            group: 'DGA' },
+
+        'anomaly_nxdomain_window_seconds':      { label: 'Janela',                       unit: 'segundos',         group: 'NXDOMAIN spike' },
+        'anomaly_nxdomain_spike_ratio':         { label: 'Ratio (0.0-1.0)',              unit: 'fração',           group: 'NXDOMAIN spike' },
+        'anomaly_nxdomain_spike_min_count':     { label: 'Mín count',                    unit: 'queries',          group: 'NXDOMAIN spike' },
+
+        'anomaly_new_client_baseline_days':     { label: 'Baseline',                     unit: 'dias',             group: 'Cliente novo' },
+        'anomaly_new_client_window_seconds':    { label: 'Janela',                       unit: 'segundos',         group: 'Cliente novo' },
+        'anomaly_new_client_min_queries':       { label: 'Queries mín',                  unit: 'count',            group: 'Cliente novo' },
+
+        'anomaly_tunneling_enabled':            { label: 'Ativo (0/1)',                  unit: 'bool',             group: 'DNS tunneling' },
+        'anomaly_tunneling_window_seconds':     { label: 'Janela',                       unit: 'segundos',         group: 'DNS tunneling' },
+        'anomaly_tunneling_min_unique_subdomains': { label: 'Subdomínios únicos mín',    unit: 'count por (cli, dom raiz)', group: 'DNS tunneling' },
+        'anomaly_tunneling_min_avg_length':     { label: 'Comprimento médio mín',        unit: 'chars no label esquerdo',   group: 'DNS tunneling' },
+        'anomaly_tunneling_min_avg_entropy':    { label: 'Entropia média mín',           unit: 'bits/char',        group: 'DNS tunneling' },
+
+        'anomaly_beacon_enabled':               { label: 'Ativo (0/1)',                  unit: 'bool',             group: 'Beaconing' },
+        'anomaly_beacon_window_seconds':        { label: 'Janela',                       unit: 'segundos',         group: 'Beaconing' },
+        'anomaly_beacon_min_samples':           { label: 'Mín amostras',                 unit: 'queries por (cli, dom raiz)', group: 'Beaconing' },
+        'anomaly_beacon_max_cv':                { label: 'CV máx (stddev/mean)',         unit: 'fração (0.20 ≈ regular)',     group: 'Beaconing' },
+        'anomaly_beacon_min_period_seconds':    { label: 'Período mín',                  unit: 'segundos (ignora burst)',     group: 'Beaconing' },
+
+        'anomaly_suspicious_tld_enabled':       { label: 'Ativo (0/1)',                  unit: 'bool',             group: 'Suspicious TLDs' },
+        'anomaly_suspicious_tld_window_seconds':{ label: 'Janela',                       unit: 'segundos',         group: 'Suspicious TLDs' },
+        'anomaly_suspicious_tld_min_count':     { label: 'Queries mín',                  unit: 'non-blocked por cliente', group: 'Suspicious TLDs' },
+        'anomaly_suspicious_tld_list':          { label: 'Lista de TLDs',                unit: 'CSV (ex: .xyz,.top,.tk)', group: 'Suspicious TLDs' },
     };
 
     async function loadSettings() {
@@ -211,6 +281,9 @@ $currentPage = 'anomalies.php';
         'anomaly_dga':              { label: 'DGA',              color: 'red' },
         'anomaly_nxdomain_spike':   { label: 'NXDOMAIN spike',   color: 'orange' },
         'anomaly_new_client':       { label: 'Novo cliente',     color: 'blue' },
+        'anomaly_tunneling':        { label: 'Tunneling',        color: 'rose' },
+        'anomaly_beacon':           { label: 'Beaconing',        color: 'purple' },
+        'anomaly_suspicious_tld':   { label: 'Suspicious TLD',   color: 'amber' },
     };
 
     function renderRecent(items) {
@@ -270,8 +343,13 @@ $currentPage = 'anomalies.php';
         try {
             const res = await fetch('/api/v1/analytics/anomaly/run-now', { method: 'POST', headers: H });
             const data = await res.json();
-            toast(`Detecção: ${data.dga} DGA, ${data.nxdomain_spike} NXDOMAIN spike, ${data.new_clients} clientes novos`, 'info');
+            toast(
+                `${data.dga||0} DGA · ${data.nxdomain_spike||0} NXspike · ${data.new_clients||0} novos · `
+                + `${data.tunneling||0} tunnel · ${data.beaconing||0} beacon · ${data.suspicious_tld||0} TLD`,
+                'info'
+            );
             await loadRecent();
+            await loadWhitelist();  // re-renderiza caso whitelist tenha sido alterada externamente
         } catch (err) { toast('Falha: ' + err.message, 'error'); }
         finally { btn.disabled = false; span.textContent = orig; }
     });
@@ -293,8 +371,67 @@ $currentPage = 'anomalies.php';
         else console.log('[' + type + ']', msg);
     }
 
+    // ============ Whitelist (v2.55) ============
+    async function loadWhitelist() {
+        const tbody = document.getElementById('whitelistBody');
+        try {
+            const res = await fetch('/api/v1/analytics/anomaly/whitelist', { headers: H });
+            const data = await res.json();
+            const items = data.items || [];
+            document.getElementById('whitelistCount').textContent = items.length;
+            if (!items.length) {
+                tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500 text-xs italic">Sem entradas. Adicione acima pra suprimir false-positives.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = items.map(it => `
+                <tr>
+                    <td><span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-slate-500/15 text-slate-600 dark:text-slate-400 border border-slate-500/30">${escapeHtml(it.kind)}</span></td>
+                    <td class="font-mono text-xs">${escapeHtml(it.client_ip || '—')}</td>
+                    <td class="font-mono text-xs">${escapeHtml(it.domain_pattern || '—')}</td>
+                    <td class="text-xs">${escapeHtml(it.detector || 'todos')}</td>
+                    <td class="text-xs text-slate-500">${escapeHtml(it.note || '')}</td>
+                    <td>${IS_ADMIN ? `<button class="glass-btn !bg-red-600 !text-white text-[10px] uppercase font-black btn-wl-del" data-id="${it.id}">×</button>` : ''}</td>
+                </tr>
+            `).join('');
+            tbody.querySelectorAll('.btn-wl-del').forEach(b => {
+                b.addEventListener('click', async (e) => {
+                    const id = e.target.dataset.id;
+                    const ok = await customConfirm('Remover essa entrada do whitelist?', 'Confirmar');
+                    if (!ok) return;
+                    try {
+                        const r = await fetch('/api/v1/analytics/anomaly/whitelist/' + id, { method: 'DELETE', headers: H });
+                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                        toast('Entrada removida', 'success');
+                        loadWhitelist();
+                    } catch (err) { toast('Falha: ' + err.message, 'error'); }
+                });
+            });
+        } catch (err) {
+            tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-red-500 text-xs">Falha: ${err.message}</td></tr>`;
+        }
+    }
+
+    document.getElementById('btnAddWhitelist')?.addEventListener('click', async () => {
+        const body = {
+            kind: document.getElementById('wlKind').value,
+            client_ip: document.getElementById('wlClient').value.trim(),
+            domain_pattern: document.getElementById('wlDomain').value.trim().toLowerCase(),
+            detector: document.getElementById('wlDetector').value,
+            note: document.getElementById('wlNote').value.trim(),
+        };
+        try {
+            const r = await fetch('/api/v1/analytics/anomaly/whitelist', { method: 'POST', headers: HJ, body: JSON.stringify(body) });
+            const d = await r.json();
+            if (!r.ok || !d.ok) throw new Error(d.error || 'HTTP ' + r.status);
+            ['wlClient','wlDomain','wlNote'].forEach(id => document.getElementById(id).value = '');
+            toast('Entrada adicionada', 'success');
+            loadWhitelist();
+        } catch (err) { toast('Falha: ' + err.message, 'error'); }
+    });
+
     loadSettings();
     loadRecent();
+    loadWhitelist();
 })();
 </script>
 

@@ -1,5 +1,60 @@
 # Changelog
 
+## v2.55.0 — 2026-05-26
+
+### feat(anomaly): 3 detectores novos + whitelist + UI estendida
+
+Anomaly Detection v2. Sobe de 3 → 6 detectores e adiciona whitelist
+pra suprimir falso-positivos.
+
+#### Detectores novos
+
+- **DNS tunneling** — agrupa por (cliente, registrable_domain), exige
+  ≥ N subdomínios únicos com comprimento médio e entropia média
+  acima dos thresholds. Detecta padrão `<base32-payload>.tunnel.com`.
+- **Beaconing** — coeficiente de variação (`stddev / mean`) dos
+  inter-arrival times. Baixo CV + período mínimo → beacon C2.
+- **Suspicious TLDs** — alto volume de queries non-blocked pra TLDs
+  com correlação histórica com malware (lista CSV configurável:
+  `.xyz, .top, .tk, .ml, .ga, .cf, .gq, .icu, .work, .click, .download,
+  .stream, .country, .review, .zip, .mov, .rest` por default).
+
+Cada novo detector tem toggle individual (`anomaly_*_enabled`),
+janela própria e thresholds próprios — total de 12 settings novas
+em `_ANOMALY_KEYS` (sobe de 11 → 24).
+
+#### Whitelist (V14)
+
+Tabela `anomaly_whitelist (id, kind, client_ip, domain_pattern,
+detector, note, created_at)`. 3 kinds: `client_ip` (match exato),
+`domain` (substring match lowercased), `client_and_domain` (ambos).
+`detector` vazio = aplica a todos.
+
+Helper `_is_whitelisted(detector, client_ip, domain)` no worker,
+cache de 60s pra não martelar DuckDB a cada tick. Invalidação
+explícita quando router faz INSERT/DELETE.
+
+Integrado em todos os 6 detectores antes do `_raise_alert`.
+
+#### Endpoints
+
+- `GET  /api/v1/analytics/anomaly/whitelist` — lista + valid_detectors/kinds
+- `POST /api/v1/analytics/anomaly/whitelist` — adiciona (valida kind/detector)
+- `DELETE /api/v1/analytics/anomaly/whitelist/{id}` — remove
+
+#### Página `/anomalies.php`
+
+- Grid de thresholds passa de 3 → 6 grupos (DGA, NXDOMAIN spike,
+  Cliente novo, DNS tunneling, Beaconing, Suspicious TLDs). 24 inputs.
+- Seção "Whitelist" nova no fim com:
+  - Form de adicionar (kind/client_ip/domain_pattern/detector/note)
+  - Tabela com remoção individual
+- Categorias coloridas no histórico estendidas pros 3 novos
+  detectores (rose, purple, amber).
+- Toast do "Rodar agora" reporta contagem dos 6 detectores.
+
+---
+
 ## v2.54.1 — 2026-05-26
 
 ### fix(threats): mapa-múndi não carregava — CDN path errado

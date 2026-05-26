@@ -177,17 +177,42 @@ async def search_queries(
 
 _ANOMALY_KEYS = [
     "anomaly_enabled",
+    # DGA
     "anomaly_dga_window_seconds",
     "anomaly_dga_entropy_min",
     "anomaly_dga_min_length",
     "anomaly_dga_min_count_per_client",
+    # NXDOMAIN spike
     "anomaly_nxdomain_window_seconds",
     "anomaly_nxdomain_spike_ratio",
     "anomaly_nxdomain_spike_min_count",
+    # Novo cliente
     "anomaly_new_client_baseline_days",
     "anomaly_new_client_window_seconds",
     "anomaly_new_client_min_queries",
+    # Tunneling (v2.55)
+    "anomaly_tunneling_enabled",
+    "anomaly_tunneling_window_seconds",
+    "anomaly_tunneling_min_unique_subdomains",
+    "anomaly_tunneling_min_avg_length",
+    "anomaly_tunneling_min_avg_entropy",
+    # Beaconing (v2.55)
+    "anomaly_beacon_enabled",
+    "anomaly_beacon_window_seconds",
+    "anomaly_beacon_min_samples",
+    "anomaly_beacon_max_cv",
+    "anomaly_beacon_min_period_seconds",
+    # Suspicious TLDs (v2.55)
+    "anomaly_suspicious_tld_enabled",
+    "anomaly_suspicious_tld_window_seconds",
+    "anomaly_suspicious_tld_min_count",
+    "anomaly_suspicious_tld_list",
 ]
+
+_VALID_DETECTORS = {
+    "", "dga", "nxdomain", "new_client", "tunneling", "beaconing", "suspicious_tld",
+}
+_VALID_KINDS = {"client_ip", "domain", "client_and_domain"}
 
 
 @router.get("/anomaly/settings")
@@ -265,10 +290,96 @@ async def get_anomaly_recent(
 async def run_anomaly_now(
     _: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
-    """Roda os 3 checks uma vez (independente de anomaly_enabled). Útil pra teste."""
+    """Roda todos os checks uma vez (independente de anomaly_enabled). Útil pra teste."""
     from app.workers import anomaly_detector as ad
 
     return await ad.run_once()
+
+
+# ---- Whitelist do AnomalyDetector (v2.55) ----
+
+
+@router.get("/anomaly/whitelist")
+async def list_anomaly_whitelist(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+) -> dict:
+    from app.repositories.duckdb.connection import db_fetchall
+
+    rows = await db_fetchall(
+        """
+        SELECT id, kind, client_ip, domain_pattern, detector, note, created_at
+        FROM anomaly_whitelist
+        ORDER BY created_at DESC
+        """
+    )
+    return {
+        "items": [
+            {
+                "id": int(r["id"]),
+                "kind": str(r["kind"]),
+                "client_ip": str(r["client_ip"] or ""),
+                "domain_pattern": str(r["domain_pattern"] or ""),
+                "detector": str(r["detector"] or ""),
+                "note": str(r["note"] or ""),
+                "created_at": int(r["created_at"] or 0),
+            }
+            for r in rows
+        ],
+        "valid_detectors": sorted(_VALID_DETECTORS),
+        "valid_kinds": sorted(_VALID_KINDS),
+    }
+
+
+@router.post("/anomaly/whitelist")
+async def add_anomaly_whitelist(
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+    body: dict,
+) -> dict:
+    """body: {kind, client_ip?, domain_pattern?, detector?, note?}."""
+    from app.repositories.duckdb.connection import db_execute
+    from app.workers.anomaly_detector import _whitelist_invalidate
+    import time
+
+    kind = str(body.get("kind") or "").strip()
+    if kind not in _VALID_KINDS:
+        return {"ok": False, "error": f"kind inválido (use: {sorted(_VALID_KINDS)})"}
+    cip = str(body.get("client_ip") or "").strip()
+    dom = str(body.get("domain_pattern") or "").strip().lower()
+    det = str(body.get("detector") or "").strip()
+    if det and det not in _VALID_DETECTORS:
+        return {"ok": False, "error": f"detector inválido (use: {sorted(_VALID_DETECTORS)})"}
+    note = str(body.get("note") or "").strip()[:255]
+
+    if kind == "client_ip" and not cip:
+        return {"ok": False, "error": "client_ip obrigatório quando kind=client_ip"}
+    if kind == "domain" and not dom:
+        return {"ok": False, "error": "domain_pattern obrigatório quando kind=domain"}
+    if kind == "client_and_domain" and not (cip and dom):
+        return {"ok": False, "error": "client_ip e domain_pattern obrigatórios"}
+
+    await db_execute(
+        """
+        INSERT INTO anomaly_whitelist
+            (kind, client_ip, domain_pattern, detector, note, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [kind, cip, dom, det, note, int(time.time())],
+    )
+    _whitelist_invalidate()
+    return {"ok": True}
+
+
+@router.delete("/anomaly/whitelist/{wid}")
+async def delete_anomaly_whitelist(
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+    wid: int,
+) -> dict:
+    from app.repositories.duckdb.connection import db_execute
+    from app.workers.anomaly_detector import _whitelist_invalidate
+
+    await db_execute("DELETE FROM anomaly_whitelist WHERE id = ?", [int(wid)])
+    _whitelist_invalidate()
+    return {"ok": True}
 
 
 @router.get("/queries/export-csv")
