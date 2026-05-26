@@ -4,6 +4,7 @@ from app.workers.backup_uploader import BackupUploader
 from app.workers.blocklist_syncer import BlocklistSyncer
 from app.workers.host_poller import HostPoller
 from app.workers.log_watcher import LogWatcher
+from app.workers.query_log_pruner import QueryLogPruner
 from app.workers.stats_aggregator import StatsAggregator
 from app.workers.unbound_collector import UnboundCollector
 from app.workers.update_checker import UpdateChecker
@@ -15,6 +16,7 @@ __all__ = [
     "BlocklistSyncer",
     "HostPoller",
     "LogWatcher",
+    "QueryLogPruner",
     "StatsAggregator",
     "UnboundCollector",
     "UpdateChecker",

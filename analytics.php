@@ -110,6 +110,48 @@ $currentPage = 'analytics.php';
                 </div>
             </div>
 
+            <!-- Retenção & Rollups (admin only) -->
+            <?php if (\App\Auth::isAdmin()): ?>
+            <div id="retentionPanel" class="glass-panel mt-6 border-slate-200 dark:border-white/5">
+                <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Retenção de Query Logs</h3>
+                        <p class="text-[10px] text-slate-500 mt-1">Pruner roda 1x/h. Mín 7 dias.</p>
+                    </div>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="retEnabled" class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-300 dark:bg-slate-700 rounded-full peer-checked:bg-emerald-500 transition-colors relative">
+                            <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
+                        </div>
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300">Ativo</span>
+                    </label>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-6">
+                    <div>
+                        <label class="text-[10px] font-black uppercase tracking-widest text-slate-500">Reter (dias)</label>
+                        <input type="number" id="retDays" min="7" max="3650" class="glass-input w-full mt-1 font-mono">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase tracking-widest text-slate-500">Linhas totais</label>
+                        <div id="retTotalRows" class="text-2xl font-black text-slate-900 dark:text-white mt-1 tabular-nums">—</div>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase tracking-widest text-slate-500">Linha mais antiga</label>
+                        <div id="retOldest" class="text-sm font-mono text-slate-700 dark:text-slate-300 mt-1">—</div>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase tracking-widest text-slate-500">Última execução</label>
+                        <div id="retLastRun" class="text-sm font-mono text-slate-700 dark:text-slate-300 mt-1">—</div>
+                        <div id="retLastDeleted" class="text-[10px] text-slate-500 mt-0.5">—</div>
+                    </div>
+                </div>
+                <div class="px-6 py-4 border-t border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex flex-wrap gap-2 justify-end">
+                    <button type="button" id="btnRetSave" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Salvar</button>
+                    <button type="button" id="btnRetPruneNow" class="glass-btn !bg-amber-600 !text-white text-[10px] uppercase font-black">Executar agora</button>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <?php include 'includes/footer.php'; ?>
         </div>
     </main>
@@ -318,6 +360,57 @@ $currentPage = 'analytics.php';
     }
 
     refreshAll();
+
+    // === Retenção (admin only) ===
+    const HJ = { ...H, 'Content-Type': 'application/json' };
+    const retEl = document.getElementById('retentionPanel');
+    if (retEl) {
+        const $ = (id) => document.getElementById(id);
+        const fmtEpoch = (e) => e ? new Date(e * 1000).toLocaleString('pt-BR') : '—';
+
+        async function loadRetention() {
+            try {
+                const res = await fetch('/api/v1/analytics/retention/settings', { headers: H });
+                if (!res.ok) return;
+                const d = await res.json();
+                $('retEnabled').checked = String(d.settings.query_log_retention_enabled) === '1';
+                $('retDays').value = parseInt(d.settings.query_log_retention_days || '90', 10);
+                $('retTotalRows').textContent = (d.current.total_rows || 0).toLocaleString('pt-BR');
+                $('retOldest').textContent = fmtEpoch(d.current.oldest_epoch);
+                $('retLastRun').textContent = d.last_run.last_run ? new Date(d.last_run.last_run).toLocaleString('pt-BR') : 'nunca';
+                $('retLastDeleted').textContent = d.last_run.last_deleted ? `${parseInt(d.last_run.last_deleted, 10).toLocaleString('pt-BR')} linhas removidas` : '';
+            } catch (e) { console.error('retention.load', e); }
+        }
+
+        $('btnRetSave').addEventListener('click', async () => {
+            const body = {
+                query_log_retention_enabled: $('retEnabled').checked ? '1' : '0',
+                query_log_retention_days: String(Math.max(7, parseInt($('retDays').value || '90', 10))),
+            };
+            const res = await fetch('/api/v1/analytics/retention/settings', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
+            if (res.ok) {
+                window.customAlert ? customAlert('Salvo.') : alert('Salvo.');
+                loadRetention();
+            } else {
+                window.customAlert ? customAlert('Erro ao salvar.') : alert('Erro ao salvar.');
+            }
+        });
+
+        $('btnRetPruneNow').addEventListener('click', async () => {
+            const ok = window.customConfirm ? await customConfirm('Executar prune agora?') : confirm('Executar prune agora?');
+            if (!ok) return;
+            const res = await fetch('/api/v1/analytics/retention/prune-now', { method: 'POST', headers: H });
+            const d = await res.json().catch(() => ({}));
+            if (res.ok && d.started) {
+                window.customAlert ? customAlert(`Removidas: ${(d.deleted || 0).toLocaleString('pt-BR')} linhas.`) : alert(`Removidas: ${d.deleted || 0}`);
+                loadRetention();
+            } else {
+                window.customAlert ? customAlert('Erro: ' + (d.error || res.statusText)) : alert('Erro');
+            }
+        });
+
+        loadRetention();
+    }
 })();
 </script>
 

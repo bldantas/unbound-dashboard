@@ -1,5 +1,48 @@
 # Changelog
 
+## v2.39.0 — 2026-05-26
+
+### feat(retention): hourly rollups + prune configurável de query_logs
+
+Primeira feature da Fase B. Dois problemas: (1) `daily_stats` agrega só
+por dia, granularidade ruim pra dashboard de observabilidade; (2)
+`query_logs` cresce indefinidamente — 20M+ linhas em poucas semanas.
+
+#### Migration V12 — `hourly_stats`
+
+Tabela nova `(hour_start INTEGER UNIQUE, total_queries, blocked_count)`.
+`hour_start` é unix epoch truncado pra hora. Idempotente via UPSERT.
+Servirá pra gráficos finos da próxima feature (B.1 observabilidade).
+
+#### `StatsAggregator` agora também escreve hourly_stats
+
+Mesmo tick (60s), recomputa hora atual + hora anterior. Hora anterior
+fecha logo depois da virada.
+
+#### Worker `QueryLogPruner`
+
+Loop horário (com 5min de jitter pós-boot). Settings:
+
+- `query_log_retention_enabled` (default "1")
+- `query_log_retention_days` (default 90, mín 7)
+
+`DELETE FROM query_logs WHERE timestamp < cutoff`. Zonemap nativo do
+DuckDB poda os blocks — sem index manual. Persiste status pós-execução
+em `query_log_pruner_last_*` pra UI mostrar última run / linhas removidas.
+
+#### Endpoints `/api/v1/analytics/retention/*` e `/hourly`
+
+- `GET /retention/settings` — config + status + total atual + linha mais antiga
+- `PUT /retention/settings` — atualiza (apenas keys whitelisted)
+- `POST /retention/prune-now` — dispara prune imediato (admin only)
+- `GET /hourly?hours=N` — lê hourly_stats das últimas N horas (até 720)
+
+#### UI
+
+`/analytics.php` ganha painel "Retenção de Query Logs" (admin only)
+no rodapé, com toggle, input de dias, stats (total rows, oldest, last
+run, last deleted) e botões Salvar / Executar agora.
+
 ## v2.38.0 — 2026-05-25
 
 ### feat(backup-offsite): upload automático pra S3-compatible

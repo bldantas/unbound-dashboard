@@ -1,5 +1,5 @@
 """
-StatsAggregator — agrega query_logs do dia em daily_stats (DuckDB).
+StatsAggregator — agrega query_logs em daily_stats e hourly_stats (DuckDB).
 
 Substitui PARCIALMENTE `scripts/aggregate_stats.php` da v1. O PHP original
 faz duas coisas:
@@ -9,6 +9,10 @@ faz duas coisas:
 
 Este worker faz APENAS (2). O (1) — métricas do daemon Unbound — continua em
 PHP por enquanto, porque não depende dos dados em DuckDB. Será portado depois.
+
+Adicionalmente (v2.39.0+), recomputa `hourly_stats` para a hora atual e a
+hora anterior — granularidade fina para dashboards de observabilidade e
+gráficos de "queries por hora".
 
 Tick: 60s. Idempotente (UPSERT). Só atualiza colunas que sabemos calcular
 (total_queries, blocked_count); cache_hits/cache_misses continuam sendo
@@ -39,6 +43,7 @@ class StatsAggregator:
         while self._running:
             try:
                 await self._aggregate_today()
+                await self._aggregate_recent_hours()
             except Exception as exc:  # noqa: BLE001
                 # Loga e segue — supervisor restart é desnecessário pra erro pontual de query
                 log.error("stats_aggregator.cycle_failed", error=str(exc))
@@ -85,3 +90,38 @@ class StatsAggregator:
             total=total,
             blocked=blocked,
         )
+
+    async def _aggregate_recent_hours(self) -> None:
+        """
+        Recomputa hourly_stats da hora atual + hora anterior.
+        Hora anterior fecha logo após virar a hora; a atual atualiza no tick.
+        """
+        now = int(datetime.now(UTC).timestamp())
+        current_hour = (now // 3600) * 3600
+        previous_hour = current_hour - 3600
+
+        for hour_start in (previous_hour, current_hour):
+            hour_end = hour_start + 3600
+            row = await db_fetchone(
+                """
+                SELECT
+                    COUNT(*)                                          AS total,
+                    COUNT(*) FILTER (WHERE action = 'blocked')        AS blocked
+                FROM query_logs
+                WHERE timestamp >= ? AND timestamp < ?
+                """,
+                [hour_start, hour_end],
+            )
+            total = int(row["total"] or 0) if row else 0
+            blocked = int(row["blocked"] or 0) if row else 0
+
+            await db_execute(
+                """
+                INSERT INTO hourly_stats (hour_start, total_queries, blocked_count)
+                VALUES (?, ?, ?)
+                ON CONFLICT (hour_start) DO UPDATE SET
+                    total_queries = EXCLUDED.total_queries,
+                    blocked_count = EXCLUDED.blocked_count
+                """,
+                [hour_start, total, blocked],
+            )

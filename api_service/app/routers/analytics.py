@@ -11,7 +11,7 @@ import io
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.core.deps import require_capability
@@ -259,3 +259,100 @@ async def export_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# --- B.3: Retention + hourly rollups ---
+
+_RETENTION_KEYS = ("query_log_retention_enabled", "query_log_retention_days")
+_RETENTION_DEFAULTS = {
+    "query_log_retention_enabled": "1",
+    "query_log_retention_days": "90",
+}
+
+
+@router.get("/retention/settings")
+async def get_retention_settings(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+) -> dict:
+    """Settings + estado da última execução do pruner."""
+    from app.repositories.duckdb import settings_repo
+    from app.repositories.duckdb.connection import db_fetchone
+
+    out = {k: await settings_repo.get(k, _RETENTION_DEFAULTS[k]) for k in _RETENTION_KEYS}
+    last = {
+        "last_run":     await settings_repo.get("query_log_pruner_last_run"),
+        "last_deleted": await settings_repo.get("query_log_pruner_last_deleted"),
+        "last_cutoff":  await settings_repo.get("query_log_pruner_last_cutoff"),
+    }
+    row = await db_fetchone("SELECT COUNT(*) AS n, MIN(timestamp) AS oldest FROM query_logs")
+    return {
+        "settings": out,
+        "defaults": _RETENTION_DEFAULTS,
+        "last_run": last,
+        "current": {
+            "total_rows": int(row["n"] or 0) if row else 0,
+            "oldest_epoch": int(row["oldest"] or 0) if row and row.get("oldest") else None,
+        },
+    }
+
+
+@router.put("/retention/settings")
+async def update_retention_settings(
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+    body: dict,
+) -> dict:
+    from app.repositories.duckdb import settings_repo
+
+    entries = []
+    for k, v in body.items():
+        if k in _RETENTION_KEYS:
+            entries.append({"setting_key": k, "setting_value": str(v)})
+    if not entries:
+        return {"updated": 0}
+    n = await settings_repo.bulk_upsert(entries)
+    return {"updated": n}
+
+
+@router.post("/retention/prune-now")
+async def prune_now(
+    request: Request,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Dispara prune imediato (ignora schedule)."""
+    pruner = getattr(request.app.state, "query_log_pruner", None)
+    if pruner is None:
+        return {"started": False, "error": "pruner not registered"}
+    result = await pruner.run_now()
+    return {"started": True, **result}
+
+
+@router.get("/hourly")
+async def get_hourly_stats(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+    hours: int = Query(24, ge=1, le=720),
+) -> dict:
+    """Últimas N horas de hourly_stats. Usado em /observability."""
+    from app.repositories.duckdb.connection import db_fetchall
+
+    now = int(datetime.now(timezone.utc).timestamp())
+    since = ((now // 3600) - hours) * 3600
+    rows = await db_fetchall(
+        """
+        SELECT hour_start, total_queries, blocked_count
+        FROM hourly_stats
+        WHERE hour_start >= ?
+        ORDER BY hour_start ASC
+        """,
+        [since],
+    )
+    return {
+        "hours": hours,
+        "points": [
+            {
+                "hour_start": int(r["hour_start"]),
+                "total": int(r["total_queries"] or 0),
+                "blocked": int(r["blocked_count"] or 0),
+            }
+            for r in rows
+        ],
+    }

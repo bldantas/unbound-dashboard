@@ -48,6 +48,7 @@ from app.workers import (
     BlocklistSyncer,
     HostPoller,
     LogWatcher,
+    QueryLogPruner,
     StatsAggregator,
     UnboundCollector,
     UpdateChecker,
@@ -111,6 +112,8 @@ async def lifespan(app: FastAPI):
     blocklist_syncer_worker = BlocklistSyncer()
     anomaly_detector = AnomalyDetector()
     backup_uploader = BackupUploader()
+    query_log_pruner = QueryLogPruner()
+    app.state.query_log_pruner = query_log_pruner  # exposto p/ endpoint "run-now"
     _background_tasks.extend(
         [
             asyncio.create_task(_supervised("log_watcher", log_watcher), name="log_watcher"),
@@ -136,6 +139,9 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(
                 _supervised("backup_uploader", backup_uploader), name="backup_uploader"
             ),
+            asyncio.create_task(
+                _supervised("query_log_pruner", query_log_pruner), name="query_log_pruner"
+            ),
         ]
     )
     log.info("workers iniciados, API pronta")
@@ -153,6 +159,7 @@ async def lifespan(app: FastAPI):
     await blocklist_syncer_worker.stop()
     await anomaly_detector.stop()
     await backup_uploader.stop()
+    await query_log_pruner.stop()
     for task in _background_tasks:
         task.cancel()
     await asyncio.gather(*_background_tasks, return_exceptions=True)
