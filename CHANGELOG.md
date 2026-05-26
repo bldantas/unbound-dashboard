@@ -1,5 +1,30 @@
 # Changelog
 
+## v2.66.0 — 2026-05-26
+
+### feat(reports): PDF do LGPD report e admin audit (reportlab)
+
+Frente PDF reports. Substitui (complementa, na verdade — CSV continua)
+os exports CSV de LGPD e admin audit por PDFs A4 retrato prontos pra
+distribuir.
+
+- Dep nova: `reportlab>=4.5` (+ pillow + charset-normalizer)
+- Service `pdf_report_service`:
+  - `lgpd_report_pdf(report)` — título + subtitle "Art. 18 LGPD" +
+    nota da trilha de auditoria + tabela 4 colunas (timestamp/tipo/
+    domínio/ação) com cabeçalho slate-900 + zebra striping
+  - `admin_audit_pdf(items, filters)` — título + descrição dos
+    filtros aplicados + tabela 6 colunas (quando/ator/ip/categoria/
+    ação/alvo)
+  - Header com "Unbound Dashboard" + timestamp + linha; footer com
+    nº de página
+- Endpoints novos:
+  - `GET /api/v1/compliance/lgpd-report.pdf` (mesmos params do .csv)
+  - `GET /api/v1/audit/admin/export-pdf` (cap 2000 linhas vs 10k do CSV)
+- Ambos auto-registrados em `admin_audit` (categoria data_export)
+- UI `/audit.php`: botões rose "Export PDF" nos dois painéis
+  (Admin Audit + LGPD Report)
+
 ## v2.65.0 — 2026-05-26
 
 ### feat(sso): OIDC Authorization Code flow + página /sso.php

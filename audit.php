@@ -69,6 +69,7 @@ $isAdmin = Auth::isAdmin();
                         </label>
                         <button type="button" id="btnAFilter" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Filtrar</button>
                         <button type="button" id="btnAExport" class="glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black ml-auto">Export CSV</button>
+                        <button type="button" id="btnAExportPdf" class="glass-btn !bg-rose-600 !text-white text-[10px] uppercase font-black">Export PDF</button>
                     </div>
                 </div>
 
@@ -141,6 +142,7 @@ $isAdmin = Auth::isAdmin();
                         </label>
                         <button type="button" id="btnLgpdRun" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Gerar JSON</button>
                         <button type="button" id="btnLgpdCsv" class="glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black">Download CSV</button>
+                        <button type="button" id="btnLgpdPdf" class="glass-btn !bg-rose-600 !text-white text-[10px] uppercase font-black">Download PDF</button>
                     </div>
                 </div>
                 <div id="lgpdResult" class="glass-panel border-slate-200 dark:border-white/5 mb-6 hidden">
@@ -272,17 +274,19 @@ $isAdmin = Auth::isAdmin();
     $('btnAFilter').addEventListener('click', () => { adminOffset = 0; loadAdmin(); });
     $('adminPrev').addEventListener('click', () => { if (adminOffset >= ADMIN_PAGE) { adminOffset -= ADMIN_PAGE; loadAdmin(); } });
     $('adminNext').addEventListener('click', () => { if (adminOffset + ADMIN_PAGE < adminTotal) { adminOffset += ADMIN_PAGE; loadAdmin(); } });
-    $('btnAExport').addEventListener('click', async () => {
-        const url = '/api/v1/audit/admin/export-csv?' + buildAdminQuery({limit: '10000', offset: '0'}).toString();
+    async function downloadAdmin(endpoint, ext) {
+        const url = endpoint + '?' + buildAdminQuery({limit: '10000', offset: '0'}).toString();
         const r = await fetch(url, { headers: H });
         if (!r.ok) { (window.customAlert || alert)('Erro ' + r.status); return; }
         const blob = await r.blob();
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'admin_audit.csv';
+        a.download = 'admin_audit.' + ext;
         a.click();
         URL.revokeObjectURL(a.href);
-    });
+    }
+    $('btnAExport').addEventListener('click', () => downloadAdmin('/api/v1/audit/admin/export-csv', 'csv'));
+    $('btnAExportPdf').addEventListener('click', () => downloadAdmin('/api/v1/audit/admin/export-pdf', 'pdf'));
 
     // Retention
     if (IS_ADMIN && $('aRetDays')) {
@@ -323,17 +327,19 @@ $isAdmin = Auth::isAdmin();
         $('lgpdResultMeta').textContent = `${d.total} resultados${d.truncated ? ' (truncado pelo limite)' : ''}`;
         $('lgpdResultBody').textContent = JSON.stringify(d.items, null, 2);
     });
-    $('btnLgpdCsv').addEventListener('click', async () => {
+    async function downloadLgpd(endpoint, ext) {
         const q = lgpdQuery(); if (!q) return;
-        const r = await fetch('/api/v1/compliance/lgpd-report.csv?' + q.qs, { headers: H });
+        const r = await fetch(endpoint + '?' + q.qs, { headers: H });
         if (!r.ok) { (window.customAlert || alert)('Erro ' + r.status); return; }
         const blob = await r.blob();
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `lgpd_${q.ip.replace(/:/g, '_')}_${q.hours}h.csv`;
+        a.download = `lgpd_${q.ip.replace(/:/g, '_')}_${q.hours}h.${ext}`;
         a.click();
         URL.revokeObjectURL(a.href);
-    });
+    }
+    $('btnLgpdCsv').addEventListener('click', () => downloadLgpd('/api/v1/compliance/lgpd-report.csv', 'csv'));
+    $('btnLgpdPdf').addEventListener('click', () => downloadLgpd('/api/v1/compliance/lgpd-report.pdf', 'pdf'));
 
     // === Updates ===
     async function loadUpdates() {

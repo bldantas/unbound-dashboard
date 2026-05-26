@@ -30,6 +30,7 @@ dependencies = [
     # dos backups DuckDB+config pra S3-compatible (AWS S3, MinIO, Wasabi,
     # Cloudflare R2, Backblaze B2). Usado pelo BackupUploader worker.
     "boto3>=1.35",
+    "reportlab>=4.5.1",
 ]
 
 [dependency-groups]

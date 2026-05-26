@@ -11,11 +11,11 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 
 from app.core.deps import require_capability
 from app.repositories.duckdb import settings_repo
-from app.services import admin_audit_service, audit_service
+from app.services import admin_audit_service, audit_service, pdf_report_service
 
 router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
@@ -85,6 +85,40 @@ async def export_admin_audit_csv(
         csv_str,
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="admin_audit.csv"'},
+    )
+
+
+@router.get("/admin/export-pdf")
+async def export_admin_audit_pdf(
+    request: Request,
+    user: Annotated[dict, Depends(require_capability("users.read"))],
+    category: str | None = Query(None, max_length=32),
+    actor_id: int | None = Query(None),
+    action_prefix: str | None = Query(None, max_length=80),
+    from_ts: int | None = Query(None, ge=0),
+    to_ts: int | None = Query(None, ge=0),
+) -> Response:
+    """Export PDF (cap 2000 linhas — pra mais use CSV). Loga em audit."""
+    out = await admin_audit_service.list_filtered(
+        category=category, actor_id=actor_id, action_prefix=action_prefix,
+        from_ts=from_ts, to_ts=to_ts, limit=2000, offset=0,
+    )
+    pdf_bytes = pdf_report_service.admin_audit_pdf(
+        out["items"],
+        filters={"category": category, "action_prefix": action_prefix, "from_ts": from_ts},
+    )
+    await admin_audit_service.log(
+        actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
+        actor_username=user.get("username"),
+        actor_ip=request.client.host if request.client else None,
+        action="audit.export_pdf",
+        category="data_export",
+        details={"filters": {"category": category, "action_prefix": action_prefix, "from_ts": from_ts}, "rows": len(out["items"])},
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="admin_audit.pdf"'},
     )
 
 

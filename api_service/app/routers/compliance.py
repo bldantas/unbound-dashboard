@@ -14,10 +14,10 @@ from ipaddress import ip_address
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 
 from app.core.deps import require_capability
-from app.services import admin_audit_service
+from app.services import admin_audit_service, pdf_report_service
 
 router = APIRouter(prefix="/api/v1/compliance", tags=["compliance"])
 
@@ -89,5 +89,37 @@ async def lgpd_report_csv(
     return PlainTextResponse(
         csv_str,
         media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@router.get("/lgpd-report.pdf")
+async def lgpd_report_pdf(
+    request: Request,
+    user: Annotated[dict, Depends(require_capability("users.read"))],
+    client_ip: str = Query(..., min_length=2, max_length=64),
+    hours: int = Query(24, ge=1, le=720),
+    limit: int = Query(5000, ge=1, le=50000),
+) -> Response:
+    """LGPD report como PDF A4 (reportlab). Pra grandes volumes, prefira CSV."""
+    ip = _validate_ip(client_ip)
+    report = await admin_audit_service.lgpd_report(ip, hours=hours, limit=limit)
+    pdf_bytes = pdf_report_service.lgpd_report_pdf(report)
+
+    await admin_audit_service.log(
+        actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
+        actor_username=user.get("username"),
+        actor_ip=request.client.host if request.client else None,
+        action="compliance.lgpd_report_pdf",
+        category="data_export",
+        target_type="ip",
+        target_id=ip,
+        details={"hours": hours, "found": report["total"]},
+    )
+
+    fname = f"lgpd_report_{ip.replace(':', '_')}_{hours}h.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
