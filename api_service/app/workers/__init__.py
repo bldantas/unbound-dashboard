@@ -4,6 +4,7 @@ from app.workers.audit_pruner import AuditPruner
 from app.workers.backup_uploader import BackupUploader
 from app.workers.blocklist_syncer import BlocklistSyncer
 from app.workers.geo_block_updater import GeoBlockUpdater
+from app.workers.ha_peer_monitor import HAPeerMonitor
 from app.workers.host_poller import HostPoller
 from app.workers.log_watcher import LogWatcher
 from app.workers.notification_pruner import NotificationPruner
@@ -20,6 +21,7 @@ __all__ = [
     "BackupUploader",
     "BlocklistSyncer",
     "GeoBlockUpdater",
+    "HAPeerMonitor",
     "HostPoller",
     "LogWatcher",
     "NotificationPruner",

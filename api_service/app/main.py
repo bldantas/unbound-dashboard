@@ -35,6 +35,7 @@ from app.routers import (
     geo_blocking,
     geoip,
     grafana,
+    ha,
     health,
     history,
     host,
@@ -58,6 +59,7 @@ from app.workers import (
     BackupUploader,
     BlocklistSyncer,
     GeoBlockUpdater,
+    HAPeerMonitor,
     HostPoller,
     LogWatcher,
     NotificationPruner,
@@ -134,6 +136,8 @@ async def lifespan(app: FastAPI):
     app.state.audit_pruner = audit_pruner
     prometheus_exporter = PrometheusExporter()
     app.state.prometheus_exporter = prometheus_exporter
+    ha_peer_monitor = HAPeerMonitor()
+    app.state.ha_peer_monitor = ha_peer_monitor
     geo_block_updater = GeoBlockUpdater()
     app.state.geo_block_updater = geo_block_updater
     _background_tasks.extend(
@@ -174,6 +178,9 @@ async def lifespan(app: FastAPI):
                 _supervised("prometheus_exporter", prometheus_exporter), name="prometheus_exporter"
             ),
             asyncio.create_task(
+                _supervised("ha_peer_monitor", ha_peer_monitor), name="ha_peer_monitor"
+            ),
+            asyncio.create_task(
                 _supervised("geo_block_updater", geo_block_updater), name="geo_block_updater"
             ),
         ]
@@ -197,6 +204,7 @@ async def lifespan(app: FastAPI):
     await notification_pruner.stop()
     await audit_pruner.stop()
     await prometheus_exporter.stop()
+    await ha_peer_monitor.stop()
     await geo_block_updater.stop()
     for task in _background_tasks:
         task.cancel()
@@ -239,6 +247,7 @@ app.include_router(exports.router)
 app.include_router(geo_blocking.router)
 app.include_router(geoip.router)
 app.include_router(grafana.router)
+app.include_router(ha.router)
 app.include_router(health.router)
 app.include_router(history.router)
 app.include_router(host.router)

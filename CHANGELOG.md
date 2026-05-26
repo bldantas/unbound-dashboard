@@ -1,5 +1,63 @@
 # Changelog
 
+## v2.64.0 — 2026-05-26
+
+### feat(ha): cluster HA peers + healthcheck 30s + manual failover
+
+Frente HA & Failover. **Não** implementa VRRP/keepalived automático;
+foca em observabilidade do cluster + manual cutover assist. Rede e
+DNS continuam sendo gerenciados externamente.
+
+#### Migration V16 `ha_peers`
+
+(id, label, api_url, api_token_hash bcrypt, role primary|secondary,
+priority 0..1000, enabled, last_check_at/status/latency_ms/payload,
+created_at, updated_at). 2 índices.
+
+#### Service `ha_service`
+
+- CRUD: list/create/update/delete peers. Create gera token raw (32
+  bytes urlsafe), salva bcrypt hash, retorna raw 1x.
+- `check_peer(id)` — `GET <api_url>/api/v1/health` com timeout 5s,
+  status=ok/down/unauthorized/timeout/error, registra latência ms +
+  payload JSON.
+- `check_all_enabled()` — usado pelo worker.
+- `manual_failover(promote_id, demote_id?)` — promove secondary →
+  primary; opcional demove o atual. Não toca em rede/DNS, só registra.
+- `cluster_status()` — snapshot agregado: total/primary_count/
+  secondary_count/ok_count/down_count/has_primary_ok/peers.
+
+#### Worker `HAPeerMonitor`
+
+30s interval, polla todos peers enabled, atualiza last_check_*.
+Limitação: healthcheck anônimo (token raw existe só na criação);
+peers com /health protegido marcam `unauthorized` — TODO secrets
+store cifrado.
+
+#### Endpoints `/api/v1/ha`
+
+- `GET /status` — snapshot
+- `GET/POST /peers`, `PUT/DELETE /peers/{id}`
+- `POST /peers/{id}/check` — força healthcheck imediato
+- `POST /failover` — body `{promote_id, demote_id?}`
+
+Todas ações de admin (`create`, `update`, `delete`, `failover`)
+auto-registradas em `admin_audit` (category=host ou config).
+
+#### Página `/cluster.php`
+
+- 4 KPIs (total, OK, Down, Primary OK?)
+- Tabela peers com role badge (PRIMARY emerald destacado, secondary
+  slate), status colorido, latência, último check em rel-time,
+  botões Check / Excluir (admin)
+- Form "Adicionar Peer" (admin): label/url/role/priority, modal
+  exibindo token raw uma única vez após criar
+- Painel rose "Manual Failover" (admin): selects de promote/demote
+  + warning explícito "NÃO muda rede/DNS"
+- Auto-refresh 30s
+
+Sidebar ganhou entrada "Cluster HA".
+
 ## v2.63.0 — 2026-05-26
 
 ### feat(observability): 13 Gauges Unbound + worker exporter + dashboard Grafana
