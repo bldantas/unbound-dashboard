@@ -15,7 +15,7 @@ ob_start();
     <title>Ameaças - Unbound DNS</title>
     <?php include 'includes/head.php'; ?>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsvectormap@1.5.3/dist/css/jsvectormap.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/jsvectormap@1.5.3/dist/jsvectormap.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsvectormap@1.5.3/dist/js/jsvectormap.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/jsvectormap@1.5.3/dist/maps/world.js" defer></script>
     <style>
         /* override pra encaixar no tema escuro */
@@ -429,6 +429,28 @@ $currentPage = 'threats.php';
 
         let __geoMapValues = {};
 
+        function applyMapValues(values, attempt) {
+            const MAX_ATTEMPTS = 25;  // ~5s total (200ms × 25)
+            const m = ensureWorldMap();
+            if (m) {
+                try {
+                    m.series.regions[0].clear();
+                } catch (_) { /* clear pode não existir em versões antigas */ }
+                m.series.regions[0].setValues(values);
+                return;
+            }
+            if (attempt >= MAX_ATTEMPTS) {
+                const emptyEl = document.getElementById('geoMapEmpty');
+                if (emptyEl) {
+                    emptyEl.classList.remove('hidden');
+                    emptyEl.innerHTML = '<p class="text-amber-500 text-xs italic">Falha ao carregar mapa (jsvectormap não disponível — verifique conexão com cdn.jsdelivr.net).</p>';
+                }
+                console.warn('[threats] jsvectormap não carregou após', MAX_ATTEMPTS, 'tentativas');
+                return;
+            }
+            setTimeout(() => applyMapValues(values, attempt + 1), 200);
+        }
+
         async function loadTopCountries() {
             const container = document.getElementById('threatsTopCountries');
             const emptyEl = document.getElementById('geoMapEmpty');
@@ -477,17 +499,7 @@ $currentPage = 'threats.php';
                     }
                 });
                 __geoMapValues = values;
-                const m = ensureWorldMap();
-                if (m) {
-                    m.series.regions[0].clear();
-                    m.series.regions[0].setValues(values);
-                } else {
-                    // jsvectormap não carregou ainda — tenta de novo daqui a 400ms (1x)
-                    setTimeout(() => {
-                        const m2 = ensureWorldMap();
-                        if (m2) m2.series.regions[0].setValues(__geoMapValues);
-                    }, 400);
-                }
+                applyMapValues(values, 0);
             } catch (e) {
                 container.innerHTML = '<p class="text-slate-500 text-xs italic">Falha ao carregar GeoIP.</p>';
             }
