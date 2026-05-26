@@ -6,6 +6,7 @@ import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from app.core.deps import require_capability
 from app.repositories.duckdb import settings_repo
@@ -68,10 +69,45 @@ async def test_connection(
     return result
 
 
-@router.post("/upload-now")
+async def _approval_handler_backup_upload(payload: dict) -> dict:
+    cfg = await svc.load_config()
+    if not cfg.get("backup_s3_bucket"):
+        return {"ok": False, "error": "bucket vazio"}
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, svc.upload_backup, cfg)
+    if result.get("success"):
+        await svc.save_status(
+            status="ok", error=None,
+            size=result.get("size_bytes"), key=result.get("key"),
+        )
+    else:
+        await svc.save_status(status="error", error=str(result.get("error") or ""))
+    return {"ok": bool(result.get("success")), **result}
+
+
+from app.services import approval_service
+approval_service.register_action_handler("backup.upload_now", _approval_handler_backup_upload)
+
+
+@router.post("/upload-now", response_model=None)
 async def upload_now(
-    _: Annotated[dict, Depends(require_capability("config.write"))],
-) -> dict:
+    request: Request,
+    user: Annotated[dict, Depends(require_capability("config.write"))],
+):
+    ip = request.client.host if request.client else None
+    try:
+        await approval_service.enforce_approval(
+            user=user, request_ip=ip,
+            action="backup.upload_now",
+            description="Upload de backup pro S3 (gera tarball + envia)",
+            payload={},
+        )
+    except approval_service.ApprovalRequired as exc:
+        return JSONResponse(
+            {"approval_pending": True, "request_id": exc.request_id,
+             "message": "Aguardando aprovação"},
+            status_code=202,
+        )
     cfg = await svc.load_config()
     if not cfg.get("backup_s3_bucket"):
         raise HTTPException(status_code=400, detail="Configure bucket antes de fazer upload")
@@ -79,10 +115,8 @@ async def upload_now(
     result = await loop.run_in_executor(None, svc.upload_backup, cfg)
     if result.get("success"):
         await svc.save_status(
-            status="ok",
-            error=None,
-            size=result.get("size_bytes"),
-            key=result.get("key"),
+            status="ok", error=None,
+            size=result.get("size_bytes"), key=result.get("key"),
         )
     else:
         await svc.save_status(status="error", error=str(result.get("error") or ""))

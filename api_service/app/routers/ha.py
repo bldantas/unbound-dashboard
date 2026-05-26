@@ -32,7 +32,16 @@ async def _approval_handler_failover(payload: dict) -> dict:
     return await ha_service.manual_failover(promote_id, demote_id)
 
 
+async def _approval_handler_peer_delete(payload: dict) -> dict:
+    pid = int(payload.get("peer_id", 0))
+    if pid < 1:
+        return {"ok": False, "error": "peer_id ausente"}
+    deleted = await ha_service.delete_peer(pid)
+    return {"ok": deleted, "deleted_peer_id": pid}
+
+
 approval_service.register_action_handler("ha.failover", _approval_handler_failover)
+approval_service.register_action_handler("ha.peer.delete", _approval_handler_peer_delete)
 
 
 def _coerce_int(v) -> int | None:
@@ -111,24 +120,39 @@ async def update_peer(
     return {"updated": True}
 
 
-@router.delete("/peers/{peer_id}", status_code=204)
+@router.delete("/peers/{peer_id}", response_model=None)
 async def delete_peer(
     peer_id: Annotated[int, Path(ge=1)],
     user: Annotated[dict, Depends(require_capability("config.write"))],
     request: Request,
-) -> None:
+):
+    ip = request.client.host if request.client else None
+    try:
+        await approval_service.enforce_approval(
+            user=user, request_ip=ip,
+            action="ha.peer.delete",
+            description=f"Excluir peer HA #{peer_id}",
+            payload={"peer_id": peer_id},
+        )
+    except approval_service.ApprovalRequired as exc:
+        return JSONResponse(
+            {"approval_pending": True, "request_id": exc.request_id,
+             "message": "Aguardando aprovação"},
+            status_code=202,
+        )
     ok = await ha_service.delete_peer(peer_id)
     if not ok:
         raise HTTPException(status_code=404, detail="peer não encontrado")
     await admin_audit_service.log(
         actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
         actor_username=user.get("username"),
-        actor_ip=request.client.host if request.client else None,
+        actor_ip=ip,
         action="ha.peer.delete",
         category="host",
         target_type="ha_peer",
         target_id=str(peer_id),
     )
+    return JSONResponse(content=None, status_code=204)
 
 
 @router.post("/peers/{peer_id}/check")
