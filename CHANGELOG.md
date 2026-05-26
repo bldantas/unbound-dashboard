@@ -1,5 +1,79 @@
 # Changelog
 
+## v2.53.0 — 2026-05-26
+
+### feat(geo-blocking): bloqueio de países inteiros via Unbound access-control
+
+Segunda parte da frente **GeoIP & Geo-Blocking**. Bloqueia clientes
+DNS de países selecionados gerando um include do Unbound com
+`access-control: <cidr> refuse` por CIDR.
+
+#### Source dos CIDRs
+
+`iwik.org/ipcountry/` (gratuito, sem registro, atualizado diariamente,
+baseado em MaxMind GeoLite2):
+
+- IPv4: `https://www.iwik.org/ipcountry/{CC}.cidr`
+- IPv6: `https://www.iwik.org/ipcountry/{CC}.ipv6`
+
+#### Persistência
+
+- Migration V13: tabela `geo_blocks (country_code, country_name,
+  blocked, cidrs_ipv4, cidrs_ipv6, ipv4_count, ipv6_count, updated_at,
+  last_error)`. UPSERT por `country_code`.
+- Settings: `geo_blocking_enabled` (master switch), `geo_blocking_include_ipv6`.
+
+#### Service `geo_blocking_service.py`
+
+- `add_country / remove_country / set_blocked` — CRUD em geo_blocks
+- `refresh_country / refresh_all` — baixa de iwik.org, atualiza CIDRs
+- `preview()` — gera o conteúdo do include sem aplicar
+- `apply()` — sudo cp + restart unbound com snapshot + rollback
+  automático em caso de falha. Mesmo padrão de
+  `dns_security_service.apply()`.
+
+#### Worker `GeoBlockUpdater`
+
+1x/24h re-baixa CIDRs dos países `blocked=true`. Pula se master switch
+está OFF (evita martelar iwik se Bruno só está experimentando). Não
+chama apply automático — mudanças só entram em vigor no próximo Apply
+manual (evita ciclos de restart silenciosos).
+
+#### Router `/api/v1/geo-blocking`
+
+- `GET /status` — settings + lista de países + preview cidrs
+- `GET /preview` — só o preview do include
+- `PUT /settings` — atualiza master switch + ipv6 toggle
+- `POST /countries` — adiciona país (`{country_code, country_name, blocked, refresh}`)
+- `DELETE /countries/{cc}` — remove
+- `PUT /countries/{cc}/blocked` — toggle individual
+- `POST /countries/{cc}/refresh` — re-baixa CIDRs daquele país
+- `POST /refresh-all` — re-baixa todos
+- `POST /apply` — regenera include + restart Unbound + rollback se falhar
+
+#### Página `/geo_blocking.php`
+
+- Banner amber: "habilitar reinicia o Unbound"
+- 4 KPIs: enabled (ON/OFF), países bloqueados, total CIDRs, IPv4 / IPv6
+- Settings: toggles master + IPv6
+- Tabela países: bandeira, code, nome, IPv4 count, IPv6 count, updated
+  rel, toggle blocked, botões ↻ (refresh) e × (remove)
+- Adicionar país: input ISO-2 + nome → POST /countries com refresh:true
+- Botões: Salvar Settings | Atualizar Todos | Apply (confirm modal)
+- Toasts informativos em cada ação; banner de erro inline em apply
+  failure com stage + rollback status
+
+Sidebar e Cmd+K ganharam entrada "Geo-Blocking".
+
+#### Patch infra
+
+`/etc/unbound/unbound.conf` ganhou
+`include: "/etc/unbound/includes/geo_acl.conf"` na linha 11 (após
+anti_doh.conf). Include vazio é criado no patch inicial; o service
+preenche/zera conforme o estado em `geo_blocks` + settings.
+
+---
+
 ## v2.52.0 — 2026-05-26
 
 ### feat(geoip): mapa-múndi choropleth + filtro de país em buscas

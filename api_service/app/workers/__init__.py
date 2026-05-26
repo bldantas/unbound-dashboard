@@ -2,6 +2,7 @@ from app.workers.alert_checker import AlertChecker
 from app.workers.anomaly_detector import AnomalyDetector
 from app.workers.backup_uploader import BackupUploader
 from app.workers.blocklist_syncer import BlocklistSyncer
+from app.workers.geo_block_updater import GeoBlockUpdater
 from app.workers.host_poller import HostPoller
 from app.workers.log_watcher import LogWatcher
 from app.workers.query_log_pruner import QueryLogPruner
@@ -14,6 +15,7 @@ __all__ = [
     "AnomalyDetector",
     "BackupUploader",
     "BlocklistSyncer",
+    "GeoBlockUpdater",
     "HostPoller",
     "LogWatcher",
     "QueryLogPruner",

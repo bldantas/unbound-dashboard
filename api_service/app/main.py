@@ -30,6 +30,7 @@ from app.routers import (
     blocklist,
     dns_security,
     exports,
+    geo_blocking,
     geoip,
     grafana,
     health,
@@ -52,6 +53,7 @@ from app.workers import (
     AnomalyDetector,
     BackupUploader,
     BlocklistSyncer,
+    GeoBlockUpdater,
     HostPoller,
     LogWatcher,
     QueryLogPruner,
@@ -120,6 +122,8 @@ async def lifespan(app: FastAPI):
     backup_uploader = BackupUploader()
     query_log_pruner = QueryLogPruner()
     app.state.query_log_pruner = query_log_pruner  # exposto p/ endpoint "run-now"
+    geo_block_updater = GeoBlockUpdater()
+    app.state.geo_block_updater = geo_block_updater
     _background_tasks.extend(
         [
             asyncio.create_task(_supervised("log_watcher", log_watcher), name="log_watcher"),
@@ -148,6 +152,9 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(
                 _supervised("query_log_pruner", query_log_pruner), name="query_log_pruner"
             ),
+            asyncio.create_task(
+                _supervised("geo_block_updater", geo_block_updater), name="geo_block_updater"
+            ),
         ]
     )
     log.info("workers iniciados, API pronta")
@@ -166,6 +173,7 @@ async def lifespan(app: FastAPI):
     await anomaly_detector.stop()
     await backup_uploader.stop()
     await query_log_pruner.stop()
+    await geo_block_updater.stop()
     for task in _background_tasks:
         task.cancel()
     await asyncio.gather(*_background_tasks, return_exceptions=True)
@@ -202,6 +210,7 @@ app.include_router(backup_offsite.router)
 app.include_router(blocklist.router)
 app.include_router(dns_security.router)
 app.include_router(exports.router)
+app.include_router(geo_blocking.router)
 app.include_router(geoip.router)
 app.include_router(grafana.router)
 app.include_router(health.router)

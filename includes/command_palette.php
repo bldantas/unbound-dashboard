@@ -68,6 +68,7 @@
         { label: 'Anomalias',           hint: 'DGA / spike / cliente novo',   url: 'anomalies.php',       kw: 'anomalia dga spike' },
         { label: 'Observabilidade',     hint: 'KPIs + workers + timeseries',  url: 'observability.php',   kw: 'observability slo latency' },
         { label: 'Segurança DNS',       hint: 'DNSSEC + DoT upstream',        url: 'dns_security.php',    kw: 'dnssec dot tls upstream' },
+        { label: 'Geo-Blocking',        hint: 'Bloquear países inteiros',     url: 'geo_blocking.php',    kw: 'geo geoip country pais firewall acl' },
         { label: 'Blocklists',          hint: 'Multi-source + allowlist',     url: 'blocklists.php',      kw: 'blocklist hagezi' },
         { label: 'Blocklist ANATEL',    hint: 'Bloqueios judiciais',          url: 'blocklist.php',       kw: 'anatel judicial' },
         { label: 'Políticas Cliente',   hint: 'Split-horizon por CIDR',       url: 'client_policies.php', kw: 'policies split-horizon view' },
