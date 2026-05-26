@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.50.0 — 2026-05-26
+
+### feat(notifications): bell icon no topbar + feed unificado
+
+Antes: alertas e anomalias só visíveis ao entrar nas páginas específicas.
+Agora: bell icon no topbar com badge contando notificações novas.
+
+#### Endpoint
+
+`GET /api/v1/notifications/feed?limit=N` — alertas ativos
+(resolved_at IS NULL AND is_dismissed=false), ordenados por started_at
+desc. Classifica anomalias (type LIKE 'anomaly_%') vs alertas gerais
+e devolve URL de destino apropriada (`/anomalies.php` ou `/alerts.php`).
+
+#### UI
+
+Bell icon entre status do daemon e tema. Badge vermelho com count de
+itens não vistos. Dropdown 320px com lista das últimas 30 notificações
+(severidade colorida + tempo relativo + truncate mensagem). Botão
+"Marcar todas lidas" salva o maior `id` em localStorage.
+
+Auto-refresh 1x/min. Stateless server-side: o que conta como "novo"
+é cliente-local — evita migration por user_seen.
+
 ## v2.49.0 — 2026-05-26
 
 ### feat(allowlist): bulk ops + CSV import/export

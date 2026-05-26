@@ -45,6 +45,23 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
             <div class="w-2 h-2 rounded-full <?= $tb_isOnline ? 'bg-emerald-500 dark:bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' ?>"></div>
         </div>
 
+        <!-- Notification Center -->
+        <div class="relative">
+            <button id="notifBell" class="p-2.5 rounded-2xl bg-slate-200 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-white/10 transition-all shadow-sm relative" title="Notificações">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                <span id="notifBadge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center">0</span>
+            </button>
+            <div id="notifDropdown" class="hidden absolute right-0 mt-2 w-80 max-h-[400px] overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl z-[180]">
+                <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-white/10">
+                    <h4 class="text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-200">Notificações</h4>
+                    <button type="button" id="notifMarkRead" class="text-[9px] uppercase font-black text-blue-500 hover:underline">Marcar todas lidas</button>
+                </div>
+                <ul id="notifList" class="p-2">
+                    <li class="px-3 py-4 text-center text-slate-500 text-xs">Carregando...</li>
+                </ul>
+            </div>
+        </div>
+
         <!-- Seletor de Tema (Sol/Lua) -->
         <button id="themeToggle" class="p-2.5 rounded-2xl bg-slate-200 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-white/10 transition-all shadow-sm group">
             <!-- Ícone Sol -->
@@ -144,4 +161,102 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
         }
     });
 
+    // --- NOTIFICATION CENTER (D.3) ---
+    (function() {
+        const bell = document.getElementById('notifBell');
+        const badge = document.getElementById('notifBadge');
+        const dropdown = document.getElementById('notifDropdown');
+        const list = document.getElementById('notifList');
+        const markBtn = document.getElementById('notifMarkRead');
+        if (!bell) return;
+
+        const jwtMeta = document.querySelector('meta[name="api-jwt"]');
+        const JWT = jwtMeta ? jwtMeta.content : '';
+        if (!JWT) {
+            bell.style.display = 'none';
+            return;
+        }
+        const H = { 'Authorization': 'Bearer ' + JWT };
+
+        function lastSeen() { return parseInt(localStorage.getItem('notif_last_seen') || '0', 10); }
+        function setLastSeen(id) { localStorage.setItem('notif_last_seen', String(id)); }
+
+        function esc(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+        function relTime(iso) {
+            if (!iso) return '';
+            const t = new Date(iso).getTime();
+            if (isNaN(t)) return '';
+            const diff = Math.floor((Date.now() - t) / 1000);
+            if (diff < 60) return diff + 's';
+            if (diff < 3600) return Math.floor(diff/60) + 'min';
+            if (diff < 86400) return Math.floor(diff/3600) + 'h';
+            return Math.floor(diff/86400) + 'd';
+        }
+
+        const SEV_COLORS = {
+            'critical': 'text-red-500 bg-red-500/10',
+            'warning':  'text-amber-500 bg-amber-500/10',
+            'info':     'text-blue-500 bg-blue-500/10',
+        };
+
+        async function load() {
+            try {
+                const r = await fetch('/api/v1/notifications/feed?limit=30', { headers: H });
+                if (!r.ok) return;
+                const d = await r.json();
+                const items = d.items || [];
+                const ls = lastSeen();
+                const unread = items.filter(i => i.id > ls);
+                if (unread.length > 0) {
+                    badge.textContent = unread.length > 99 ? '99+' : String(unread.length);
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
+                if (!items.length) {
+                    list.innerHTML = '<li class="px-3 py-6 text-center text-slate-500 text-xs italic">Nenhuma notificação pendente.</li>';
+                    return;
+                }
+                list.innerHTML = items.map(it => {
+                    const isUnread = it.id > ls;
+                    const sev = (it.severity || 'info').toLowerCase();
+                    const color = SEV_COLORS[sev] || SEV_COLORS.info;
+                    const dot = isUnread ? '<span class="w-2 h-2 rounded-full bg-blue-500 shrink-0 mr-2"></span>' : '<span class="w-2 h-2 shrink-0 mr-2"></span>';
+                    return `<li><a href="${esc(it.url)}" class="flex items-start gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 transition">
+                        ${dot}
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[10px] font-black uppercase tracking-widest ${color.split(' ')[0]}">${esc(it.type)}</span>
+                                <span class="text-[10px] text-slate-500 font-mono">${relTime(it.started_at)}</span>
+                            </div>
+                            <p class="text-xs text-slate-700 dark:text-slate-300 truncate mt-0.5">${esc(it.message) || '—'}</p>
+                        </div>
+                    </a></li>`;
+                }).join('');
+            } catch (e) { /* silent */ }
+        }
+
+        bell.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dropdown.classList.toggle('hidden');
+            if (!dropdown.classList.contains('hidden')) load();
+        });
+        document.addEventListener('click', (e) => {
+            if (!dropdown.contains(e.target) && e.target !== bell) dropdown.classList.add('hidden');
+        });
+        markBtn.addEventListener('click', async () => {
+            const r = await fetch('/api/v1/notifications/feed?limit=1', { headers: H });
+            if (r.ok) {
+                const d = await r.json();
+                const maxId = (d.items || []).reduce((m, i) => Math.max(m, i.id), 0);
+                if (maxId > 0) setLastSeen(maxId);
+                badge.classList.add('hidden');
+                load();
+            }
+        });
+
+        load();
+        setInterval(load, 60000);  // refresh 1x/min
+    })();
 </script>
