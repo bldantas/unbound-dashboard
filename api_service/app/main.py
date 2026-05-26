@@ -45,6 +45,7 @@ from app.routers import (
     observability,
     oidc,
     policies,
+    rate_limits,
     stats,
     threats,
     updates,
@@ -259,6 +260,7 @@ app.include_router(notifications.router)
 app.include_router(observability.router)
 app.include_router(oidc.router)
 app.include_router(policies.router)
+app.include_router(rate_limits.router)
 app.include_router(stats.router)
 app.include_router(threats.router)
 app.include_router(unbound_router.router)

@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.69.0 — 2026-05-26
+
+### feat(api): rate-limit per-token (key_func) + endpoint admin
+
+Antes o slowapi limitava por IP — token comprometido podia abusar de
+N IPs e cada um teria seu próprio bucket. Agora a key prefere o token
+(`Authorization: Bearer ...` ou `X-Api-Token: ...`), fallback IP
+(respeitando `X-Forwarded-For` do Apache reverso).
+
+#### `rate_limit.py` reescrito
+
+- `_token_or_ip_key(request)` deriva a key:
+  - Header Bearer → `tok:<sha256(token)[:24]>` (hash, não loga plaintext)
+  - X-Api-Token → mesmo padrão
+  - Senão → `ip:<x-forwarded-for[0] | request.client.host>`
+- Limiter agora usa essa func em vez de `get_remote_address`
+
+#### Endpoints novos `/api/v1/rate-limits` (admin)
+
+- `GET /config` — retorna limits ativos + db_overrides + strategy
+- `PUT /config` — valida formato `N/unit`, persiste em settings DB.
+  Registro em `admin_audit` (category=config).
+
+Aviso: mudanças aplicam após **restart** do `unbound-dashboard-api`
+(slowapi instancia Limiter no startup; hot-reload exigiria recriar
+o limiter + re-aplicar nos decoradores — fora do escopo).
+
 ## v2.68.0 — 2026-05-26
 
 ### feat(backup): restore-test — valida integridade do backup S3
