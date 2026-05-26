@@ -179,3 +179,42 @@ async def restart_service(
         ) from None
 
     return {"ok": True, "service": service, "unit": systemd_unit}
+
+
+# ============================================================
+# B.4 multi-host sync — inbound apply
+# ============================================================
+
+
+@router.post("/apply-config", status_code=status.HTTP_200_OK)
+async def apply_config(
+    body: dict,
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """
+    Recebe payload de config do master e aplica.
+
+    Body shape:
+        {
+          "blocklists": [{slug, url, index_enabled, block_enabled}, ...],
+          "policies":   [{slug, name, enabled, ranges, blocks, allows}, ...]
+        }
+
+    Retorno: counts por seção. Aplicação é aditiva (não remove o que
+    não estiver no payload). Re-sync das blocklists e re-gen das views
+    do Unbound não é disparada aqui — o agent tem seus workers/jobs
+    próprios pra isso (BlocklistSyncer roda 1x/h).
+    """
+    from app.services import multi_host_sync
+
+    actor = payload.get("auth_kind", "jwt")
+    log.info("host.apply_config", actor=actor)
+
+    result: dict[str, object] = {}
+    blocklists = body.get("blocklists") or []
+    policies = body.get("policies") or []
+    if blocklists:
+        result["blocklists"] = await multi_host_sync.apply_blocklists(blocklists)
+    if policies:
+        result["policies"] = await multi_host_sync.apply_policies(policies)
+    return {"ok": True, "applied": result}

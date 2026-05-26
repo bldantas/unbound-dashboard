@@ -1,5 +1,46 @@
 # Changelog
 
+## v2.43.0 — 2026-05-26
+
+### feat(multi-host): push de config (blocklists + policies) master → agents
+
+Fecha a Fase B. Multi-host (v2.21-v2.22) tinha leitura (poll status,
+proxy GET/POST, batch ops). Agora ganha **sincronização de config**:
+master replica seu próprio estado de blocklists e/ou policies pros agents.
+
+#### Service `multi_host_sync.py`
+
+- `build_blocklists_payload()` — flags por source (slug + index_enabled
+  + block_enabled + url). Não envia bytes baixados; o agent reaproveita
+  as URLs e baixa quando o BlocklistSyncer dele rodar.
+- `build_policies_payload()` — policies completas (slug, name, enabled,
+  ranges, blocks, allows).
+- `apply_blocklists()` — UPSERT de flags, ignora slugs desconhecidos
+  no agent (catálogo é fixo).
+- `apply_policies()` — UPSERT por slug; replace de ranges/blocks/allows
+  do payload. **Não-destrutivo**: policies locais ausentes do payload
+  são preservadas.
+
+#### Endpoints
+
+**Agent (inbound):**
+- `POST /api/v1/host/apply-config` — body `{blocklists?, policies?}`,
+  retorna `{applied: {blocklists, policies}}`.
+
+**Master (outbound):**
+- `POST /api/v1/hosts/{id}/push-config` — body
+  `{include_blocklists, include_policies}`, monta + posta no agent.
+- `POST /api/v1/hosts/batch/push-config` — push pra todos.
+
+#### UI
+
+`/hosts.php` ganhou botão "⇪ Push Config" no modal de detalhe do host.
+Pergunta o que incluir (blocklists, policies), faz request, mostra
+counts retornados pelo agent (updated/skipped, created/updated).
+
+**Compatibilidade**: agents em v2.42.0− retornam 404 — esperado, atualize
+antes de tentar push. Agents v2.43.0+ aceitam.
+
 ## v2.42.0 — 2026-05-26
 
 ### feat(webhook): Telegram Bot API como tipo nativo de notificação

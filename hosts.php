@@ -178,6 +178,7 @@ $currentPage = 'hosts.php';
                 <button type="button" id="host-detail-restart-api" class="glass-btn !bg-amber-600 !text-white text-[10px] uppercase font-black">⟲ Reiniciar API</button>
                 <button type="button" id="host-detail-restart-unbound" class="glass-btn !bg-amber-600 !text-white text-[10px] uppercase font-black">⟲ Reiniciar Unbound</button>
                 <button type="button" id="host-detail-upgrade" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">↑ Atualizar este</button>
+                <button type="button" id="host-detail-push-config" class="glass-btn !bg-purple-600 !text-white text-[10px] uppercase font-black" title="Replica blocklists e/ou policies deste master pro agent">⇪ Push Config</button>
                 <a id="host-detail-open-ui" href="#" target="_blank" rel="noopener" class="glass-btn text-[10px] uppercase font-black ml-auto">↗ Abrir UI</a>
             </div>
         </div>
@@ -580,6 +581,7 @@ $currentPage = 'hosts.php';
                 btnRestartApi:     document.getElementById('host-detail-restart-api'),
                 btnRestartUnbound: document.getElementById('host-detail-restart-unbound'),
                 btnUpgrade:        document.getElementById('host-detail-upgrade'),
+                btnPushConfig:     document.getElementById('host-detail-push-config'),
                 openUi:            document.getElementById('host-detail-open-ui'),
             };
             let currentDetailHost = null;
@@ -780,6 +782,44 @@ $currentPage = 'hosts.php';
                 if (!ok) return;
                 await singleHostAction(currentDetailHost.id, 'restart/unbound', 'Unbound reiniciado');
             });
+            detailEl.btnPushConfig.addEventListener('click', async () => {
+                if (!currentDetailHost) return;
+                const incBlock = await customConfirm(
+                    'Push config — blocklists',
+                    `Incluir flags de blocklists (qual fonte está ativa) no envio pra "${currentDetailHost.label}"?`,
+                    { variant: 'info', okLabel: 'Sim, incluir', cancelLabel: 'Não' }
+                );
+                const incPol = await customConfirm(
+                    'Push config — policies',
+                    `Incluir policies de cliente (split-horizon) no envio pra "${currentDetailHost.label}"?`,
+                    { variant: 'info', okLabel: 'Sim, incluir', cancelLabel: 'Não' }
+                );
+                if (!incBlock && !incPol) {
+                    await customAlert('Cancelado', 'Nada selecionado para sincronizar.', 'info');
+                    return;
+                }
+                try {
+                    const resp = await fetch(`/api/v1/hosts/${currentDetailHost.id}/push-config`, {
+                        method: 'POST', headers: HEADERS,
+                        body: JSON.stringify({ include_blocklists: incBlock, include_policies: incPol }),
+                    });
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+                    const sent = data.sent || {};
+                    const r = data.result || {};
+                    if (r.ok) {
+                        const applied = r.data?.applied || {};
+                        const bl = applied.blocklists ? `bl: +${applied.blocklists.updated}/skip ${applied.blocklists.skipped_unknown}` : '';
+                        const po = applied.policies ? `pol: +${applied.policies.created} novas / ~${applied.policies.updated} atualizadas` : '';
+                        await customAlert('Push aplicado', `Enviado: ${sent.blocklists_count}bl + ${sent.policies_count}pol\n${bl}\n${po}`.trim(), 'success');
+                    } else {
+                        await customAlert('Agent rejeitou', `HTTP ${r.status_code}: ${r.error || '?'}`, 'error');
+                    }
+                } catch (err) {
+                    await customAlert('Erro', err.message, 'error');
+                }
+            });
+
             detailEl.btnUpgrade.addEventListener('click', async () => {
                 if (!currentDetailHost) return;
                 // Mostra a versão detectada NO MASTER pra contexto, mas manda "latest"

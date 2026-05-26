@@ -235,3 +235,81 @@ async def upgrade_host(
         return await managed_hosts.trigger_upgrade(host_id, body.version)
     except managed_hosts.HostNotFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
+
+
+# ============================================================
+# B.4 multi-host sync — push config to agent
+# ============================================================
+
+
+class PushConfigRequest(BaseModel):
+    include_blocklists: bool = True
+    include_policies: bool = True
+
+
+@router.post("/{host_id}/push-config")
+async def push_config(
+    host_id: int,
+    body: PushConfigRequest,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """
+    Empacota config local (blocklist flags + policies completas) e
+    posta no `/api/v1/host/apply-config` do agent. Retorna o resultado
+    bruto do agent.
+    """
+    from app.services import multi_host_sync
+
+    payload: dict = {}
+    if body.include_blocklists:
+        payload["blocklists"] = await multi_host_sync.build_blocklists_payload()
+    if body.include_policies:
+        payload["policies"] = await multi_host_sync.build_policies_payload()
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nada selecionado para sincronizar",
+        )
+
+    try:
+        result = await managed_hosts.proxy_post(host_id, "/api/v1/host/apply-config", payload)
+    except managed_hosts.HostNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
+    return {"sent": payload_summary(payload), "result": result}
+
+
+def payload_summary(payload: dict) -> dict:
+    return {
+        "blocklists_count": len(payload.get("blocklists", [])),
+        "policies_count": len(payload.get("policies", [])),
+    }
+
+
+@router.post("/batch/push-config")
+async def batch_push_config(
+    body: PushConfigRequest,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Push config pra todos os hosts. Sequencial, falhas isoladas."""
+    from app.services import multi_host_sync
+
+    payload: dict = {}
+    if body.include_blocklists:
+        payload["blocklists"] = await multi_host_sync.build_blocklists_payload()
+    if body.include_policies:
+        payload["policies"] = await multi_host_sync.build_policies_payload()
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nada selecionado para sincronizar",
+        )
+
+    hosts = await managed_hosts.list_all()
+    results = []
+    for h in hosts:
+        try:
+            r = await managed_hosts.proxy_post(int(h["id"]), "/api/v1/host/apply-config", payload)
+            results.append({"host_id": h["id"], "label": h["label"], **r})
+        except Exception as exc:  # noqa: BLE001
+            results.append({"host_id": h["id"], "label": h["label"], "ok": False, "error": str(exc)})
+    return {"sent": payload_summary(payload), "results": results, "count": len(results)}
