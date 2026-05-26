@@ -50,11 +50,34 @@ $currentPage = 'sso.php';
                         <span class="text-[11px] font-black uppercase tracking-widest">SSO habilitado</span>
                     </label>
 
+                    <div>
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block">Provider preset</span>
+                        <div class="flex flex-wrap gap-2">
+                            <select id="sPreset" class="glass-input font-mono flex-1 min-w-[240px]">
+                                <option value="">— escolha um provider —</option>
+                                <option value="google">Google Workspace / Cloud Identity</option>
+                                <option value="entra">Microsoft Entra ID (Azure AD)</option>
+                                <option value="okta">Okta</option>
+                                <option value="auth0">Auth0</option>
+                                <option value="keycloak">Keycloak</option>
+                                <option value="authentik">Authentik</option>
+                                <option value="zitadel">Zitadel</option>
+                                <option value="custom">Custom (manual)</option>
+                            </select>
+                            <button type="button" id="btnApplyPreset" class="glass-btn !bg-slate-600 !text-white text-[10px] uppercase font-black">Aplicar preset</button>
+                        </div>
+                        <p id="presetHint" class="text-[10px] text-slate-500 mt-2"></p>
+                    </div>
+
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <label class="flex flex-col">
                             <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Issuer URL</span>
-                            <input type="text" id="sIssuer" placeholder="https://accounts.google.com" class="glass-input w-full font-mono">
+                            <div class="flex gap-2">
+                                <input type="text" id="sIssuer" placeholder="https://accounts.google.com" class="glass-input flex-1 font-mono">
+                                <button type="button" id="btnProbe" class="glass-btn !bg-indigo-600 !text-white text-[10px] uppercase font-black whitespace-nowrap">Testar conectividade</button>
+                            </div>
                             <p class="text-[10px] text-slate-500 mt-1">Base do <code>/.well-known/openid-configuration</code>.</p>
+                            <div id="probeResult" class="hidden mt-2 p-3 rounded-lg text-[11px] font-mono"></div>
                         </label>
                         <label class="flex flex-col">
                             <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Client ID</span>
@@ -153,6 +176,126 @@ $currentPage = 'sso.php';
                 <p class="text-slate-600 dark:text-slate-400"><code>SECRETS_MASTER_KEY</code> não está configurada — client_secret será gravado em texto plano. Gere com <code>python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'</code> e adicione no <code>/etc/unbound-dashboard/api-v1.env</code>.</p>`;
         }
         banner.classList.remove('hidden');
+    }
+
+    // ============ Provider presets ============
+    const PRESETS = {
+        google: {
+            issuer: 'https://accounts.google.com',
+            scopes: 'openid email profile',
+            hint: 'Registre em <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="text-sky-500 underline">Google Cloud Console → APIs & Services → Credentials</a> como "OAuth 2.0 Client ID" tipo Web. Adicione o callback URL acima nos "Authorized redirect URIs". Para restringir ao seu domínio Workspace, use o campo "Domínios de email permitidos".',
+        },
+        entra: {
+            issuer: 'https://login.microsoftonline.com/{TENANT_ID}/v2.0',
+            scopes: 'openid email profile',
+            hint: 'Registre em <a href="https://entra.microsoft.com/" target="_blank" class="text-sky-500 underline">Microsoft Entra admin center → App registrations → New registration</a>. Substitua <code>{TENANT_ID}</code> pelo seu Directory (tenant) ID (use <code>common</code> pra multi-tenant). Adicione o callback URL acima como Web redirect URI.',
+        },
+        okta: {
+            issuer: 'https://{YOUR_DOMAIN}.okta.com',
+            scopes: 'openid email profile',
+            hint: 'Substitua <code>{YOUR_DOMAIN}</code> pelo seu domínio Okta (ex: <code>dev-123456</code>). Em Okta admin → Applications → Create App Integration → OIDC → Web Application. Adicione o callback URL nos "Sign-in redirect URIs".',
+        },
+        auth0: {
+            issuer: 'https://{YOUR_TENANT}.auth0.com',
+            scopes: 'openid email profile',
+            hint: 'Substitua <code>{YOUR_TENANT}</code> pelo seu tenant Auth0 (ex: <code>dev-abc123</code>). Em Auth0 dashboard → Applications → Create Application → Regular Web Application. Adicione o callback URL em "Allowed Callback URLs".',
+        },
+        keycloak: {
+            issuer: 'https://{HOST}/realms/{REALM}',
+            scopes: 'openid email profile',
+            hint: 'Substitua <code>{HOST}</code> pelo hostname do seu Keycloak e <code>{REALM}</code> pelo nome do realm. Em Keycloak admin → Clients → Create → Client type=OpenID Connect → Client authentication=ON. Adicione o callback URL em "Valid redirect URIs".',
+        },
+        authentik: {
+            issuer: 'https://{HOST}/application/o/{APP_SLUG}/',
+            scopes: 'openid email profile',
+            hint: 'Substitua <code>{HOST}</code> pelo hostname do Authentik e <code>{APP_SLUG}</code> pelo slug do provider OAuth2/OIDC. Em Authentik → Applications → Providers → Create → OAuth2/OpenID Provider. Use "Authorization Code" como grant type.',
+        },
+        zitadel: {
+            issuer: 'https://{INSTANCE}.zitadel.cloud',
+            scopes: 'openid email profile',
+            hint: 'Substitua <code>{INSTANCE}</code> pelo seu instance ID Zitadel (ex: <code>acme-abc123</code>). Em Zitadel console → Projects → New Application → Web → Code grant. Adicione o callback URL em "Redirect URIs".',
+        },
+        custom: {
+            issuer: '',
+            scopes: 'openid email profile',
+            hint: 'Configure manualmente. Use o botão "Testar conectividade" pra validar o issuer URL via <code>.well-known/openid-configuration</code>.',
+        },
+    };
+
+    $('btnApplyPreset').addEventListener('click', () => {
+        const k = $('sPreset').value;
+        const p = PRESETS[k];
+        if (!p) { $('presetHint').innerHTML = '<span class="text-amber-500">Escolha um provider primeiro.</span>'; return; }
+        $('sIssuer').value = p.issuer;
+        $('sScopes').value = p.scopes;
+        $('presetHint').innerHTML = p.hint;
+    });
+
+    // ============ Probe (auto-discovery) ============
+    $('btnProbe').addEventListener('click', async () => {
+        const issuer = $('sIssuer').value.trim().replace(/\/+$/, '');
+        const box = $('probeResult');
+        if (!issuer) {
+            box.className = 'mt-2 p-3 rounded-lg text-[11px] font-mono bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30';
+            box.classList.remove('hidden');
+            box.textContent = 'Preencha o Issuer URL primeiro.';
+            return;
+        }
+        const btn = $('btnProbe');
+        btn.disabled = true;
+        const orig = btn.textContent;
+        btn.textContent = 'Probing...';
+        box.className = 'mt-2 p-3 rounded-lg text-[11px] font-mono bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20';
+        box.classList.remove('hidden');
+        box.textContent = 'Fetch ' + issuer + '/.well-known/openid-configuration ...';
+        try {
+            const r = await fetch('/api/v1/auth/oidc/probe', {
+                method: 'POST', headers: HJ, body: JSON.stringify({ issuer_url: issuer }),
+            });
+            const d = await r.json();
+            renderProbeResult(d, r.ok);
+        } catch (err) {
+            box.className = 'mt-2 p-3 rounded-lg text-[11px] font-mono bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30';
+            box.textContent = 'Falha: ' + err.message;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = orig;
+        }
+    });
+
+    function renderProbeResult(d, httpOk) {
+        const box = $('probeResult');
+        if (!httpOk || !d.ok) {
+            box.className = 'mt-2 p-3 rounded-lg text-[11px] font-mono bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30';
+            box.innerHTML = `<b>✗ Falhou.</b> ${escapeHtml(d.error || d.detail || 'erro desconhecido')}` +
+                (d.http_status ? `<br><span class="text-[10px]">HTTP ${d.http_status}</span>` : '') +
+                (d.discovery_url ? `<br><span class="text-[10px] opacity-70">${escapeHtml(d.discovery_url)}</span>` : '');
+            return;
+        }
+        box.className = 'mt-2 p-3 rounded-lg text-[11px] font-mono bg-emerald-500/10 text-slate-700 dark:text-slate-300 border border-emerald-500/30';
+        const issuerWarn = d.issuer_match === false
+            ? `<div class="text-amber-600 dark:text-amber-400 mt-1"><b>⚠ Issuer divergente:</b> discovery diz <code>${escapeHtml(d.meta_issuer)}</code></div>`
+            : '';
+        const jwksLine = d.jwks_keys !== undefined
+            ? `<div>jwks_uri: <span class="text-emerald-600 dark:text-emerald-400">${d.jwks_keys} chave(s)</span></div>`
+            : (d.jwks_error ? `<div class="text-amber-600 dark:text-amber-400">jwks: ${escapeHtml(d.jwks_error)}</div>` : '');
+        const scopesLine = Array.isArray(d.scopes_supported) ? d.scopes_supported.slice(0, 10).join(' ') + (d.scopes_supported.length > 10 ? ' …' : '') : '(não listado)';
+        const algsLine = Array.isArray(d.id_token_signing_alg_values_supported) ? d.id_token_signing_alg_values_supported.join(', ') : '(não listado)';
+        box.innerHTML = `
+            <div><b class="text-emerald-600 dark:text-emerald-400">✓ Discovery OK</b></div>
+            ${issuerWarn}
+            <div class="mt-2 space-y-0.5">
+                <div>authorization: <span class="opacity-80">${escapeHtml(d.authorization_endpoint || '—')}</span></div>
+                <div>token: <span class="opacity-80">${escapeHtml(d.token_endpoint || '—')}</span></div>
+                <div>userinfo: <span class="opacity-80">${escapeHtml(d.userinfo_endpoint || '—')}</span></div>
+                ${jwksLine}
+                <div class="text-[10px] mt-1 opacity-70">scopes_supported: ${escapeHtml(scopesLine)}</div>
+                <div class="text-[10px] opacity-70">id_token_alg: ${escapeHtml(algsLine)}</div>
+            </div>`;
+    }
+
+    function escapeHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
 
     $('btnSave').addEventListener('click', async () => {

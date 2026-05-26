@@ -3,6 +3,7 @@
 
 GET  /config             — admin lê config (sem secret)
 PUT  /config             — admin atualiza (string vazia em client_secret preserva valor atual)
+POST /probe              — admin valida issuer URL (fetch discovery + JWKS)
 GET  /login              — redireciona pro IdP com state CSRF
 GET  /callback           — recebe code, troca por tokens, valida id_token,
                            sync/create user, emite JWT local
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
@@ -64,6 +66,80 @@ async def update_config(
         category="config",
         details={"fields": list(body.keys())},
     )
+    return out
+
+
+@router.post("/probe")
+async def probe_issuer(
+    body: dict,
+    _: Annotated[dict, Depends(require_admin)],
+) -> dict:
+    """Valida um issuer URL: fetch do `.well-known/openid-configuration`
+    + JWKS (best-effort). Retorna metadata descoberto pra UI mostrar e
+    pra admin confirmar antes de salvar.
+
+    Não persiste nada — só faz GETs HTTP. Não exige scopes/client_id.
+    """
+    issuer = str(body.get("issuer_url") or "").strip().rstrip("/")
+    if not issuer.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="issuer_url deve começar com http(s)://")
+
+    discovery_url = f"{issuer}/.well-known/openid-configuration"
+    out: dict = {"ok": False, "issuer_url": issuer, "discovery_url": discovery_url}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            r = await client.get(discovery_url, headers={"Accept": "application/json"})
+            out["http_status"] = r.status_code
+            if r.status_code != 200:
+                out["error"] = f"discovery retornou HTTP {r.status_code}"
+                return out
+            try:
+                meta = r.json()
+            except ValueError:
+                out["error"] = "discovery não retornou JSON válido"
+                return out
+
+            # Issuer no discovery deve bater (modulo trailing slash)
+            disc_issuer = str(meta.get("issuer") or "").rstrip("/")
+            issuer_match = (disc_issuer == issuer)
+            out["meta_issuer"] = disc_issuer
+            out["issuer_match"] = issuer_match
+            for k in (
+                "authorization_endpoint", "token_endpoint", "userinfo_endpoint",
+                "jwks_uri", "end_session_endpoint",
+            ):
+                v = meta.get(k)
+                if v:
+                    out[k] = v
+            for k in (
+                "scopes_supported", "response_types_supported",
+                "id_token_signing_alg_values_supported",
+                "grant_types_supported", "code_challenge_methods_supported",
+            ):
+                v = meta.get(k)
+                if isinstance(v, list):
+                    out[k] = v
+
+            # JWKS probe (best-effort)
+            jwks_uri = meta.get("jwks_uri")
+            if jwks_uri:
+                try:
+                    jr = await client.get(jwks_uri, headers={"Accept": "application/json"})
+                    if jr.status_code == 200:
+                        jwks = jr.json()
+                        keys = jwks.get("keys", []) if isinstance(jwks, dict) else []
+                        out["jwks_keys"] = len(keys)
+                    else:
+                        out["jwks_error"] = f"JWKS HTTP {jr.status_code}"
+                except (httpx.HTTPError, ValueError) as exc:
+                    out["jwks_error"] = str(exc)[:200]
+
+            out["ok"] = bool(out.get("authorization_endpoint") and out.get("token_endpoint"))
+            if not out["ok"]:
+                out["error"] = "metadata sem authorization/token endpoint"
+    except httpx.HTTPError as exc:
+        out["error"] = f"falha de rede: {str(exc)[:200]}"
     return out
 
 

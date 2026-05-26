@@ -17,6 +17,7 @@ Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 - **v2.80**: organizações (infra-only) — V23 `organizations` (name/slug/description/is_active) + coluna `users.org_id` nullable, service CRUD, endpoints `/api/v1/organizations/*` (admin), página `/orgs.php` com banner de limitações conhecidas. **Não particiona** dados existentes nem implementa RBAC per-org ainda — só prepara infraestrutura pra próximas iterações.
 
 ### Auth, segurança & compliance
+- **v2.82**: auto-discovery + provider presets em `/sso.php` — dropdown com **8 presets** (Google, Entra ID, Okta, Auth0, Keycloak, Authentik, Zitadel, Custom) que pré-preenchem issuer URL template + scopes + dicas inline de como registrar a app no IdP. Botão "Testar conectividade" chama novo endpoint `POST /api/v1/auth/oidc/probe` que faz GET no `.well-known/openid-configuration` + JWKS, retorna endpoints descobertos (authorization/token/userinfo/jwks_uri), match do issuer, scopes/algs suportados e contagem de chaves JWKS. Sem persistir nada — só valida o issuer antes do admin salvar.
 - **v2.78**: wire de approvals expandido — `backup.upload_now` e `ha.peer.delete`. Total: **7 handlers** (dns/doh/ha-failover/geo/users/backup/ha-delete).
 - **v2.75**: wire de approvals expandido — `geo_blocking.apply` e `users.delete` agora também passam por `enforce_approval`. Total: 5 handlers registrados (dns/doh/ha/geo/users).
 - **v2.74**: múltiplos destinos S3 (multi-cloud redundância); cada destino com secret cifrado via cipher_service. `BackupUploader` itera priority DESC.
