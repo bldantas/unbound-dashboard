@@ -13,6 +13,9 @@ Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 - **v2.77**: i18n incremental — `audit.php`, `sso.php`, `performance.php` migradas (titles + subtitles + tabs). Outras páginas progressivas.
 - **v2.76**: i18n base — helper `t()` (PHP), arquivos `lang/pt-BR.php` e `lang/en.php`, toggle PT/EN no topbar (cookie 1 ano + session), `set_locale.php` endpoint. Detect: session → cookie → Accept-Language → default pt-BR. Sidebar 100% migrada; outras páginas migram progressivamente. Keys ausentes mostram a própria key (debug-friendly).
 
+### Multi-tenant
+- **v2.80**: organizações (infra-only) — V23 `organizations` (name/slug/description/is_active) + coluna `users.org_id` nullable, service CRUD, endpoints `/api/v1/organizations/*` (admin), página `/orgs.php` com banner de limitações conhecidas. **Não particiona** dados existentes nem implementa RBAC per-org ainda — só prepara infraestrutura pra próximas iterações.
+
 ### Auth, segurança & compliance
 - **v2.78**: wire de approvals expandido — `backup.upload_now` e `ha.peer.delete`. Total: **7 handlers** (dns/doh/ha-failover/geo/users/backup/ha-delete).
 - **v2.75**: wire de approvals expandido — `geo_blocking.apply` e `users.delete` agora também passam por `enforce_approval`. Total: 5 handlers registrados (dns/doh/ha/geo/users).

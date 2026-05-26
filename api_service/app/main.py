@@ -45,6 +45,7 @@ from app.routers import (
     notifications,
     observability,
     oidc,
+    organizations,
     policies,
     rate_limits,
     secrets as secrets_router,
@@ -295,6 +296,7 @@ app.include_router(hosts.router)
 app.include_router(notifications.router)
 app.include_router(observability.router)
 app.include_router(oidc.router)
+app.include_router(organizations.router)
 app.include_router(policies.router)
 app.include_router(rate_limits.router)
 app.include_router(secrets_router.router)
