@@ -154,6 +154,23 @@ $currentPage = 'backup_offsite.php';
                 </div>
             </div>
 
+            <!-- Múltiplos destinos S3 (v2.74) -->
+            <div class="glass-panel border-blue-200 dark:border-blue-500/30 bg-blue-50/30 dark:bg-blue-500/5 mb-6">
+                <div class="px-6 py-4 border-b border-blue-200 dark:border-blue-500/30 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Múltiplos Destinos S3 <span id="destBadge" class="ml-2 text-[10px] text-slate-500"></span></h3>
+                        <p class="text-[10px] text-slate-500 mt-1">Backup redundante em N provedores em paralelo (AWS + B2 + Wasabi…). Quando ≥1 destino está ativo, o worker passa a usar este modo no lugar do single-bucket acima. <code>secret_key</code> é cifrado via <code>cipher_service</code>.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="btnDestAdd" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">+ Adicionar</button>
+                        <button id="btnDestUploadAll" class="glass-btn !bg-purple-600 !text-white text-[10px] uppercase font-black">Upload em todos</button>
+                    </div>
+                </div>
+                <div id="destList" class="p-6 space-y-3 text-xs">
+                    <div class="text-slate-500 italic">Carregando…</div>
+                </div>
+            </div>
+
             <!-- Auto restore-test (RestoreTestRunner) -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
@@ -448,6 +465,112 @@ $currentPage = 'backup_offsite.php';
     });
     loadRestoreTestPanel();
     setInterval(loadRestoreTestPanel, 60000);
+
+    // === Múltiplos destinos S3 ===
+    async function loadDestinations() {
+        const r = await fetch('/api/v1/backup-offsite/destinations', { headers: H });
+        if (!r.ok) return;
+        const d = await r.json();
+        const items = d.items || [];
+        document.getElementById('destBadge').textContent = items.length ? `${items.length} cadastrados / ${items.filter(i=>i.enabled).length} ativos` : 'nenhum';
+        const list = document.getElementById('destList');
+        if (!items.length) {
+            list.innerHTML = '<div class="text-slate-500 italic">Nenhum destino adicional. Clique <strong>+ Adicionar</strong> pra ativar modo multi-destino.</div>';
+            return;
+        }
+        list.innerHTML = items.map(it => {
+            const stCls = it.last_status === 'ok' ? 'text-emerald-500' : (it.last_status === 'error' ? 'text-red-500' : 'text-slate-500');
+            const stText = it.last_status || 'pendente';
+            return `<div class="border border-slate-200 dark:border-white/10 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <div>
+                        <strong class="text-sm">${escHtml(it.label)}</strong>
+                        ${it.enabled ? '<span class="ml-2 text-[10px] text-emerald-500 font-black uppercase">ATIVO</span>' : '<span class="ml-2 text-[10px] text-slate-500 font-black uppercase">(off)</span>'}
+                        <span class="ml-2 text-[10px] text-slate-500">prio ${it.priority}</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button data-id="${it.id}" class="destTestBtn glass-btn text-[10px] uppercase font-black">Testar</button>
+                        <button data-id="${it.id}" class="destEditBtn glass-btn text-[10px] uppercase font-black">Editar</button>
+                        <button data-id="${it.id}" class="destDelBtn glass-btn !bg-red-600/80 !text-white text-[10px] uppercase font-black">Excluir</button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px] font-mono">
+                    <div><span class="text-slate-500">Bucket:</span> ${escHtml(it.bucket)}</div>
+                    <div><span class="text-slate-500">Region:</span> ${escHtml(it.region)}</div>
+                    <div><span class="text-slate-500">Endpoint:</span> ${escHtml(it.endpoint || 'AWS default')}</div>
+                    <div><span class="text-slate-500">Prefix:</span> ${escHtml(it.prefix || '—')}</div>
+                    <div><span class="text-slate-500">Access key:</span> ${escHtml(it.access_key || '—')}</div>
+                    <div><span class="text-slate-500">Secret:</span> ${escHtml(it.secret_key_masked || '(sem)')}</div>
+                    <div><span class="text-slate-500">Retenção:</span> ${it.retention_count}</div>
+                    <div><span class="text-slate-500">Último:</span> <span class="${stCls}">${escHtml(stText)}</span> ${it.last_upload_at ? fmtDateBR(it.last_upload_at) : ''}</div>
+                </div>
+                ${it.last_error ? `<p class="mt-2 text-[10px] text-red-500">⚠ ${escHtml(it.last_error.slice(0,200))}</p>` : ''}
+            </div>`;
+        }).join('');
+        document.querySelectorAll('.destTestBtn').forEach(b => b.addEventListener('click', () => destAction(b.dataset.id, 'test')));
+        document.querySelectorAll('.destEditBtn').forEach(b => b.addEventListener('click', () => destEdit(b.dataset.id)));
+        document.querySelectorAll('.destDelBtn').forEach(b => b.addEventListener('click', () => destAction(b.dataset.id, 'delete')));
+    }
+
+    async function destAction(id, kind) {
+        if (kind === 'test') {
+            const r = await fetch(`/api/v1/backup-offsite/destinations/${id}/test`, { method: 'POST', headers: H });
+            const d = await r.json().catch(() => ({}));
+            toast(d.success ? 'Conexão OK ✓' : `Falha: ${d.error || r.statusText}`, d.success ? 'success' : 'error');
+        } else if (kind === 'delete') {
+            const ok = window.customConfirm ? await window.customConfirm('Excluir este destino? Backups já enviados ao S3 não são removidos.', 'Confirma?') : confirm('Excluir?');
+            if (!ok) return;
+            const r = await fetch(`/api/v1/backup-offsite/destinations/${id}`, { method: 'DELETE', headers: H });
+            toast(r.ok || r.status === 204 ? 'Excluído.' : 'Erro.', r.ok ? 'success' : 'error');
+            loadDestinations();
+        }
+    }
+
+    async function destEdit(id) {
+        // Edição rápida: usa prompts (form completo seria modal — pra MVP, prompts simples)
+        const label = window.prompt('Label:');
+        if (label === null) return;
+        const body = {};
+        if (label) body.label = label;
+        const en = window.prompt('Enabled (1/0):');
+        if (en !== null) body.enabled = en === '1';
+        const sec = window.prompt('Novo secret_key (vazio = preserva):');
+        if (sec) body.secret_key = sec;
+        if (Object.keys(body).length === 0) return;
+        const r = await fetch(`/api/v1/backup-offsite/destinations/${id}`, { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
+        toast(r.ok ? 'Atualizado.' : 'Erro.', r.ok ? 'success' : 'error');
+        loadDestinations();
+    }
+
+    document.getElementById('btnDestAdd').addEventListener('click', async () => {
+        const label = window.prompt('Label (ex: "AWS Primary"):');
+        if (!label) return;
+        const bucket = window.prompt('Bucket:');
+        if (!bucket) return;
+        const endpoint = window.prompt('Endpoint (vazio = AWS default):') || '';
+        const region = window.prompt('Region:', 'us-east-1') || 'us-east-1';
+        const prefix = window.prompt('Prefix (opcional, ex: unbound-dashboard/):') || '';
+        const access_key = window.prompt('Access Key:') || '';
+        const secret_key = window.prompt('Secret Key:') || '';
+        const body = { label, bucket, endpoint, region, prefix, access_key, secret_key, retention_count: 10, enabled: true, priority: 100 };
+        const r = await fetch('/api/v1/backup-offsite/destinations', { method: 'POST', headers: HJ, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => ({}));
+        toast(r.ok || r.status === 201 ? 'Destino criado.' : `Falha: ${d.detail || r.statusText}`, r.ok ? 'success' : 'error');
+        loadDestinations();
+    });
+
+    document.getElementById('btnDestUploadAll').addEventListener('click', async () => {
+        const ok = window.customConfirm ? await window.customConfirm('Disparar upload em TODOS os destinos enabled agora? Cada destino gera tarball próprio.', 'Confirma?') : confirm('Upload em todos?');
+        if (!ok) return;
+        const r = await fetch('/api/v1/backup-offsite/destinations/upload-all', { method: 'POST', headers: H });
+        const d = await r.json().catch(() => ({}));
+        const ok_count = (d.results || []).filter(x => x.success).length;
+        toast(r.ok ? `Upload feito em ${ok_count}/${d.count || 0} destinos.` : 'Erro.', r.ok ? 'success' : 'error');
+        loadDestinations();
+    });
+
+    loadDestinations();
+    setInterval(loadDestinations, 60000);
 })();
 </script>
 

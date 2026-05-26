@@ -1,5 +1,57 @@
 # Changelog
 
+## v2.74.0 — 2026-05-26
+
+### feat(backup): múltiplos destinos S3 (multi-cloud redundância)
+
+Antes só tinha 1 destino. Agora N destinos em paralelo (ex: AWS S3 +
+Backblaze B2 + Wasabi simultâneo) — se um provedor cair, os outros
+ainda têm o backup. Secret cifrado via cipher_service v2.71.
+
+#### Migration V21 `backup_destinations`
+
+(id, label UNIQUE, endpoint, bucket, region, prefix, access_key,
+secret_key cifrado, retention_count, enabled, priority, last_*).
+Backward compat: tabela vazia → BackupUploader cai pro single-bucket
+legacy.
+
+#### Service `backup_destinations_service`
+
+- CRUD: list/get/create/update/delete
+- `test_destination(id)` — wraps `backup_offsite_service.test_connection`
+- `upload_to_all()` — itera enabled em priority DESC, gera tarball
+  por destino (TODO: cachear single tarball entre destinos se virar
+  gargalo), persiste status individual em cada row, devolve
+  `{results: [...], count: N}`
+- `count_enabled()` — usado pelo worker pra decidir modo
+
+#### BackupUploader modificado
+
+- Se `count_enabled() >= 1`: modo multi-destination. Status global
+  agregado: `ok` (todos), `partial` (alguns), `error` (nenhum)
+- Senão: cai pro path single-bucket legacy (compat)
+
+#### Endpoints `/api/v1/backup-offsite/destinations`
+
+- `GET /` — lista (secret nunca exposto, só `secret_key_masked`)
+- `POST /` — cria com secret cifrado
+- `PUT /{id}` — atualiza; secret vazio preserva o atual
+- `DELETE /{id}`
+- `POST /{id}/test` — test_connection na destination específica
+- `POST /upload-all` — dispara upload em todos enabled agora
+
+Todas operações auto-registradas em `admin_audit` (category=config).
+
+#### UI `/backup_offsite.php`
+
+- Novo painel azul "Múltiplos Destinos S3" com:
+  - Badge "N cadastrados / M ativos"
+  - Cards por destino: label, status colorido, último erro,
+    bucket/region/endpoint/prefix/access_key/secret mascarado/retenção
+  - Botões Testar / Editar / Excluir por linha
+  - Botões topo: "+ Adicionar" (prompts) / "Upload em todos"
+- Auto-refresh 60s
+
 ## v2.73.0 — 2026-05-26
 
 ### chore(workers): 2 workers de manutenção automatizam TODOs registrados

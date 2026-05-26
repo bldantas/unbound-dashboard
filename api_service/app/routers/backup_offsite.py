@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from app.core.deps import require_capability
 from app.repositories.duckdb import settings_repo
@@ -118,6 +118,105 @@ async def restore_test_endpoint(
     ]
     await settings_repo.bulk_upsert(entries)
     return result
+
+
+@router.get("/destinations")
+async def list_destinations(
+    _: Annotated[dict, Depends(require_capability("config.read_sensitive"))],
+) -> dict:
+    from app.services import backup_destinations_service as bd
+    items = await bd.list_destinations()
+    return {"items": items, "count": len(items)}
+
+
+@router.post("/destinations", status_code=201)
+async def create_destination(
+    body: dict,
+    user: Annotated[dict, Depends(require_capability("config.write"))],
+    request: Request,
+) -> dict:
+    from app.services import backup_destinations_service as bd
+    from app.services import admin_audit_service
+    try:
+        out = await bd.create_destination(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await admin_audit_service.log(
+        actor_id=user.get("user_id"), actor_username=user.get("username"),
+        actor_ip=request.client.host if request.client else None,
+        action="backup.destination.create", category="config",
+        target_type="backup_destination", target_id=str(out["id"]),
+        details={"label": out["label"], "bucket": out["bucket"]},
+    )
+    return out
+
+
+@router.put("/destinations/{dest_id}")
+async def update_destination(
+    dest_id: int,
+    body: dict,
+    user: Annotated[dict, Depends(require_capability("config.write"))],
+    request: Request,
+) -> dict:
+    from app.services import backup_destinations_service as bd
+    from app.services import admin_audit_service
+    ok = await bd.update_destination(dest_id, body)
+    if not ok:
+        raise HTTPException(status_code=400, detail="nenhum campo válido pra atualizar")
+    await admin_audit_service.log(
+        actor_id=user.get("user_id"), actor_username=user.get("username"),
+        actor_ip=request.client.host if request.client else None,
+        action="backup.destination.update", category="config",
+        target_type="backup_destination", target_id=str(dest_id),
+        details={"fields": list(body.keys())},
+    )
+    return {"updated": True}
+
+
+@router.delete("/destinations/{dest_id}", status_code=204)
+async def delete_destination(
+    dest_id: int,
+    user: Annotated[dict, Depends(require_capability("config.write"))],
+    request: Request,
+) -> None:
+    from app.services import backup_destinations_service as bd
+    from app.services import admin_audit_service
+    ok = await bd.delete_destination(dest_id)
+    if not ok:
+        raise HTTPException(status_code=404)
+    await admin_audit_service.log(
+        actor_id=user.get("user_id"), actor_username=user.get("username"),
+        actor_ip=request.client.host if request.client else None,
+        action="backup.destination.delete", category="config",
+        target_type="backup_destination", target_id=str(dest_id),
+    )
+
+
+@router.post("/destinations/{dest_id}/test")
+async def test_destination(
+    dest_id: int,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    from app.services import backup_destinations_service as bd
+    return await bd.test_destination(dest_id)
+
+
+@router.post("/destinations/upload-all")
+async def upload_all_destinations(
+    user: Annotated[dict, Depends(require_capability("config.write"))],
+    request: Request,
+) -> dict:
+    from app.services import backup_destinations_service as bd
+    from app.services import admin_audit_service
+    out = await bd.upload_to_all()
+    successes = sum(1 for r in out["results"] if r.get("success"))
+    await admin_audit_service.log(
+        actor_id=user.get("user_id"), actor_username=user.get("username"),
+        actor_ip=request.client.host if request.client else None,
+        action="backup.upload_all", category="config",
+        details={"total": out["count"], "ok": successes},
+    )
+    return out
 
 
 @router.get("/history")

@@ -60,10 +60,8 @@ class BackupUploader:
             return
 
         cfg = await svc.load_config()
-        if not cfg.get("backup_s3_bucket"):
-            return
 
-        # Verifica schedule
+        # Verifica schedule (compartilhado pelos dois modos)
         schedule_h = float(cfg.get("backup_s3_schedule_hours", "24") or "24")
         last_str = await settings_repo.get("backup_s3_last_upload_at")
         last = _parse_iso(last_str)
@@ -72,7 +70,41 @@ class BackupUploader:
             if elapsed_h < schedule_h:
                 return
 
-        log.info("backup_uploader.starting", bucket=cfg["backup_s3_bucket"])
+        # Modo multi-destination: se ≥1 enabled na tabela backup_destinations,
+        # usa esse caminho ao invés do legacy single-bucket.
+        from app.services import backup_destinations_service as bd
+        n_dests = await bd.count_enabled()
+        if n_dests > 0:
+            log.info("backup_uploader.starting_multi", destinations=n_dests)
+            out = await bd.upload_to_all()
+            successes = sum(1 for r in out["results"] if r.get("success"))
+            failures = out["count"] - successes
+            # Status global: ok se TODOS subiram; partial se alguns; error caso 0
+            if successes == out["count"]:
+                global_status = "ok"
+                err_summary = None
+            elif successes > 0:
+                global_status = "partial"
+                err_summary = f"{failures}/{out['count']} falharam"
+            else:
+                global_status = "error"
+                err_summary = f"todos {out['count']} destinos falharam"
+            await svc.save_status(
+                status=global_status,
+                error=err_summary,
+                size=sum(r.get("size_bytes") or 0 for r in out["results"] if r.get("success")),
+                key=None,
+            )
+            log.info(
+                "backup_uploader.completed_multi",
+                ok=successes, total=out["count"], status=global_status,
+            )
+            return
+
+        # Modo legacy single-bucket
+        if not cfg.get("backup_s3_bucket"):
+            return
+        log.info("backup_uploader.starting_legacy", bucket=cfg["backup_s3_bucket"])
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, svc.upload_backup, cfg)
 
