@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.42.0 — 2026-05-26
+
+### feat(webhook): Telegram Bot API como tipo nativo de notificação
+
+Adiciona "telegram" aos tipos aceitos em `webhook_type` (junto com
+slack/discord/teams/generic). Payload formatado pra Bot API:
+
+```json
+{"chat_id": "<id>", "text": "...", "parse_mode": "Markdown"}
+```
+
+URL fica `https://api.telegram.org/bot<TOKEN>/sendMessage` e o
+`chat_id` vai num setting separado (`webhook_telegram_chat_id`).
+Validação no PUT: se enabled=true e type=telegram, chat_id é
+obrigatório.
+
+UI em `config.php` aba Webhooks: select ganhou "Telegram (Bot API)"
+e um campo condicional para chat_id (aparece só quando type=telegram).
+Suporta tanto alertas quanto notificação de nova release.
+
+#### B.5 — escopo reduzido
+
+A parte "local zones/forwards" originalmente prevista foi cortada
+porque já é coberta pelas features existentes: blocklists multi-source
+(`v2.32`) gerenciam `local-zone always_nxdomain` em massa, e
+client_policies (`v2.33`) gerenciam local-zones per-IP via views.
+Restou só Telegram nesta release.
+
 ## v2.41.0 — 2026-05-26
 
 ### feat(dns-security): página DNSSEC + upstream DoT (DNS-over-TLS)

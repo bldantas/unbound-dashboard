@@ -318,9 +318,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $payload = [
             'enabled'      => isset($_POST['webhook_enabled']),
             'url'          => trim($_POST['webhook_url'] ?? ''),
-            'type'         => in_array($_POST['webhook_type'] ?? '', ['slack','discord','teams','generic'], true) ? $_POST['webhook_type'] : 'generic',
+            'type'         => in_array($_POST['webhook_type'] ?? '', ['slack','discord','teams','telegram','generic'], true) ? $_POST['webhook_type'] : 'generic',
             'severity_min' => in_array($_POST['webhook_severity_min'] ?? '', ['warning','critical'], true) ? $_POST['webhook_severity_min'] : 'critical',
             'notify_on_release' => isset($_POST['webhook_notify_on_release']),
+            'telegram_chat_id' => trim($_POST['webhook_telegram_chat_id'] ?? ''),
         ];
         $res = \App\ApiClient::put('/api/v1/webhooks/config', $jwt, $payload);
         $message = $res['ok'] ? 'Webhook salvo.' : 'Falha ao salvar webhook: ' . ($res['reason'] ?? 'erro');
@@ -1610,7 +1611,7 @@ function field($key, $label, $desc = '', $def = '')
                     <?php if ($isAdmin):
                         require_once __DIR__ . '/src/ApiClient.php';
                         $jwtForWebhook = $_SESSION['api_jwt'] ?? '';
-                        $whCfg = ['enabled' => false, 'url' => '', 'type' => 'generic', 'severity_min' => 'critical'];
+                        $whCfg = ['enabled' => false, 'url' => '', 'type' => 'generic', 'severity_min' => 'critical', 'telegram_chat_id' => ''];
                         $whRes = \App\ApiClient::get('/api/v1/webhooks/config', $jwtForWebhook);
                         if ($whRes['ok'] && is_array($whRes['data'])) {
                             $whCfg = array_merge($whCfg, $whRes['data']);
@@ -1661,14 +1662,37 @@ function field($key, $label, $desc = '', $def = '')
                                 </div>
                                 <div class="space-y-2">
                                     <label class="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Tipo</label>
-                                    <select name="webhook_type" class="glass-input w-full">
-                                        <option value="slack"   <?= $whCfg['type'] === 'slack'   ? 'selected' : '' ?>>Slack</option>
-                                        <option value="discord" <?= $whCfg['type'] === 'discord' ? 'selected' : '' ?>>Discord</option>
-                                        <option value="teams"   <?= $whCfg['type'] === 'teams'   ? 'selected' : '' ?>>Microsoft Teams</option>
-                                        <option value="generic" <?= $whCfg['type'] === 'generic' ? 'selected' : '' ?>>Genérico (JSON)</option>
+                                    <select name="webhook_type" id="webhookTypeSelect" class="glass-input w-full" onchange="toggleTelegramFields()">
+                                        <option value="slack"    <?= $whCfg['type'] === 'slack'    ? 'selected' : '' ?>>Slack</option>
+                                        <option value="discord"  <?= $whCfg['type'] === 'discord'  ? 'selected' : '' ?>>Discord</option>
+                                        <option value="teams"    <?= $whCfg['type'] === 'teams'    ? 'selected' : '' ?>>Microsoft Teams</option>
+                                        <option value="telegram" <?= $whCfg['type'] === 'telegram' ? 'selected' : '' ?>>Telegram (Bot API)</option>
+                                        <option value="generic"  <?= $whCfg['type'] === 'generic'  ? 'selected' : '' ?>>Genérico (JSON)</option>
                                     </select>
                                 </div>
                             </div>
+
+                            <div id="telegramFields" class="grid grid-cols-1 sm:grid-cols-3 gap-4" style="display:none">
+                                <div class="sm:col-span-3 space-y-2">
+                                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Telegram chat_id</label>
+                                    <input type="text" name="webhook_telegram_chat_id" value="<?= htmlspecialchars($whCfg['telegram_chat_id'] ?? '') ?>"
+                                           placeholder="123456789 (user) ou -1001234567890 (canal)"
+                                           class="glass-input w-full font-mono">
+                                    <p class="text-[10px] text-slate-500 leading-relaxed">
+                                        URL deve ser <code>https://api.telegram.org/bot&lt;TOKEN&gt;/sendMessage</code>.
+                                        O <code>chat_id</code> é o ID do chat/canal pra onde o bot vai enviar.
+                                        Pegue via <code>@userinfobot</code> (user) ou adicione o bot ao canal e veja em <code>/getUpdates</code>.
+                                    </p>
+                                </div>
+                            </div>
+                            <script>
+                            function toggleTelegramFields() {
+                                const sel = document.getElementById('webhookTypeSelect');
+                                const box = document.getElementById('telegramFields');
+                                if (sel && box) box.style.display = sel.value === 'telegram' ? '' : 'none';
+                            }
+                            toggleTelegramFields();
+                            </script>
 
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <div class="space-y-2">

@@ -13,7 +13,7 @@ from app.services import webhook_notifier
 
 router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
 
-_ALLOWED_TYPES = {"slack", "discord", "teams", "generic"}
+_ALLOWED_TYPES = {"slack", "discord", "teams", "telegram", "generic"}
 _ALLOWED_SEVERITIES = {"warning", "critical"}
 
 
@@ -23,6 +23,7 @@ class WebhookConfig(BaseModel):
     type: str = "generic"
     severity_min: str = "critical"
     notify_on_release: bool = False
+    telegram_chat_id: str = ""
 
 
 @router.get("/config")
@@ -33,6 +34,7 @@ async def get_config(_: Annotated[dict, Depends(require_admin)]) -> WebhookConfi
         type=(await settings_repo.get("webhook_type", "generic") or "generic"),
         severity_min=(await settings_repo.get("webhook_severity_min", "critical") or "critical"),
         notify_on_release=await settings_repo.get_bool("notify_webhook_on_release", False),
+        telegram_chat_id=await settings_repo.get("webhook_telegram_chat_id", "") or "",
     )
 
 
@@ -42,6 +44,7 @@ class WebhookUpdate(BaseModel):
     type: str = "generic"
     severity_min: str = "critical"
     notify_on_release: bool = False
+    telegram_chat_id: str = Field(default="", max_length=64)
 
 
 @router.put("/config", status_code=status.HTTP_204_NO_CONTENT)
@@ -64,12 +67,18 @@ async def update_config(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="url precisa começar com http:// ou https://",
         )
+    if body.enabled and body.type == "telegram" and not body.telegram_chat_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="telegram_chat_id é obrigatório para tipo telegram",
+        )
     await settings_repo.bulk_upsert([
         {"setting_key": "webhook_enabled", "setting_value": "true" if body.enabled else "false"},
         {"setting_key": "webhook_url", "setting_value": body.url},
         {"setting_key": "webhook_type", "setting_value": body.type},
         {"setting_key": "webhook_severity_min", "setting_value": body.severity_min},
         {"setting_key": "notify_webhook_on_release", "setting_value": "true" if body.notify_on_release else "false"},
+        {"setting_key": "webhook_telegram_chat_id", "setting_value": body.telegram_chat_id.strip()},
     ])
 
 

@@ -60,6 +60,7 @@ async def _load_config() -> dict[str, Any]:
         "url":          await settings_repo.get("webhook_url", "") or "",
         "type":         (await settings_repo.get("webhook_type", "generic") or "generic").lower(),
         "severity_min": (await settings_repo.get("webhook_severity_min", "critical") or "critical").lower(),
+        "telegram_chat_id": await settings_repo.get("webhook_telegram_chat_id", "") or "",
     }
 
 
@@ -67,7 +68,13 @@ def _passes_severity(severity: str, severity_min: str) -> bool:
     return _SEVERITY_ORDER.get(severity, 0) >= _SEVERITY_ORDER.get(severity_min, 3)
 
 
-def _build_payload(webhook_type: str, alert_type: str, severity: str, message: str) -> dict[str, Any]:
+def _build_payload(
+    webhook_type: str,
+    alert_type: str,
+    severity: str,
+    message: str,
+    telegram_chat_id: str = "",
+) -> dict[str, Any]:
     """Monta o body JSON conforme o tipo de webhook."""
     emoji = SEVERITY_EMOJI.get(severity, "🔔")
     text = f"{emoji} *[Unbound Dashboard]* `{alert_type}` ({severity}): {message}"
@@ -79,6 +86,17 @@ def _build_payload(webhook_type: str, alert_type: str, severity: str, message: s
         # Discord não respeita *bold* mas aceita markdown; também tem limite 2000 chars
         content = f"{emoji} **[Unbound Dashboard]** `{alert_type}` ({severity}): {message}"
         return {"content": content[:1900]}
+    if webhook_type == "telegram":
+        # Telegram Bot API: POST https://api.telegram.org/bot<TOKEN>/sendMessage
+        # Body: {chat_id, text, parse_mode}. Markdown V1 aceita * para bold e ` para mono.
+        body: dict[str, Any] = {
+            "text": f"{emoji} *Unbound Dashboard*\n`{alert_type}` ({severity})\n{message}",
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        }
+        if telegram_chat_id:
+            body["chat_id"] = telegram_chat_id
+        return body
     # generic
     return {
         "type":      alert_type,
@@ -124,7 +142,7 @@ async def notify(alert_type: str, severity: str, message: str) -> dict[str, Any]
     if await _under_cooldown(alert_type):
         return {"sent": False, "reason": "cooldown", "http_status": None}
 
-    payload = _build_payload(cfg["type"], alert_type, severity, message)
+    payload = _build_payload(cfg["type"], alert_type, severity, message, cfg.get("telegram_chat_id", ""))
     try:
         async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT) as client:
             resp = await client.post(cfg["url"], json=payload)
@@ -177,13 +195,21 @@ async def notify_new_release(release: dict[str, Any]) -> dict[str, Any]:
         f"{url}"
     )
 
-    # Payload formatado por tipo de webhook (Slack/Discord/Teams/Generic)
+    # Payload formatado por tipo de webhook (Slack/Discord/Teams/Telegram/Generic)
     if cfg["type"] == "slack":
         payload = {"text": message}
     elif cfg["type"] == "teams":
         payload = {"text": message}
     elif cfg["type"] == "discord":
         payload = {"content": message[:1900]}
+    elif cfg["type"] == "telegram":
+        payload = {
+            "text": f"📦 *Nova versão*: `{tag}`\n{url}",
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": False,
+        }
+        if cfg.get("telegram_chat_id"):
+            payload["chat_id"] = cfg["telegram_chat_id"]
     else:
         payload = {
             "type": "release_available",
@@ -218,7 +244,7 @@ async def send_test(custom_message: str | None = None) -> dict[str, Any]:
         return {"sent": False, "reason": "no_url", "http_status": None}
 
     msg = custom_message or "Teste de webhook — se você está lendo isso, a integração está funcionando."
-    payload = _build_payload(cfg["type"], "test", "info", msg)
+    payload = _build_payload(cfg["type"], "test", "info", msg, cfg.get("telegram_chat_id", ""))
     try:
         async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT) as client:
             resp = await client.post(cfg["url"], json=payload)
