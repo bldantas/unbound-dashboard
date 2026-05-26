@@ -1,5 +1,6 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 use App\Auth;
 Auth::check();
 
@@ -27,9 +28,9 @@ $isAdmin = Auth::isAdmin();
             <header class="page-header mb-6">
                 <h1 class="page-title flex items-center gap-3">
                     <svg class="w-8 h-8 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                    Performance & Cache
+                    <?= t('performance.title') ?>
                 </h1>
-                <p class="page-subtitle">Tuning fino do Unbound: prefetch, serve-expired (RFC 8767), TTLs, cache sizes. Overrides via <code>forwarders.conf</code> dinâmico.</p>
+                <p class="page-subtitle"><?= t('performance.subtitle') ?></p>
             </header>
 
             <!-- KPIs latência -->
