@@ -85,6 +85,13 @@ $currentPage = 'query_search.php';
                         </select>
                     </div>
                     <div>
+                        <label class="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">País (origem)</label>
+                        <select id="fCountry" class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/40">
+                            <option value="">Todos</option>
+                            <!-- populado em JS via /api/v1/geoip/distribution -->
+                        </select>
+                    </div>
+                    <div>
                         <label class="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Por página</label>
                         <select id="fPerPage" class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/40">
                             <option value="25">25</option>
@@ -121,13 +128,14 @@ $currentPage = 'query_search.php';
                             <tr>
                                 <th class="w-44">Quando</th>
                                 <th class="w-36">Cliente</th>
+                                <th class="w-20">País</th>
                                 <th>Domínio</th>
                                 <th class="w-20">Tipo</th>
                                 <th class="w-32">Ação</th>
                             </tr>
                         </thead>
                         <tbody id="resultsBody">
-                            <tr><td colspan="5" class="px-6 py-16 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Configure filtros e clique <b class="text-cyan-500">Buscar</b></td></tr>
+                            <tr><td colspan="6" class="px-6 py-16 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Configure filtros e clique <b class="text-cyan-500">Buscar</b></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -162,11 +170,66 @@ $currentPage = 'query_search.php';
             domain: document.getElementById('fDomain').value.trim(),
             query_type: document.getElementById('fType').value,
             action: document.getElementById('fAction').value,
+            country: document.getElementById('fCountry').value,
             ...extra,
         });
         // Remove vazios
         for (const [k, v] of [...params.entries()]) if (!v) params.delete(k);
         return params;
+    }
+
+    // Cache de lookups IP→país (sessão da página)
+    const __ipCountryCache = new Map();
+
+    function ccToFlagJSX(cc) {
+        if (!cc) return '<span class="text-slate-500">—</span>';
+        if (cc === '--') return '<span title="Rede privada">🏠</span>';
+        if (cc === '??') return '<span title="Desconhecido" class="text-slate-500">❓</span>';
+        if (!/^[A-Z]{2}$/.test(cc)) return '<span class="text-slate-500">—</span>';
+        const cp = cc.split('').map(c => 127397 + c.charCodeAt(0));
+        const flag = String.fromCodePoint(...cp);
+        return `<span title="${cc}">${flag} <span class="text-[10px] font-bold font-mono text-slate-500">${cc}</span></span>`;
+    }
+
+    async function enrichRowsWithCountry(rows) {
+        // Faz lookup-bulk dos IPs que ainda não estão em cache.
+        const need = [...new Set(rows.map(r => r.client_ip).filter(ip => ip && !__ipCountryCache.has(ip)))];
+        if (need.length) {
+            try {
+                const res = await fetch('/api/v1/geoip/lookup-bulk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...H },
+                    body: JSON.stringify({ ips: need }),
+                });
+                if (res.ok) {
+                    const d = await res.json();
+                    Object.entries(d.results || {}).forEach(([ip, info]) => {
+                        __ipCountryCache.set(ip, info.country_code || '??');
+                    });
+                }
+            } catch (_) { /* ignora falha — coluna fica '—' */ }
+            // IPs sem retorno viram '??' pra não disparar lookup de novo
+            need.forEach(ip => { if (!__ipCountryCache.has(ip)) __ipCountryCache.set(ip, '??'); });
+        }
+        // Anota cada row
+        rows.forEach(r => { r.__country = __ipCountryCache.get(r.client_ip) || '??'; });
+    }
+
+    async function populateCountryDropdown() {
+        const sel = document.getElementById('fCountry');
+        if (!sel) return;
+        try {
+            const r = await fetch('/api/v1/geoip/distribution?hours=168&limit=40', { headers: H });
+            if (!r.ok) return;
+            const d = await r.json();
+            const items = d.countries || [];
+            const current = sel.value;
+            // Preserva placeholder "Todos" + reconstrói
+            sel.innerHTML = '<option value="">Todos</option>'
+                + items.filter(c => /^[A-Z]{2}$/.test(c.country_code || '') || c.country_code === '--' || c.country_code === '??')
+                       .map(c => `<option value="${c.country_code}">${c.country_code} — ${c.country_name}</option>`).join('');
+            sel.value = current;  // restaura seleção se válida
+        } catch (_) { /* silencia */ }
     }
 
     async function doSearch(page = 1) {
@@ -180,22 +243,27 @@ $currentPage = 'query_search.php';
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
             currentTotal = data.total;
-            renderResults(data);
+            await renderResults(data);
         } catch (err) {
             tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro: ${err.message}</td></tr>`;
         }
     }
 
-    function renderResults(data) {
+    async function renderResults(data) {
         const tbody = document.getElementById('resultsBody');
         document.getElementById('statTotal').textContent = (data.total || 0).toLocaleString('pt-BR');
-        document.getElementById('statPage').textContent = `Página ${data.page} de ${data.total_pages}`;
+        const truncTag = data.truncated ? ' <span class="text-amber-500" title="Filtro de país operou sobre as 5000 linhas mais recentes">⚠ pré-cap 5k</span>' : '';
+        document.getElementById('statPage').innerHTML = `Página ${data.page} de ${data.total_pages}${truncTag}`;
 
         if (!data.rows.length) {
-            tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-16 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Nenhum resultado pra esses filtros</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-16 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Nenhum resultado pra esses filtros</td></tr>`;
             renderPagination(data);
             return;
         }
+
+        // Enriquece com country code (cache + lookup-bulk dos novos)
+        await enrichRowsWithCountry(data.rows);
+
         tbody.innerHTML = data.rows.map(r => {
             const d = new Date(r.timestamp * 1000);
             const when = d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit' })
@@ -205,6 +273,7 @@ $currentPage = 'query_search.php';
             <tr>
                 <td class="text-[11px] font-mono text-slate-500">${when}</td>
                 <td class="font-mono text-xs">${escapeHtml(r.client_ip)}</td>
+                <td class="text-base">${ccToFlagJSX(r.__country)}</td>
                 <td class="font-mono text-sm">${escapeHtml(r.domain)}</td>
                 <td><span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-slate-500/15 text-slate-600 dark:text-slate-400 border border-slate-500/30">${escapeHtml(r.query_type)}</span></td>
                 <td><span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-${c}-500/15 text-${c}-600 dark:text-${c}-400 border border-${c}-500/30">${escapeHtml(r.action)}</span></td>
@@ -238,6 +307,7 @@ $currentPage = 'query_search.php';
         document.getElementById('fDomain').value = '';
         document.getElementById('fType').value = '';
         document.getElementById('fAction').value = '';
+        document.getElementById('fCountry').value = '';
         doSearch(1);
     });
     document.getElementById('btnExport').addEventListener('click', () => {
@@ -288,6 +358,12 @@ $currentPage = 'query_search.php';
     function escapeHtml(s) {
         return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
+
+    // Dispara nova busca quando troca o filtro de país (mais natural que ter que clicar Buscar)
+    document.getElementById('fCountry').addEventListener('change', () => doSearch(1));
+
+    // Bootstrap: popula dropdown de países (paralelo à primeira busca)
+    populateCountryDropdown();
 
     // Auto-busca inicial: últimas queries da última hora
     doSearch(1);

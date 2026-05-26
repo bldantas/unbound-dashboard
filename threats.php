@@ -14,6 +14,22 @@ ob_start();
 <head>
     <title>Ameaças - Unbound DNS</title>
     <?php include 'includes/head.php'; ?>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsvectormap@1.5.3/dist/css/jsvectormap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/jsvectormap@1.5.3/dist/jsvectormap.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsvectormap@1.5.3/dist/maps/world.js" defer></script>
+    <style>
+        /* override pra encaixar no tema escuro */
+        #geoWorldMap .jvm-tooltip {
+            background: rgba(15, 23, 42, 0.92);
+            color: #f1f5f9;
+            font-family: ui-monospace, monospace;
+            font-size: 11px;
+            border-radius: 8px;
+            padding: 6px 10px;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+        }
+        #geoWorldMap svg { background: transparent; }
+    </style>
 </head>
 <body class="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 transition-colors duration-300">
 <script>
@@ -96,11 +112,34 @@ $currentPage = 'threats.php';
                 </div>
             </div>
 
-            <!-- Top Países -->
+            <!-- Distribuição Global (mapa + top países) -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-8">
-                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2">Top Países (origem dos bloqueios, 24h)</h3>
-                <div id="threatsTopCountries" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-                    <p class="text-slate-500 text-xs italic col-span-full">Carregando GeoIP...</p>
+                <div class="flex items-center justify-between flex-wrap gap-2 mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2">
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Distribuição Global (24h)</h3>
+                    <div class="flex items-center gap-2">
+                        <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Ação</label>
+                        <select id="geoActionSelect" class="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500/40">
+                            <option value="blocked" selected>Bloqueios</option>
+                            <option value="">Todas</option>
+                            <option value="resolved">Resolvidas</option>
+                            <option value="cached">Cache</option>
+                            <option value="nxdomain_upstream">NXDOMAIN</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div class="lg:col-span-2 bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5 p-3 relative" style="min-height: 360px;">
+                        <div id="geoWorldMap" style="height: 360px; width: 100%;"></div>
+                        <div id="geoMapEmpty" class="hidden absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <p class="text-slate-500 text-xs italic">Sem dados pra esta janela.</p>
+                        </div>
+                    </div>
+                    <div>
+                        <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Top 15 países</p>
+                        <div id="threatsTopCountries" class="grid grid-cols-1 gap-2 max-h-[360px] overflow-y-auto pr-1">
+                            <p class="text-slate-500 text-xs italic">Carregando GeoIP...</p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -339,36 +378,117 @@ $currentPage = 'threats.php';
             return String.fromCodePoint(...codePoints);
         }
 
+        let __geoMapInstance = null;
+
+        function ensureWorldMap() {
+            // jsvectormap pode carregar depois do DOMContentLoaded por causa do defer.
+            // Idempotente — só cria uma vez. Retorna a instância (ou null se lib não pronta).
+            if (__geoMapInstance) return __geoMapInstance;
+            if (typeof jsVectorMap === 'undefined') return null;
+            const el = document.getElementById('geoWorldMap');
+            if (!el) return null;
+            try {
+                __geoMapInstance = new jsVectorMap({
+                    selector: '#geoWorldMap',
+                    map: 'world',
+                    backgroundColor: 'transparent',
+                    zoomOnScroll: false,
+                    zoomButtons: true,
+                    regionStyle: {
+                        initial: { fill: 'rgba(148, 163, 184, 0.18)', stroke: 'rgba(148, 163, 184, 0.35)', strokeWidth: 0.4 },
+                        hover: { fill: 'rgba(34, 211, 238, 0.55)', cursor: 'pointer' },
+                    },
+                    series: {
+                        regions: [{
+                            scale: ['#94a3b8', '#06b6d4', '#0e7490', '#7c3aed', '#db2777'],
+                            normalizeFunction: 'polynomial',
+                            values: {},
+                        }],
+                    },
+                    onRegionTooltipShow(_e, tooltip, code) {
+                        const v = __geoMapValues[code];
+                        const name = tooltip.text();
+                        if (v == null) { tooltip.text(name + ' — sem dados'); return; }
+                        tooltip.text(name + ' — ' + fmtIntBr(v) + ' hits');
+                    },
+                });
+            } catch (err) {
+                console.warn('jsvectormap init failed', err);
+                return null;
+            }
+            return __geoMapInstance;
+        }
+
+        let __geoMapValues = {};
+
         async function loadTopCountries() {
             const container = document.getElementById('threatsTopCountries');
+            const emptyEl = document.getElementById('geoMapEmpty');
             if (!container) return;
+            const actionSel = document.getElementById('geoActionSelect');
+            const action = actionSel ? actionSel.value : 'blocked';
             try {
                 const meta = document.querySelector('meta[name="api-jwt"]');
                 const jwt = meta ? meta.content : '';
-                if (!jwt) { container.innerHTML = '<p class="text-slate-500 text-xs italic col-span-full">GeoIP requer login JWT.</p>'; return; }
-                const r = await fetch('/api/v1/geoip/top-countries?hours=24&limit=15', {
+                if (!jwt) { container.innerHTML = '<p class="text-slate-500 text-xs italic">GeoIP requer login JWT.</p>'; return; }
+                const params = new URLSearchParams({ hours: '24', limit: '15' });
+                if (action) params.set('action', action);
+                const r = await fetch('/api/v1/geoip/distribution?' + params.toString(), {
                     headers: { 'Authorization': 'Bearer ' + jwt },
                 });
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 const d = await r.json();
                 const items = d.countries || [];
+
                 if (!items.length) {
-                    container.innerHTML = '<p class="text-slate-500 text-xs italic col-span-full">Sem bloqueios nas últimas 24h.</p>';
+                    container.innerHTML = '<p class="text-slate-500 text-xs italic">Sem dados pra esta ação nas últimas 24h.</p>';
+                    if (emptyEl) emptyEl.classList.remove('hidden');
+                    __geoMapValues = {};
+                    const m = ensureWorldMap();
+                    if (m) m.series.regions[0].setValues({});
                     return;
                 }
+                if (emptyEl) emptyEl.classList.add('hidden');
+
+                // Lista lateral
                 container.innerHTML = items.map(c => {
                     const flag = c.country_code === '--' ? '🏠' : (c.country_code === '??' ? '❓' : ccToFlag(c.country_code));
-                    return '<div class="bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5 p-3 flex items-center gap-3">'
-                        + '<span class="text-2xl">' + flag + '</span>'
+                    return '<div class="bg-slate-900/5 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/5 p-2 flex items-center gap-2">'
+                        + '<span class="text-xl">' + flag + '</span>'
                         + '<div class="min-w-0 flex-1">'
                         + '<p class="text-xs font-bold text-slate-900 dark:text-white truncate">' + escHtml(c.country_name) + '</p>'
-                        + '<p class="text-[10px] text-slate-500 font-mono">' + fmtIntBr(c.hits) + ' hits · ' + fmtIntBr(c.clients) + ' clientes</p>'
+                        + '<p class="text-[10px] text-slate-500 font-mono">' + fmtIntBr(c.hits) + ' · ' + fmtIntBr(c.clients) + ' cli</p>'
                         + '</div></div>';
                 }).join('');
+
+                // Mapa: só usa ISO-2 válidos (descarta '--' e '??')
+                const values = {};
+                items.forEach(c => {
+                    if (c.country_code && c.country_code.length === 2 && /^[A-Z]{2}$/.test(c.country_code)) {
+                        values[c.country_code] = c.hits;
+                    }
+                });
+                __geoMapValues = values;
+                const m = ensureWorldMap();
+                if (m) {
+                    m.series.regions[0].clear();
+                    m.series.regions[0].setValues(values);
+                } else {
+                    // jsvectormap não carregou ainda — tenta de novo daqui a 400ms (1x)
+                    setTimeout(() => {
+                        const m2 = ensureWorldMap();
+                        if (m2) m2.series.regions[0].setValues(__geoMapValues);
+                    }, 400);
+                }
             } catch (e) {
-                container.innerHTML = '<p class="text-slate-500 text-xs italic col-span-full">Falha ao carregar GeoIP.</p>';
+                container.innerHTML = '<p class="text-slate-500 text-xs italic">Falha ao carregar GeoIP.</p>';
             }
         }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const sel = document.getElementById('geoActionSelect');
+            if (sel) sel.addEventListener('change', loadTopCountries);
+        });
 
         async function loadThreatsData() {
             const limitSelect = document.getElementById('threatsLimit');

@@ -92,6 +92,9 @@ async def get_action_breakdown(
 # ============================================================
 
 
+_GEO_CAP = 5000  # cap de linhas pré-filtro quando country filter está ativo
+
+
 @router.get("/queries/search")
 async def search_queries(
     _: Annotated[dict, Depends(require_capability("dashboard.read"))],
@@ -100,27 +103,71 @@ async def search_queries(
     domain: str = Query("", max_length=255),
     query_type: str = Query("", max_length=10),
     action: str = Query("", max_length=30),
+    country: str = Query("", max_length=4),
     page: int = Query(1, ge=1, le=10000),
     per_page: int = Query(50, ge=1, le=200),
 ) -> dict:
-    offset = (page - 1) * per_page
-    total, rows = await analytics_repo.search_queries(
+    # Sem filtro de país: paginação SQL normal.
+    if not country:
+        offset = (page - 1) * per_page
+        total, rows = await analytics_repo.search_queries(
+            window=window,
+            client_ip=client_ip or None,
+            domain=domain or None,
+            query_type=query_type or None,
+            action=action or None,
+            offset=offset,
+            limit=per_page,
+        )
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        return {
+            "window": window,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+            "rows": rows,
+            "country": "",
+            "truncated": False,
+        }
+
+    # Filtro de país: pega até _GEO_CAP linhas, faz geoip lookup, filtra, pagina in-memory.
+    # Total reportado é o total *filtrado* (não o pré-filtro), capped em _GEO_CAP.
+    from app.services import geoip_service
+
+    _pre_total, rows = await analytics_repo.search_queries(
         window=window,
         client_ip=client_ip or None,
         domain=domain or None,
         query_type=query_type or None,
         action=action or None,
-        offset=offset,
-        limit=per_page,
+        offset=0,
+        limit=_GEO_CAP,
     )
+    truncated = _pre_total > _GEO_CAP
+    if not rows:
+        return {
+            "window": window, "total": 0, "page": page, "per_page": per_page,
+            "total_pages": 1, "rows": [], "country": country, "truncated": truncated,
+        }
+
+    ips = list({r["client_ip"] for r in rows})
+    geo_map = await geoip_service.lookup_many(ips)
+    target = country.upper()
+    filtered = [r for r in rows if geo_map.get(r["client_ip"], {}).get("country_code") == target]
+    total = len(filtered)
     total_pages = max(1, (total + per_page - 1) // per_page)
+    start = (page - 1) * per_page
+    page_rows = filtered[start : start + per_page]
     return {
         "window": window,
         "total": total,
         "page": page,
         "per_page": per_page,
         "total_pages": total_pages,
-        "rows": rows,
+        "rows": page_rows,
+        "country": country,
+        "truncated": truncated,
     }
 
 
@@ -232,6 +279,7 @@ async def export_csv(
     domain: str = Query("", max_length=255),
     query_type: str = Query("", max_length=10),
     action: str = Query("", max_length=30),
+    country: str = Query("", max_length=4),
     limit: int = Query(10000, ge=1, le=100000),
 ) -> StreamingResponse:
     """Export CSV — capped em 100k linhas pra evitar OOM."""
@@ -245,12 +293,29 @@ async def export_csv(
         limit=limit,
     )
 
+    # Filtro de país aplicado pós-query (mesma estratégia do search).
+    country_map: dict[str, str] = {}
+    if country:
+        from app.services import geoip_service
+
+        ips = list({r["client_ip"] for r in rows})
+        geo_map = await geoip_service.lookup_many(ips)
+        country_map = {ip: info.get("country_code", "??") for ip, info in geo_map.items()}
+        target = country.upper()
+        rows = [r for r in rows if country_map.get(r["client_ip"]) == target]
+
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["timestamp_iso", "timestamp_epoch", "client_ip", "domain", "query_type", "action"])
+    header = ["timestamp_iso", "timestamp_epoch", "client_ip", "domain", "query_type", "action"]
+    if country:
+        header.append("country_code")
+    writer.writerow(header)
     for r in rows:
         iso = datetime.fromtimestamp(r["timestamp"], tz=timezone.utc).isoformat()
-        writer.writerow([iso, r["timestamp"], r["client_ip"], r["domain"], r["query_type"], r["action"]])
+        row = [iso, r["timestamp"], r["client_ip"], r["domain"], r["query_type"], r["action"]]
+        if country:
+            row.append(country_map.get(r["client_ip"], "??"))
+        writer.writerow(row)
     buf.seek(0)
 
     filename = f"unbound-queries-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"

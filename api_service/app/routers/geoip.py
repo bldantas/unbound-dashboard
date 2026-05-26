@@ -37,5 +37,24 @@ async def top_countries(
     hours: int = Query(24, ge=1, le=720),
     limit: int = Query(20, ge=1, le=100),
 ) -> dict:
+    """Top países dos clientes BLOCKED (compat — mantido pra /threats.php)."""
     rows = await geoip_service.top_countries_blocked(hours=hours, limit=limit)
     return {"hours": hours, "countries": rows}
+
+
+@router.get("/distribution")
+async def distribution(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+    hours: int = Query(24, ge=1, le=720),
+    limit: int = Query(50, ge=1, le=250),
+    action: str = Query("", max_length=30),
+) -> dict:
+    """
+    Distribuição global de queries por país.
+
+    action vazio = todas; 'blocked'/'resolved'/'cached'/'nxdomain_upstream' filtra.
+    """
+    rows = await geoip_service.top_countries(
+        hours=hours, limit=limit, action=action or None
+    )
+    return {"hours": hours, "action": action or "all", "countries": rows}

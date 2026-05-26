@@ -1,5 +1,52 @@
 # Changelog
 
+## v2.52.0 — 2026-05-26
+
+### feat(geoip): mapa-múndi choropleth + filtro de país em buscas
+
+Primeira parte da frente **GeoIP & Geo-Blocking** (v2.52 → v2.54).
+Visualização e filtragem por país — sem alterar nada no Unbound.
+
+#### Backend
+
+- `geoip_service.top_countries(action=None|"blocked"|...)` generaliza
+  `top_countries_blocked` (mantido como alias retrocompat). Cap interno
+  passou de 200 → 500 IPs analisados.
+- `GET /api/v1/geoip/distribution?hours=&limit=&action=` — endpoint
+  novo de distribuição global por país, com filtro de ação opcional.
+- `GET /api/v1/analytics/queries/search` ganhou param `country` (ISO-2,
+  `--` rede privada, `??` desconhecido). Quando setado, pega até 5000
+  linhas pré-filtro, faz `geoip.lookup_many`, filtra e pagina in-memory.
+  Resposta passa a incluir `country` (eco) + `truncated` (true se passou
+  do cap).
+- `GET /api/v1/analytics/queries/export-csv` também aceita `country`;
+  coluna `country_code` é incluída no CSV quando o filtro está ativo.
+
+#### `/threats.php` — Distribuição Global
+
+O painel "Top Países" foi expandido em layout 2-colunas: mapa-múndi
+choropleth (jsvectormap, ~25KB via CDN) à esquerda, top 15 países à
+direita. Select de ação muda o que é plotado (Bloqueios / Todas /
+Resolvidas / Cache / NXDOMAIN). Hover mostra tooltip `{país} — {hits}`.
+
+#### `/query_search.php` — Filtro de país
+
+Dropdown novo "País (origem)" populado automaticamente via
+`/geoip/distribution?hours=168&limit=40` no boot. Mudar dispara nova
+busca. Coluna "País" foi adicionada à tabela de resultados — preenche
+com lookup-bulk dos IPs visíveis e cacheia por sessão para evitar
+re-chamadas em paginação. Badge `⚠ pré-cap 5k` aparece se o filtro de
+país operou sobre o cap.
+
+#### Notas
+
+- jsvectormap inicializa idempotente; retry curto caso `defer` ainda
+  não tenha terminado quando `loadTopCountries` rodar pela primeira vez.
+- Privacidade: lookups usam ip-api.com (mesma fonte do v2.47); IPs
+  privados não vão pra fora.
+
+---
+
 ## v2.51.0 — 2026-05-26
 
 ### feat(stream): WebSocket de queries em tempo real

@@ -98,36 +98,54 @@ async def lookup_many(ips: list[str]) -> dict[str, dict[str, Any]]:
     return {r["ip"]: r for r in results}
 
 
-async def top_countries_blocked(hours: int = 24, limit: int = 20) -> list[dict[str, Any]]:
+async def top_countries(
+    hours: int = 24,
+    limit: int = 20,
+    action: str | None = "blocked",
+) -> list[dict[str, Any]]:
     """
-    Top países dos clientes blocked nas últimas N horas.
+    Top países dos clientes nas últimas N horas, opcionalmente filtrado por action.
 
-    Estratégia: pega top IPs por contagem direto do DuckDB, lookup geoip,
-    agrega por country_code. Reduz chamadas externas (só top N IPs, não
-    todos os bloqueados).
+    Estratégia: pega top IPs por contagem direto do DuckDB (cap 500 cobre cauda
+    longa em ambientes médios), lookup geoip em lote, agrega por country_code.
+
+    Args:
+        hours: janela em horas (1–720).
+        limit: top N países no retorno.
+        action: 'blocked' | 'resolved' | 'cached' | 'nxdomain_upstream' | None
+                (None = todas as ações).
     """
     from datetime import UTC, datetime
     from app.repositories.duckdb.connection import db_fetchall
 
     cutoff = int(datetime.now(UTC).timestamp()) - (hours * 3600)
-    rows = await db_fetchall(
+    if action:
+        sql = """
+            SELECT client_ip, COUNT(*) AS hits
+            FROM query_logs
+            WHERE action = ? AND timestamp >= ?
+            GROUP BY client_ip
+            ORDER BY hits DESC
+            LIMIT 500
         """
-        SELECT client_ip, COUNT(*) AS hits
-        FROM query_logs
-        WHERE action = 'blocked' AND timestamp >= ?
-        GROUP BY client_ip
-        ORDER BY hits DESC
-        LIMIT 200
-        """,
-        [cutoff],
-    )
+        params: list[Any] = [action, cutoff]
+    else:
+        sql = """
+            SELECT client_ip, COUNT(*) AS hits
+            FROM query_logs
+            WHERE timestamp >= ?
+            GROUP BY client_ip
+            ORDER BY hits DESC
+            LIMIT 500
+        """
+        params = [cutoff]
+    rows = await db_fetchall(sql, params)
     if not rows:
         return []
 
     ips = [str(r["client_ip"]) for r in rows]
     geo_map = await lookup_many(ips)
 
-    # Agrega por país
     by_country: dict[str, dict[str, Any]] = {}
     for r in rows:
         ip = str(r["client_ip"])
@@ -143,3 +161,8 @@ async def top_countries_blocked(hours: int = 24, limit: int = 20) -> list[dict[s
 
     out = sorted(by_country.values(), key=lambda x: x["hits"], reverse=True)
     return out[:limit]
+
+
+async def top_countries_blocked(hours: int = 24, limit: int = 20) -> list[dict[str, Any]]:
+    """Alias retrocompat — top países dos blocked. Use top_countries(action='blocked')."""
+    return await top_countries(hours=hours, limit=limit, action="blocked")
