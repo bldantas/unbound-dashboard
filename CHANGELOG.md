@@ -1,5 +1,31 @@
 # Changelog
 
+## v2.45.0 — 2026-05-26
+
+### feat(api): página de API & Integrações + endpoints Grafana
+
+Swagger UI e `openapi.json` já eram expostos pelo FastAPI em `/api/v1/docs`
+e `/api/v1/redoc`. Faltava uma porta de entrada e endpoints amigáveis
+pra ferramentas externas.
+
+#### Página `/api_docs.php`
+
+Hub das integrações: links pro Swagger/ReDoc/openapi.json, exemplo de
+scrape Prometheus, instruções de setup do Grafana Infinity datasource,
+4 exemplos cURL prontos.
+
+#### Endpoints `/api/v1/grafana/*`
+
+- `GET /snapshot` — lista flat de 11 métricas chave (qps, hit_ratio,
+  latency_avg/median, dnssec_*, queries_today, blocked_today, online).
+- `GET /timeseries?metric=total|blocked&hours=1..720` — hourly_stats
+  no formato `[{time: ISO, value, metric}]` compatível com series viz.
+
+Pensado pro plugin "Infinity" do Grafana — JSON puro, sem precisar
+rodar Prometheus scraper só pra puxar essas métricas.
+
+Sidebar e Cmd+K ganharam entrada "API & Integrações".
+
 ## v2.44.0 — 2026-05-26
 
 ### feat(ux): command palette (Ctrl+K) + atalhos de teclado

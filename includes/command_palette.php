@@ -78,6 +78,7 @@
         { label: 'Diagnóstico',         hint: 'Health check do daemon',       url: 'diagnostics.php',     kw: 'diag health' },
         { label: 'Benchmark DNS',       hint: 'Comparar resolvers',           url: 'dns_benchmark.php',   kw: 'benchmark resolver' },
         { label: 'Exportações',         hint: 'Downloads de dados',           url: 'exports.php',         kw: 'export download csv' },
+        { label: 'API & Integrações',   hint: 'Swagger + Prometheus + Grafana', url: 'api_docs.php',      kw: 'api openapi swagger grafana prometheus' },
         { label: 'Backup S3',           hint: 'Upload offsite',               url: 'backup_offsite.php',  kw: 'backup s3 wasabi r2' },
         { label: 'Hosts gerenciados',   hint: 'Multi-host + push config',     url: 'hosts.php',           kw: 'hosts multi-host master agent' },
         { label: 'Configurações',       hint: 'Sistema + atualizações',       url: 'config.php',          kw: 'config settings' },
