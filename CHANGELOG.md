@@ -1,5 +1,58 @@
 # Changelog
 
+## v2.67.0 — 2026-05-26
+
+### feat(approvals): workflow 2nd-approver (opt-in, infra)
+
+Frente Workflow approval. Esta release fornece **infraestrutura** — wire
+automático em endpoints existentes fica como TODO da próxima iteração
+(precisa dispatch interno + decisão de quais actions são "sensíveis"
+por default).
+
+#### Migration V18 `approval_requests`
+
+(id, created_at, requester_*, action, description, payload JSON,
+status pending|approved|rejected|executed|expired, approver_*,
+approved_at, rejected_reason, executed_at, executed_result, expires_at).
+
+#### Service `approval_service`
+
+- `is_enabled()` / `required_for(action)` — checa toggle + CSV
+  `workflow_approval_actions` (ex: `dns_security.apply,doh_inbound.gen_cert`)
+- `get_config()` / `update_config()` — admin
+- `request_approval(...)` — registra pending com TTL configurável
+  (default 24h, max 168h)
+- `list_pending()` / `list_all()` — auto-expira pending vencidos
+- `approve()` / `reject()` — **bloqueia requester** (não pode aprovar
+  o próprio pedido)
+- `mark_executed()` — marca como executado após replay manual
+
+#### Endpoints `/api/v1/approvals`
+
+- `GET/PUT /config`
+- `GET /pending`, `GET /list`
+- `POST /{id}/approve`, `/reject`, `/mark-executed`
+
+Todas operações registram em `admin_audit` (category=config).
+
+#### Página `/approvals.php`
+
+- Painel config (admin): toggle, CSV de actions, TTL
+- 2 tabs (Pending / Histórico) com tabela: quando, requester+IP,
+  action, descrição, status colorido, expira em rel-time, botões
+  Approve (emerald) / Reject (red) por linha
+- Auto-refresh 30s
+- Approve/Reject só aparecem em pending E o user atual != requester
+
+Sidebar entry "Aprovações".
+
+#### TODO próximas iterações
+
+- Wire em routers existentes: detectar `required_for(action)` antes de
+  executar, registrar request, devolver 202 Accepted ao requester
+- Dispatcher interno pra executar a action quando aprovada (replay
+  automático em vez de manual)
+
 ## v2.66.0 — 2026-05-26
 
 ### feat(reports): PDF do LGPD report e admin audit (reportlab)

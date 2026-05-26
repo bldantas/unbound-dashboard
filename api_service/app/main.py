@@ -24,6 +24,7 @@ from app.routers import (
     alerts,
     analytics,
     api_tokens,
+    approvals,
     audit,
     auth,
     backup_offsite,
@@ -237,6 +238,7 @@ setup_metrics(app)
 app.include_router(alerts.router)
 app.include_router(analytics.router)
 app.include_router(api_tokens.router)
+app.include_router(approvals.router)
 app.include_router(audit.router)
 app.include_router(auth.router)
 app.include_router(backup_offsite.router)
