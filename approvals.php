@@ -141,12 +141,20 @@ $currentUserId = (int)($_SESSION['user_id'] ?? 0);
         }
         $('tbody').innerHTML = items.map(it => {
             const stCls = STATUS_CLS[it.status] || '';
-            const canApprove = IS_ADMIN && it.status === 'pending' && it.requester_id !== ME_ID;
-            const isOwn = it.requester_id === ME_ID && it.status === 'pending';
-            const actions = canApprove
-                ? `<button data-id="${it.id}" class="approveBtn glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black">Aprovar</button>
-                   <button data-id="${it.id}" class="rejectBtn glass-btn !bg-red-600 !text-white text-[10px] uppercase font-black">Rejeitar</button>`
-                : (isOwn ? '<span class="text-[10px] text-slate-500 italic">(seu pedido)</span>' : '');
+            const isOwn = it.requester_id === ME_ID;
+            const canApprove = IS_ADMIN && it.status === 'pending' && !isOwn;
+            const canExecute = IS_ADMIN && it.status === 'approved' && HANDLERS.has(it.action);
+            let actions = '';
+            if (canApprove) {
+                actions = `<button data-id="${it.id}" class="approveBtn glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black">Aprovar</button>
+                           <button data-id="${it.id}" class="rejectBtn glass-btn !bg-red-600 !text-white text-[10px] uppercase font-black">Rejeitar</button>`;
+            } else if (canExecute) {
+                actions = `<button data-id="${it.id}" class="execBtn glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black" title="Replay automático via handler registrado">Executar</button>`;
+            } else if (isOwn && it.status === 'pending') {
+                actions = '<span class="text-[10px] text-slate-500 italic">(seu pedido)</span>';
+            } else if (it.status === 'approved' && !HANDLERS.has(it.action)) {
+                actions = '<span class="text-[10px] text-amber-500 italic">execute manual</span>';
+            }
             return `<tr class="hover:bg-slate-50 dark:hover:bg-white/5">
                 <td class="px-3 py-2 font-mono text-[10px] text-slate-500" title="${esc(it.created_at)}">${relTime(it.created_at)}</td>
                 <td class="px-3 py-2">${esc(it.requester_username)} <span class="text-[10px] text-slate-500">(${esc(it.requester_ip || '—')})</span></td>
@@ -159,6 +167,29 @@ $currentUserId = (int)($_SESSION['user_id'] ?? 0);
         }).join('');
         document.querySelectorAll('.approveBtn').forEach(b => b.addEventListener('click', () => act(b.dataset.id, 'approve')));
         document.querySelectorAll('.rejectBtn').forEach(b => b.addEventListener('click', () => act(b.dataset.id, 'reject')));
+        document.querySelectorAll('.execBtn').forEach(b => b.addEventListener('click', () => execNow(b.dataset.id)));
+    }
+
+    let HANDLERS = new Set();
+    async function loadHandlers() {
+        if (!IS_ADMIN) return;
+        const r = await fetch('/api/v1/approvals/handlers', { headers: H });
+        if (!r.ok) return;
+        const d = await r.json();
+        HANDLERS = new Set(d.actions || []);
+    }
+
+    async function execNow(id) {
+        const ok = await (window.customConfirm ? customConfirm(`Executar request #${id} agora? O handler registrado replay-a a action automaticamente.`) : Promise.resolve(confirm('Confirma?')));
+        if (!ok) return;
+        const r = await fetch(`/api/v1/approvals/${id}/execute`, { method: 'POST', headers: HJ, body: '{}' });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) {
+            (window.customAlert || alert)(`Executado #${id}.`);
+        } else {
+            (window.customAlert || alert)(`Falha: ${d.detail?.error || d.error || d.detail || r.statusText}`);
+        }
+        load();
     }
 
     async function act(id, kind) {
@@ -206,7 +237,7 @@ $currentUserId = (int)($_SESSION['user_id'] ?? 0);
         });
     }
 
-    load();
+    loadHandlers().then(load);
     setInterval(load, 30000);
 })();
 </script>

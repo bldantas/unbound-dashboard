@@ -2,13 +2,14 @@
 Workflow approval (2nd-approver) — opt-in via setting.
 
 Quando `workflow_approval_enabled=1` E action ∈ `workflow_approval_actions`
-(CSV), o caller não executa: chama `request(...)` que registra o pedido
-em `approval_requests` e devolve `{status: pending, request_id}`. Um
-admin diferente do requester revisa em `/approvals.php` e aprova/rejeita.
+(CSV), o endpoint não executa: chama `enforce_approval(...)` que registra
+o pedido em `approval_requests` e levanta `ApprovalRequired` (HTTP 202).
+Um admin diferente do requester aprova em `/approvals.php`, e ao
+clicar "Executar" o dispatcher chama o handler registrado com o
+payload original (replay automático, sem precisar do request HTTP original).
 
-NÃO há "execute" automatizado nesta versão — operador aprova e re-aciona
-a ação manualmente. Wire automático é TODO (precisa table de actions
-permitidas e dispatch interno).
+Handlers são registrados via `register_action_handler(action, callable)` no
+startup pelos próprios routers. Idempotência fica por conta do handler.
 """
 
 from __future__ import annotations
@@ -26,6 +27,46 @@ log = structlog.get_logger(__name__)
 
 VALID_STATUSES = ("pending", "approved", "rejected", "executed", "expired")
 DEFAULT_TTL_HOURS = 24
+
+
+class ApprovalRequired(Exception):
+    """Levantada por `enforce_approval` quando o endpoint deve responder 202.
+
+    Atributo `request_id` carrega o id do approval_request criado pra
+    a UI/cliente acompanhar.
+    """
+
+    def __init__(self, request_id: int, action: str):
+        self.request_id = request_id
+        self.action = action
+        super().__init__(f"approval required: action={action} request_id={request_id}")
+
+
+# --------- Action handler registry ---------
+# Map action_name → async callable(payload: dict) -> dict
+# Cada router registra seus handlers no startup. Permite replay automático
+# após aprovação sem precisar do request HTTP original.
+_HANDLERS: dict[str, callable] = {}
+
+
+def register_action_handler(action: str, handler) -> None:
+    """Registra um handler async pra dispatch após aprovação.
+
+    Idempotente: registrar de novo sobrescreve. Router faz isso no module
+    load ou em startup hook.
+    """
+    _HANDLERS[action] = handler
+    log.info("approval.handler_registered", action=action)
+
+
+def get_action_handler(action: str):
+    return _HANDLERS.get(action)
+
+
+def list_action_handlers() -> list[str]:
+    """Retorna actions registradas — usado pelo endpoint /config pra
+    operador saber quais actions são dispatcháveis automaticamente."""
+    return sorted(_HANDLERS.keys())
 
 
 def _to_iso(v: Any) -> str | None:
@@ -210,6 +251,102 @@ async def reject(request_id: int, approver_id: int, approver_username: str | Non
         ],
     )
     return {"ok": True, "request_id": int(request_id)}
+
+
+async def enforce_approval(
+    *,
+    user: dict,
+    request_ip: str | None,
+    action: str,
+    description: str,
+    payload: dict | None = None,
+) -> dict | None:
+    """Helper pros routers: se a action exige aprovação, registra request e
+    levanta `ApprovalRequired`. Senão retorna `None` (caller continua).
+
+    Uso típico:
+
+        try:
+            await approval_service.enforce_approval(
+                user=user, request_ip=ip,
+                action="dns_security.apply",
+                description="Aplicar config DNS + restart Unbound",
+                payload={"snapshot": "..."},
+            )
+        except approval_service.ApprovalRequired as exc:
+            return JSONResponse({"approval_pending": True, "request_id": exc.request_id}, status_code=202)
+        result = await do_the_work(...)
+    """
+    if not await required_for(action):
+        return None
+    requester_id = user.get("user_id")
+    if requester_id is None:
+        sub = user.get("sub")
+        try:
+            requester_id = int(sub) if sub is not None else None
+        except (TypeError, ValueError):
+            requester_id = None
+    if requester_id is None:
+        return None  # sem identidade → não exigir (avoid lock-out)
+    out = await request_approval(
+        requester_id=requester_id,
+        requester_username=user.get("username"),
+        requester_ip=request_ip,
+        action=action,
+        description=description,
+        payload=payload,
+    )
+    raise ApprovalRequired(request_id=out["id"], action=action)
+
+
+async def execute_request(request_id: int, executor_user: dict | None = None) -> dict:
+    """Dispatcha o handler registrado pra action de um request aprovado.
+
+    Marca como `executed` em caso de sucesso (ou guarda result_json mesmo em
+    erro pra forense). Caller (router) deve registrar audit log do
+    execution.
+    """
+    row = await db_fetchone(
+        "SELECT * FROM approval_requests WHERE id = ? AND status = 'approved'",
+        [int(request_id)],
+    )
+    if not row:
+        return {"ok": False, "error": "request não está aprovado"}
+
+    action = row["action"]
+    handler = get_action_handler(action)
+    if handler is None:
+        return {
+            "ok": False,
+            "error": f"action '{action}' não tem handler registrado — execute manualmente",
+        }
+
+    payload = row.get("payload")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:  # noqa: BLE001
+            payload = {}
+    elif payload is None:
+        payload = {}
+
+    try:
+        result = await handler(payload)
+        ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("approval.execute_handler_failed", action=action, error=str(exc))
+        result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        ok = False
+
+    await db_execute(
+        """
+        UPDATE approval_requests
+        SET status = 'executed', executed_at = NOW(), executed_result = ?
+        WHERE id = ?
+        """,
+        [json.dumps(result), int(request_id)],
+    )
+    return {"ok": ok, "result": result}
 
 
 async def mark_executed(request_id: int, result: dict | None = None) -> bool:

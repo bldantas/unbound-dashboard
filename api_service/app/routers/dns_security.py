@@ -17,10 +17,21 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 
+from fastapi.responses import JSONResponse
+
 from app.core.deps import require_capability
-from app.services import admin_audit_service, dns_security_service
+from app.services import admin_audit_service, approval_service, dns_security_service
 
 router = APIRouter(prefix="/api/v1/dns-security", tags=["dns-security"])
+
+
+# Handler registrado pro dispatcher de approvals — executa o apply real
+# após aprovação, sem precisar do request HTTP original.
+async def _approval_handler_dns_apply(payload: dict) -> dict:
+    return await dns_security_service.apply()
+
+
+approval_service.register_action_handler("dns_security.apply", _approval_handler_dns_apply)
 
 
 def _coerce_int(v) -> int | None:
@@ -53,16 +64,33 @@ async def update_settings(
     return {"updated": n}
 
 
-@router.post("/apply")
+@router.post("/apply", response_model=None)
 async def apply(
     request: Request,
     user: Annotated[dict, Depends(require_capability("config.write"))],
-) -> dict:
+):
+    ip = request.client.host if request.client else None
+    # Workflow approval — se action está em workflow_approval_actions, registra
+    # request e responde 202 sem executar
+    try:
+        await approval_service.enforce_approval(
+            user=user, request_ip=ip,
+            action="dns_security.apply",
+            description="Aplicar config DNS (forwarders.conf) + restart Unbound",
+            payload={},
+        )
+    except approval_service.ApprovalRequired as exc:
+        return JSONResponse(
+            {"approval_pending": True, "request_id": exc.request_id,
+             "message": "Aguardando aprovação de outro admin em /approvals.php"},
+            status_code=202,
+        )
+
     result = await dns_security_service.apply()
     await admin_audit_service.log(
         actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
         actor_username=user.get("username"),
-        actor_ip=request.client.host if request.client else None,
+        actor_ip=ip,
         action="dns_security.apply",
         category="config",
         details={"ok": result.get("ok"), "mode": result.get("mode"), "stage": result.get("stage")},

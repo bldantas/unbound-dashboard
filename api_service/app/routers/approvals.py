@@ -126,6 +126,38 @@ async def reject(
     return out
 
 
+@router.post("/{request_id}/execute")
+async def execute(
+    request_id: Annotated[int, Path(ge=1)],
+    user: Annotated[dict, Depends(require_admin)],
+    request: Request,
+) -> dict:
+    """Dispatcha o handler registrado da action. Replay automático sem
+    precisar do request HTTP original."""
+    out = await approval_service.execute_request(request_id, executor_user=user)
+    await admin_audit_service.log(
+        actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
+        actor_username=user.get("username"),
+        actor_ip=request.client.host if request.client else None,
+        action="approvals.execute",
+        category="config",
+        target_type="approval_request",
+        target_id=str(request_id),
+        details={"result_ok": out.get("ok"), "error": out.get("error") if not out.get("ok") else None},
+    )
+    if not out.get("ok"):
+        raise HTTPException(status_code=400, detail=out)
+    return out
+
+
+@router.get("/handlers")
+async def list_handlers(
+    _: Annotated[dict, Depends(require_admin)],
+) -> dict:
+    """Quais actions têm handler dispatchável automaticamente."""
+    return {"actions": approval_service.list_action_handlers()}
+
+
 @router.post("/{request_id}/mark-executed")
 async def mark_executed(
     request_id: Annotated[int, Path(ge=1)],

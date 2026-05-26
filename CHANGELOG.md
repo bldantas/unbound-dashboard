@@ -1,5 +1,63 @@
 # Changelog
 
+## v2.72.0 — 2026-05-26
+
+### feat(approvals): wire automático em endpoints sensíveis + dispatcher
+
+Fecha a metade que faltava da v2.67. Agora endpoints listados em
+`workflow_approval_actions` não executam: retornam 202 com `request_id`
+e o handler registrado dispara automaticamente após aprovação.
+
+#### `approval_service` estendido
+
+- **`class ApprovalRequired(Exception)`** — levantada por
+  `enforce_approval` quando workflow está ativo. Atributo `request_id`
+  pro caller responder 202.
+- **Action handler registry** (`_HANDLERS: dict[str, callable]`):
+  - `register_action_handler(action, handler)` — router chama no module
+    load
+  - `get_action_handler(action)` / `list_action_handlers()`
+- **`enforce_approval(user, request_ip, action, description, payload)`**
+  — helper pros routers: se action exige approval, registra request e
+  levanta exception. Senão retorna None.
+- **`execute_request(request_id, executor_user?)`** — busca handler
+  registrado, executa com o payload original, marca como `executed`.
+
+#### Wires nos 3 endpoints sensíveis
+
+| Endpoint | Action | Handler |
+|---|---|---|
+| `POST /dns-security/apply` | `dns_security.apply` | calls `dns_security_service.apply()` |
+| `POST /doh-inbound/gen-cert` | `doh_inbound.gen_cert` | calls `doh_inbound_service.generate_self_signed(cn, days, restart)` |
+| `POST /ha/failover` | `ha.failover` | calls `ha_service.manual_failover(promote_id, demote_id)` |
+
+Cada router faz `register_action_handler(...)` no module load.
+
+#### Endpoints novos `/api/v1/approvals`
+
+- `POST /{id}/execute` — admin dispatcha handler automaticamente
+- `GET /handlers` — lista actions com handler registrado (frontend
+  usa pra mostrar botão "Executar" só onde dispatch automático funciona)
+
+#### UI `/approvals.php`
+
+- Botão azul "Executar" aparece quando status=approved E action ∈ handlers
+- Indicador âmbar "execute manual" quando approved mas sem handler
+  registrado (action precisa de replay manual)
+- Tab "Pending" + "Histórico" mantidas, auto-refresh 30s
+
+#### Fluxo completo end-to-end testado
+
+1. Admin1 enabled workflow_approval_actions=dns_security.apply
+2. Admin1 `POST /dns-security/apply` → 202 + request_id=N
+3. Admin2 `POST /approvals/N/approve` → 200 ok
+4. Admin2 `POST /approvals/N/execute` → handler dispatchou,
+   retornou `{ok: true, result: {mode: recursive, ...}}`
+5. Request agora status=executed com `executed_result` no DB
+
+Bloqueios mantidos: requester não pode aprovar/rejeitar o próprio
+pedido; execute exige status=approved + handler registrado.
+
 ## v2.71.0 — 2026-05-26
 
 ### feat(secrets): cipher_service com Fernet + cifra OIDC + HA tokens

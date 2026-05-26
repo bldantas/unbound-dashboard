@@ -15,11 +15,24 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
+from fastapi.responses import JSONResponse
 
 from app.core.deps import require_capability
-from app.services import admin_audit_service, ha_service
+from app.services import admin_audit_service, approval_service, ha_service
 
 router = APIRouter(prefix="/api/v1/ha", tags=["ha"])
+
+
+async def _approval_handler_failover(payload: dict) -> dict:
+    promote_id = int(payload.get("promote_id", 0))
+    demote_id = payload.get("demote_id")
+    demote_id = int(demote_id) if demote_id else None
+    if promote_id < 1:
+        return {"ok": False, "error": "promote_id ausente no payload"}
+    return await ha_service.manual_failover(promote_id, demote_id)
+
+
+approval_service.register_action_handler("ha.failover", _approval_handler_failover)
 
 
 def _coerce_int(v) -> int | None:
@@ -126,17 +139,32 @@ async def check_peer(
     return await ha_service.check_peer(peer_id)
 
 
-@router.post("/failover")
+@router.post("/failover", response_model=None)
 async def manual_failover(
     body: dict,
     user: Annotated[dict, Depends(require_capability("config.write"))],
     request: Request,
-) -> dict:
+):
     promote_id = int(body.get("promote_id", 0))
     demote_id = body.get("demote_id")
     demote_id = int(demote_id) if demote_id else None
     if promote_id < 1:
         raise HTTPException(status_code=400, detail="promote_id obrigatório")
+
+    ip = request.client.host if request.client else None
+    try:
+        await approval_service.enforce_approval(
+            user=user, request_ip=ip,
+            action="ha.failover",
+            description=f"Promover peer #{promote_id} → primary" + (f" + demover #{demote_id}" if demote_id else ""),
+            payload={"promote_id": promote_id, "demote_id": demote_id},
+        )
+    except approval_service.ApprovalRequired as exc:
+        return JSONResponse(
+            {"approval_pending": True, "request_id": exc.request_id,
+             "message": "Aguardando aprovação de outro admin em /approvals.php"},
+            status_code=202,
+        )
 
     out = await ha_service.manual_failover(promote_id, demote_id)
     await admin_audit_service.log(
