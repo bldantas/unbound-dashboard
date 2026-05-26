@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse
 
 from app.core.deps import require_capability
-from app.services import geo_blocking_service
+from app.services import approval_service, geo_blocking_service
 
 router = APIRouter(prefix="/api/v1/geo-blocking", tags=["geo-blocking"])
+
+
+async def _approval_handler_geo_apply(payload: dict) -> dict:
+    return await geo_blocking_service.apply()
+
+
+approval_service.register_action_handler("geo_blocking.apply", _approval_handler_geo_apply)
 
 
 @router.get("/status")
@@ -101,8 +109,23 @@ async def preview(
     return await geo_blocking_service.preview()
 
 
-@router.post("/apply")
+@router.post("/apply", response_model=None)
 async def apply(
-    _: Annotated[dict, Depends(require_capability("config.write"))],
-) -> dict:
+    request: Request,
+    user: Annotated[dict, Depends(require_capability("config.write"))],
+):
+    ip = request.client.host if request.client else None
+    try:
+        await approval_service.enforce_approval(
+            user=user, request_ip=ip,
+            action="geo_blocking.apply",
+            description="Aplicar bloqueio geográfico (regrava geo_acl.conf + restart Unbound)",
+            payload={},
+        )
+    except approval_service.ApprovalRequired as exc:
+        return JSONResponse(
+            {"approval_pending": True, "request_id": exc.request_id,
+             "message": "Aguardando aprovação de outro admin em /approvals.php"},
+            status_code=202,
+        )
     return await geo_blocking_service.apply()

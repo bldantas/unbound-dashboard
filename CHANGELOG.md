@@ -10,6 +10,7 @@ seção por versão) por histórico — consolidação retroativa só pra
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
 ### Auth, segurança & compliance
+- **v2.75**: wire de approvals expandido — `geo_blocking.apply` e `users.delete` agora também passam por `enforce_approval`. Total: 5 handlers registrados (dns/doh/ha/geo/users).
 - **v2.74**: múltiplos destinos S3 (multi-cloud redundância); cada destino com secret cifrado via cipher_service. `BackupUploader` itera priority DESC.
 - **v2.71**: `cipher_service` Fernet + cifra OIDC `client_secret` e tokens HA peers (env `SECRETS_MASTER_KEY`). Endpoint admin `/secrets-store/status`.
 - **v2.72**: wire automático de workflow approval em `dns_security.apply`, `doh_inbound.gen_cert`, `ha.failover` — endpoints respondem 202 + handler dispatcha após aprovação.

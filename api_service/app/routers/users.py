@@ -4,11 +4,29 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.core.deps import require_auth, require_capability
-from app.services import users_service
+from app.services import approval_service, users_service
+
+
+async def _approval_handler_user_delete(payload: dict) -> dict:
+    target_id = int(payload.get("user_id", 0))
+    requesting_id = int(payload.get("requesting_user_id", 0))
+    if target_id < 1 or requesting_id < 1:
+        return {"ok": False, "error": "user_id/requesting_user_id ausentes"}
+    try:
+        await users_service.delete_user(target_id, requesting_user_id=requesting_id)
+    except users_service.CannotTargetSelf:
+        return {"ok": False, "error": "self-target"}
+    except users_service.UserNotFound:
+        return {"ok": False, "error": "user not found"}
+    return {"ok": True, "deleted_user_id": target_id}
+
+
+approval_service.register_action_handler("users.delete", _approval_handler_user_delete)
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
@@ -106,13 +124,29 @@ async def toggle_active(
         ) from None
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{user_id}", response_model=None)
 async def delete_user(
     user_id: Annotated[int, Path(ge=1)],
+    request: Request,
     payload: Annotated[dict, Depends(require_capability("users.manage"))],
-) -> None:
+):
+    requesting_id = int(payload["sub"])
+    ip = request.client.host if request.client else None
     try:
-        await users_service.delete_user(user_id, requesting_user_id=int(payload["sub"]))
+        await approval_service.enforce_approval(
+            user=payload, request_ip=ip,
+            action="users.delete",
+            description=f"Excluir usuário id={user_id}",
+            payload={"user_id": user_id, "requesting_user_id": requesting_id},
+        )
+    except approval_service.ApprovalRequired as exc:
+        return JSONResponse(
+            {"approval_pending": True, "request_id": exc.request_id,
+             "message": "Aguardando aprovação de outro admin em /approvals.php"},
+            status_code=202,
+        )
+    try:
+        await users_service.delete_user(user_id, requesting_user_id=requesting_id)
     except users_service.CannotTargetSelf:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -122,6 +156,7 @@ async def delete_user(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado"
         ) from None
+    return JSONResponse(content=None, status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.put("/{user_id}/role", status_code=status.HTTP_204_NO_CONTENT)
