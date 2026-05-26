@@ -62,6 +62,7 @@ from app.workers import (
     AnomalyDetector,
     AuditPruner,
     BackupUploader,
+    BaselineLearner,
     ExternalHealthPruner,
     BlocklistSyncer,
     GeoBlockUpdater,
@@ -158,6 +159,8 @@ async def lifespan(app: FastAPI):
     app.state.external_health_pruner = external_health_pruner
     restore_test_runner = RestoreTestRunner()
     app.state.restore_test_runner = restore_test_runner
+    baseline_learner = BaselineLearner()
+    app.state.baseline_learner = baseline_learner
     geo_block_updater = GeoBlockUpdater()
     app.state.geo_block_updater = geo_block_updater
     _background_tasks.extend(
@@ -209,6 +212,10 @@ async def lifespan(app: FastAPI):
                 name="restore_test_runner",
             ),
             asyncio.create_task(
+                _supervised("baseline_learner", baseline_learner),
+                name="baseline_learner",
+            ),
+            asyncio.create_task(
                 _supervised("geo_block_updater", geo_block_updater), name="geo_block_updater"
             ),
         ]
@@ -235,6 +242,7 @@ async def lifespan(app: FastAPI):
     await ha_peer_monitor.stop()
     await external_health_pruner.stop()
     await restore_test_runner.stop()
+    await baseline_learner.stop()
     await geo_block_updater.stop()
     for task in _background_tasks:
         task.cancel()

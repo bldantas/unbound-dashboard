@@ -39,6 +39,7 @@ Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 - **v2.40**: página `/observability.php` — KPIs + séries temporais + status dos workers.
 
 ### Anomalias & threats
+- **v2.79**: ML/baseline learning — V22 `anomaly_baseline` (168 buckets de hour_of_day × day_of_week), worker `BaselineLearner` 1x/dia recalcula média + stddev de `hourly_stats` das últimas N semanas (default 4). Detector novo `_check_baseline_deviation` alerta se volume da última hora completa está fora de N desvios padrão do baseline do mesmo bucket. Captura sazonalidade (8h-seg ≠ 8h-dom). Opt-in via `anomaly_baseline_enabled`.
 - **v2.55**: anomaly v2 — sobe 3→6 detectores (DNS tunneling, beaconing, suspicious TLDs) + whitelist (V14) + UI estendida.
 - **v2.54**: GeoIP ASN enrichment + card "Top ASNs" em `/threats.php`.
 - **v2.54.1**: fix mapa-múndi (CDN path errado).

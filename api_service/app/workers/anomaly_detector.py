@@ -522,6 +522,68 @@ async def _check_suspicious_tlds() -> int:
 # ============================================================
 
 
+async def _check_baseline_deviation() -> int:
+    """Compara última hora completa com baseline aprendido pra mesma
+    (hour_of_day, day_of_week).
+
+    Baseline vem de `anomaly_baseline` (populado pelo BaselineLearner).
+    Alerta se total_queries excede `avg + N * stddev` ou
+    `avg - N * stddev` (N configurável, default 3).
+    """
+    if not await _setting_bool("anomaly_baseline_enabled", "0"):
+        return 0
+    n_sigma = await _setting_float("anomaly_baseline_sigma", "3.0")
+
+    # Última hora completa = hora atual menos 1h (hour_start no DB é
+    # truncado a hora, então o último completo é o anterior à hora corrente)
+    row = await db_fetchone(
+        """
+        SELECT
+            hour_start, total_queries, blocked_count,
+            EXTRACT(HOUR FROM to_timestamp(hour_start)) AS hod,
+            EXTRACT(DOW  FROM to_timestamp(hour_start)) AS dow
+        FROM hourly_stats
+        WHERE hour_start < epoch(date_trunc('hour', now()))
+        ORDER BY hour_start DESC
+        LIMIT 1
+        """,
+        [],
+    )
+    if not row:
+        return 0
+
+    hod, dow = int(row["hod"]), int(row["dow"])
+    qhour = int(row["total_queries"] or 0)
+
+    bl = await db_fetchone(
+        "SELECT avg_queries, stddev_queries FROM anomaly_baseline "
+        "WHERE hour_of_day = ? AND day_of_week = ?",
+        [hod, dow],
+    )
+    if not bl:
+        return 0  # bucket sem baseline aprendido
+
+    avg = float(bl["avg_queries"] or 0)
+    sd = float(bl["stddev_queries"] or 0)
+    if sd < 1.0:  # bucket muito plano — evita false-positives
+        return 0
+
+    upper = avg + n_sigma * sd
+    lower = max(0, avg - n_sigma * sd)
+
+    if qhour > upper:
+        msg = f"Volume {qhour:,} qph > baseline (avg={avg:.0f}, +{n_sigma}σ={upper:.0f}) pro bucket {hod}h dow={dow}"
+        if not await _is_whitelisted("baseline_deviation", "", ""):
+            await _raise_alert("anomaly_baseline_high", "warning", msg)
+            return 1
+    elif qhour < lower and avg > 10:
+        msg = f"Volume {qhour:,} qph < baseline (avg={avg:.0f}, -{n_sigma}σ={lower:.0f}) pro bucket {hod}h dow={dow}"
+        if not await _is_whitelisted("baseline_deviation", "", ""):
+            await _raise_alert("anomaly_baseline_low", "warning", msg)
+            return 1
+    return 0
+
+
 class AnomalyDetector:
     def __init__(self) -> None:
         self._running = False
@@ -540,11 +602,13 @@ class AnomalyDetector:
                     tun = await _check_tunneling()
                     bea = await _check_beaconing()
                     tld = await _check_suspicious_tlds()
-                    if dga or nxd or new or tun or bea or tld:
+                    base = await _check_baseline_deviation()
+                    if dga or nxd or new or tun or bea or tld or base:
                         log.info(
                             "anomaly_detector.tick",
                             dga=dga, nxdomain_spike=nxd, new_clients=new,
                             tunneling=tun, beaconing=bea, suspicious_tld=tld,
+                            baseline=base,
                         )
             except Exception as exc:  # noqa: BLE001
                 log.warning("anomaly_detector.unexpected_error", error=str(exc))
