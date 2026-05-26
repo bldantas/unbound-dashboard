@@ -29,6 +29,7 @@ from app.routers import (
     backup_offsite,
     blocklist,
     dns_security,
+    doh_inbound,
     exports,
     geo_blocking,
     geoip,
@@ -217,6 +218,7 @@ app.include_router(auth.router)
 app.include_router(backup_offsite.router)
 app.include_router(blocklist.router)
 app.include_router(dns_security.router)
+app.include_router(doh_inbound.router)
 app.include_router(exports.router)
 app.include_router(geo_blocking.router)
 app.include_router(geoip.router)

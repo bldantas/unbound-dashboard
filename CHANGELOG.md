@@ -1,5 +1,39 @@
 # Changelog
 
+## v2.59.0 — 2026-05-26
+
+### feat(doh-inbound): cert info detalhado + geração self-signed
+
+Frente DoH Inbound v2. Substitui o painel info-only por uma seção
+com detalhes do cert TLS (mesmo cert usa DoT 853 e DoH 8443) e
+ferramenta de geração de self-signed pra dev/teste.
+
+#### Service `doh_inbound_service`
+
+- `info()` parseia `general.conf` (extrai tls-port, https-port,
+  tls-service-pem/key) + lê o cert PEM via `cryptography.x509`
+  retornando subject, issuer, SAN, fingerprint SHA-256, not_after,
+  days_left, `expired`, `expiring_soon` (<=30d), `self_signed`.
+- `generate_self_signed(common_name, days, restart)` gera RSA-2048
+  + cert X.509 com SAN, escreve em tmp e copia via `sudo cp` pros
+  paths reais (`/etc/unbound/certs/dashboard.{crt,key}`), ajusta
+  owner unbound:unbound e mode 640. Restart Unbound opcional.
+
+#### Endpoints novos em `/api/v1/doh-inbound`
+
+- `GET /info` — snapshot completo
+- `POST /gen-cert` — body `{common_name, days?, restart?}` (admin)
+
+#### UI
+
+- Seção "DoH/DoT Inbound (servidor)" em `/dns_security.php`
+  reescrita: KPIs de portas + cert path + URL pra cliente +
+  bloco "Certificado TLS" (subject/issuer/expiry com badge
+  vermelho se expirado, âmbar se <30d, verde caso ok) + SAN +
+  fingerprint.
+- Painel admin "Gerar Self-signed" com input CN + dias + toggle
+  restart, modal de confirmação.
+
 ## v2.58.0 — 2026-05-26
 
 ### feat(performance): página de Performance & Cache + tuning fino + P50/P95/P99

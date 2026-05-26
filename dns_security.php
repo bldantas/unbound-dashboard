@@ -128,22 +128,65 @@ $isAdmin = Auth::isAdmin();
                 <?php endif; ?>
             </div>
 
-            <!-- DoH inbound (info-only) -->
+            <!-- DoH Inbound v2 (info + cert mgmt) -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">DoH Inbound (DNS-over-HTTPS server)</h3>
-                    <p class="text-[10px] text-slate-500 mt-1">Unbound aceita consultas DNS via HTTPS pra clientes (Firefox/Chrome configurados com URL). Configuração atual via `interfaces.conf` e `general.conf` (gerenciados pelo PHP — não editáveis aqui).</p>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">DoH/DoT Inbound (servidor)</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Unbound aceita consultas via DoH (porta 8443) e DoT (porta 853). Ambos usam o mesmo cert TLS (<code>tls-service-pem/key</code>). Esta seção mostra info do cert e permite gerar self-signed pra dev/teste.</p>
                 </div>
-                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Porta</p>
-                        <p id="dohPort" class="font-mono text-slate-700 dark:text-slate-300">8443</p>
+                <div class="p-6 space-y-4 text-xs">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Porta DoT</p>
+                            <p id="dotPort" class="font-mono text-slate-700 dark:text-slate-300">—</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Porta DoH</p>
+                            <p id="dohPort" class="font-mono text-slate-700 dark:text-slate-300">—</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">URL pra cliente</p>
+                            <p id="dohUrl" class="font-mono text-slate-700 dark:text-slate-300 break-all">—</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Cert path</p>
+                            <p id="certPath" class="font-mono text-slate-700 dark:text-slate-300 break-all text-[10px]">—</p>
+                        </div>
                     </div>
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">URL pra cliente</p>
-                        <p id="dohUrl" class="font-mono text-slate-700 dark:text-slate-300 break-all">https://&lt;hostname&gt;:8443/dns-query</p>
+
+                    <div class="border-t border-slate-900/10 dark:border-white/5 pt-4">
+                        <h4 class="text-[11px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-200 mb-3">Certificado TLS</h4>
+                        <div id="certBox" class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+                            <div><span class="text-[10px] text-slate-500 uppercase">Subject:</span> <span id="certSubject" class="font-mono">—</span></div>
+                            <div><span class="text-[10px] text-slate-500 uppercase">Issuer:</span> <span id="certIssuer" class="font-mono">—</span></div>
+                            <div><span class="text-[10px] text-slate-500 uppercase">Válido até:</span> <span id="certNotAfter" class="font-mono">—</span></div>
+                            <div><span class="text-[10px] text-slate-500 uppercase">Expira em:</span> <span id="certExpiry" class="font-black">—</span></div>
+                            <div class="md:col-span-2"><span class="text-[10px] text-slate-500 uppercase">SAN:</span> <span id="certSan" class="font-mono break-all">—</span></div>
+                            <div class="md:col-span-2"><span class="text-[10px] text-slate-500 uppercase">SHA-256:</span> <span id="certFp" class="font-mono break-all text-[10px]">—</span></div>
+                        </div>
                     </div>
                 </div>
+                <?php if ($isAdmin): ?>
+                <div class="px-6 py-4 border-t border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
+                    <h4 class="text-[11px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-200 mb-3">Gerar Self-signed (dev/teste)</h4>
+                    <div class="flex flex-wrap items-end gap-3">
+                        <label class="flex flex-col">
+                            <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Common Name (CN)</span>
+                            <input type="text" id="cnInput" placeholder="dns.example.com" class="glass-input w-64 font-mono">
+                        </label>
+                        <label class="flex flex-col">
+                            <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Validade (dias)</span>
+                            <input type="number" id="daysInput" value="365" min="7" max="3650" class="glass-input w-24 font-mono">
+                        </label>
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" id="restartAfter" class="w-4 h-4">
+                            <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Restart Unbound após gerar</span>
+                        </label>
+                        <button type="button" id="btnGenCert" class="glass-btn !bg-rose-600 !text-white text-[10px] uppercase font-black ml-auto">Gerar e Instalar</button>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-2 italic">Sobrescreve <code>dashboard.crt/key</code>. Sem restart, Unbound continua usando o cert antigo até o próximo reload.</p>
+                </div>
+                <?php endif; ?>
             </div>
 
             <!-- Rate-limit -->
@@ -520,11 +563,67 @@ $isAdmin = Auth::isAdmin();
     }
     loadHardening();
 
-    // Preenche URL DoH usando o hostname atual
-    const dohUrlEl = $('dohUrl');
-    if (dohUrlEl) {
-        dohUrlEl.textContent = `https://${window.location.hostname}:8443/dns-query`;
+    // === DoH Inbound v2 ===
+    async function loadDohInfo() {
+        const r = await fetch('/api/v1/doh-inbound/info', { headers: H });
+        if (!r.ok) return;
+        const d = await r.json();
+        $('dotPort').textContent = d.ports?.tls ?? '—';
+        $('dohPort').textContent = d.ports?.https ?? '—';
+        $('certPath').textContent = d.paths?.cert ?? '—';
+        const dohPort = d.ports?.https ?? 8443;
+        $('dohUrl').textContent = `https://${window.location.hostname}:${dohPort}${d.doh_path || '/dns-query'}`;
+
+        const c = d.cert || {};
+        if (!c.present) {
+            $('certSubject').textContent = '⚠ cert ausente';
+            $('certIssuer').textContent = '—';
+            $('certNotAfter').textContent = '—';
+            $('certExpiry').innerHTML = '<span class="text-red-500">ausente</span>';
+            return;
+        }
+        if (c.parse_error) {
+            $('certSubject').innerHTML = `<span class="text-red-500">erro: ${c.parse_error}</span>`;
+            return;
+        }
+        $('certSubject').textContent = c.subject || '—';
+        $('certIssuer').textContent = c.issuer || '—';
+        $('certNotAfter').textContent = (c.not_after || '').replace('T', ' ').slice(0, 19);
+        $('certSan').textContent = (c.san || []).join(', ') || '—';
+        $('certFp').textContent = c.fingerprint_sha256 || '—';
+
+        const days = c.days_left;
+        let cls = 'text-emerald-500';
+        let label = `${days}d`;
+        if (c.expired) { cls = 'text-red-500'; label = `EXPIRADO há ${-days}d`; }
+        else if (c.expiring_soon) { cls = 'text-amber-500'; label = `${days}d (renovar)`; }
+        const selfSignedTag = c.self_signed ? ' <span class="text-[10px] text-slate-500">(self-signed)</span>' : '';
+        $('certExpiry').innerHTML = `<span class="${cls}">${label}</span>${selfSignedTag}`;
     }
+
+    if (IS_ADMIN) {
+        $('btnGenCert')?.addEventListener('click', async () => {
+            const cn = $('cnInput').value.trim();
+            if (!cn) { (window.customAlert || alert)('Informe o Common Name (CN).'); return; }
+            const days = parseInt($('daysInput').value || '365', 10);
+            const restart = $('restartAfter').checked;
+            const msg = `Gerar self-signed cert CN=${cn}, válido ${days} dias` + (restart ? ' + restart Unbound' : '') + '?';
+            const ok = await (window.customConfirm ? customConfirm(msg) : Promise.resolve(confirm(msg)));
+            if (!ok) return;
+            const r = await fetch('/api/v1/doh-inbound/gen-cert', {
+                method: 'POST', headers: HJ,
+                body: JSON.stringify({ common_name: cn, days, restart }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (r.ok && d.ok) {
+                (window.customAlert || alert)('Cert gerado e instalado.');
+                loadDohInfo();
+            } else {
+                (window.customAlert || alert)(`Falha: ${d.detail?.error || d.detail || d.error || r.statusText}`);
+            }
+        });
+    }
+    loadDohInfo();
 })();
 </script>
 
