@@ -58,3 +58,17 @@ async def distribution(
         hours=hours, limit=limit, action=action or None
     )
     return {"hours": hours, "action": action or "all", "countries": rows}
+
+
+@router.get("/top-asns")
+async def top_asns(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+    hours: int = Query(24, ge=1, le=720),
+    limit: int = Query(20, ge=1, le=100),
+    action: str = Query("blocked", max_length=30),
+) -> dict:
+    """Top ASNs (provedores/redes) por hits. action='' = todas."""
+    rows = await geoip_service.top_asns(
+        hours=hours, limit=limit, action=action or None
+    )
+    return {"hours": hours, "action": action or "all", "asns": rows}

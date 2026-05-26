@@ -112,6 +112,14 @@ $currentPage = 'threats.php';
                 </div>
             </div>
 
+            <!-- Top ASNs (provedores/redes) -->
+            <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
+                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2">Top ASNs (origem dos bloqueios, 24h)</h3>
+                <div id="threatsTopAsns" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                    <p class="text-slate-500 text-xs italic col-span-full">Carregando ASNs...</p>
+                </div>
+            </div>
+
             <!-- Distribuição Global (mapa + top países) -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-8">
                 <div class="flex items-center justify-between flex-wrap gap-2 mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2">
@@ -485,6 +493,41 @@ $currentPage = 'threats.php';
             }
         }
 
+        async function loadTopAsns() {
+            const container = document.getElementById('threatsTopAsns');
+            if (!container) return;
+            try {
+                const meta = document.querySelector('meta[name="api-jwt"]');
+                const jwt = meta ? meta.content : '';
+                if (!jwt) {
+                    container.innerHTML = '<p class="text-slate-500 text-xs italic col-span-full">ASNs requerem login JWT.</p>';
+                    return;
+                }
+                const r = await fetch('/api/v1/geoip/top-asns?hours=24&limit=12&action=blocked', {
+                    headers: { 'Authorization': 'Bearer ' + jwt },
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const d = await r.json();
+                const items = d.asns || [];
+                if (!items.length) {
+                    container.innerHTML = '<p class="text-slate-500 text-xs italic col-span-full">Sem ASNs identificados nas últimas 24h.</p>';
+                    return;
+                }
+                container.innerHTML = items.map(a => {
+                    const flag = a.country_code === '--' ? '🏠' : (a.country_code === '??' ? '❓' : ccToFlag(a.country_code));
+                    const asn = (a.asn || '—').replace(/^AS/i, '');
+                    return '<div class="bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5 p-3 flex items-center gap-3">'
+                        + '<span class="text-2xl">' + flag + '</span>'
+                        + '<div class="min-w-0 flex-1">'
+                        + '<p class="text-xs font-bold text-slate-900 dark:text-white truncate" title="' + escHtml(a.asn_name) + '">' + escHtml(a.asn_name || '(sem ASN)') + '</p>'
+                        + '<p class="text-[10px] text-slate-500 font-mono">AS' + escHtml(asn) + ' · ' + fmtIntBr(a.hits) + ' hits · ' + fmtIntBr(a.clients) + ' clientes</p>'
+                        + '</div></div>';
+                }).join('');
+            } catch (e) {
+                container.innerHTML = '<p class="text-slate-500 text-xs italic col-span-full">Falha ao carregar ASNs.</p>';
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', function () {
             const sel = document.getElementById('geoActionSelect');
             if (sel) sel.addEventListener('change', loadTopCountries);
@@ -543,6 +586,7 @@ $currentPage = 'threats.php';
                 renderTopList('threatsTopClients', top.clients || [], 'Nenhum cliente bloqueado.', 'text-red-500', 'client_ip');
                 renderThreatRows(data.recent || []);
                 loadTopCountries();
+                loadTopAsns();
 
                 const nextUrl = new URL(window.location.href);
                 nextUrl.searchParams.set('limit', limit);

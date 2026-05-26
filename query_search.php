@@ -181,18 +181,22 @@ $currentPage = 'query_search.php';
     // Cache de lookups IP→país (sessão da página)
     const __ipCountryCache = new Map();
 
-    function ccToFlagJSX(cc) {
+    function ccToFlagJSX(cc, tooltip) {
+        const tip = tooltip || cc || '';
         if (!cc) return '<span class="text-slate-500">—</span>';
-        if (cc === '--') return '<span title="Rede privada">🏠</span>';
-        if (cc === '??') return '<span title="Desconhecido" class="text-slate-500">❓</span>';
+        if (cc === '--') return `<span title="${tip || 'Rede privada'}">🏠</span>`;
+        if (cc === '??') return `<span title="${tip || 'Desconhecido'}" class="text-slate-500">❓</span>`;
         if (!/^[A-Z]{2}$/.test(cc)) return '<span class="text-slate-500">—</span>';
         const cp = cc.split('').map(c => 127397 + c.charCodeAt(0));
         const flag = String.fromCodePoint(...cp);
-        return `<span title="${cc}">${flag} <span class="text-[10px] font-bold font-mono text-slate-500">${cc}</span></span>`;
+        return `<span title="${tip || cc}">${flag} <span class="text-[10px] font-bold font-mono text-slate-500">${cc}</span></span>`;
     }
 
+    function escAttr(s) { return String(s || '').replace(/"/g, '&quot;'); }
+
     async function enrichRowsWithCountry(rows) {
-        // Faz lookup-bulk dos IPs que ainda não estão em cache.
+        // Faz lookup-bulk dos IPs que ainda não estão em cache. Cache armazena
+        // {cc, asn, asn_name} pra evitar re-lookup quando trocar página.
         const need = [...new Set(rows.map(r => r.client_ip).filter(ip => ip && !__ipCountryCache.has(ip)))];
         if (need.length) {
             try {
@@ -204,15 +208,24 @@ $currentPage = 'query_search.php';
                 if (res.ok) {
                     const d = await res.json();
                     Object.entries(d.results || {}).forEach(([ip, info]) => {
-                        __ipCountryCache.set(ip, info.country_code || '??');
+                        __ipCountryCache.set(ip, {
+                            cc: info.country_code || '??',
+                            asn: info.asn || '',
+                            asn_name: info.asn_name || '',
+                        });
                     });
                 }
-            } catch (_) { /* ignora falha — coluna fica '—' */ }
-            // IPs sem retorno viram '??' pra não disparar lookup de novo
-            need.forEach(ip => { if (!__ipCountryCache.has(ip)) __ipCountryCache.set(ip, '??'); });
+            } catch (_) { /* ignora falha */ }
+            need.forEach(ip => {
+                if (!__ipCountryCache.has(ip)) __ipCountryCache.set(ip, { cc: '??', asn: '', asn_name: '' });
+            });
         }
-        // Anota cada row
-        rows.forEach(r => { r.__country = __ipCountryCache.get(r.client_ip) || '??'; });
+        rows.forEach(r => {
+            const info = __ipCountryCache.get(r.client_ip) || { cc: '??', asn: '', asn_name: '' };
+            r.__country = info.cc;
+            r.__asn = info.asn;
+            r.__asn_name = info.asn_name;
+        });
     }
 
     async function populateCountryDropdown() {
@@ -272,8 +285,8 @@ $currentPage = 'query_search.php';
             return `
             <tr>
                 <td class="text-[11px] font-mono text-slate-500">${when}</td>
-                <td class="font-mono text-xs">${escapeHtml(r.client_ip)}</td>
-                <td class="text-base">${ccToFlagJSX(r.__country)}</td>
+                <td class="font-mono text-xs" title="${escAttr((r.__asn || '') + (r.__asn_name ? ' — ' + r.__asn_name : ''))}">${escapeHtml(r.client_ip)}</td>
+                <td class="text-base">${ccToFlagJSX(r.__country, (r.__asn || '') + (r.__asn_name ? ' — ' + r.__asn_name : ''))}</td>
                 <td class="font-mono text-sm">${escapeHtml(r.domain)}</td>
                 <td><span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-slate-500/15 text-slate-600 dark:text-slate-400 border border-slate-500/30">${escapeHtml(r.query_type)}</span></td>
                 <td><span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-${c}-500/15 text-${c}-600 dark:text-${c}-400 border border-${c}-500/30">${escapeHtml(r.action)}</span></td>

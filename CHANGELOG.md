@@ -1,5 +1,35 @@
 # Changelog
 
+## v2.54.0 — 2026-05-26
+
+### feat(geoip): ASN enrichment + Top ASNs em Ameaças
+
+Fecha a frente **GeoIP & Geo-Blocking** (v2.52 → v2.54).
+
+#### Backend
+
+- `geoip_service.lookup()` agora também retorna `asn` (ex: `AS15169`)
+  e `asn_name` (ex: `Google LLC`). Fonte: campo `as` da ip-api.com,
+  já em uso (sem chamada extra).
+- Cache Redis estendido pra `cc|name|asn|asn_name`. Backward-compat:
+  entradas antigas no formato `cc|name` são lidas com ASN vazio — o
+  próximo lookup repopula com ASN.
+- `geoip_service.top_asns(hours=, limit=, action=)` — agrega top ASNs
+  dos clientes (mesma estratégia cap-500 de `top_countries`).
+- `GET /api/v1/geoip/top-asns?hours=&limit=&action=` — endpoint novo.
+
+#### `/threats.php` — card "Top ASNs"
+
+Acima da Distribuição Global. 12 cards (até) com bandeira do país do
+ASN, nome do provedor (ou `(sem ASN)`), número AS, hits e clientes.
+
+#### `/query_search.php` — tooltips ASN
+
+Hover no IP ou na bandeira mostra `AS{nnnn} — {provedor}`. Cache local
+agora guarda `{cc, asn, asn_name}` por IP — paginação reusa.
+
+---
+
 ## v2.53.0 — 2026-05-26
 
 ### feat(geo-blocking): bloqueio de países inteiros via Unbound access-control
