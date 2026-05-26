@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.43.1 — 2026-05-26
+
+### fix(threats): clicar em chip do Top com poucas linhas mostrava vazio
+
+Bug reportado: em `/threats.php`, clicar num IPv4/IPv6/domínio do "Top
+Clientes" ou "Top Domínios" às vezes não trazia nada na tabela "Logs
+de Bloqueio em Tempo Real".
+
+**Causa raiz**: o "top" é calculado sobre TODO o histórico de blocked
+sem cap, mas a tabela `recent` só carrega `limit` linhas (default 10).
+Se um IP/domínio do top não aparecia nas últimas 10 linhas, o filtro
+client-side achava 0 matches — ficava vazio. Caso mais comum: IPv6
+porque costumam ser menos frequentes que IPv4 na cauda recente.
+
+**Fix**: ao clicar num chip do top, força `limit=todos` (1000) e
+re-fetch antes de aplicar o filtro. Garante que IPs e domínios do top
+sempre tenham linhas correspondentes na tabela.
+
 ## v2.43.0 — 2026-05-26
 
 ### feat(multi-host): push de config (blocklists + policies) master → agents

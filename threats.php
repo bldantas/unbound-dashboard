@@ -191,15 +191,28 @@ $currentPage = 'threats.php';
                     + '</div>';
             }).join('');
 
-            // Anexa handler de clique pros chips filtráveis
+            // Anexa handler de clique pros chips filtráveis.
+            //
+            // Tops são calculados sobre TODO o histórico de blocked (sem cap), mas a
+            // tabela "recent" abaixo só tem `limit` linhas (default 10). Um IP/domínio
+            // do top pode não ter NENHUMA das últimas 10 linhas — clicar nele filtraria
+            // pra vazio. Solução: ao clicar no chip, força limit=todos (1000) e re-fetch
+            // antes de aplicar o filtro client-side. Garante que IPv6 e domínios com
+            // bloqueios antigos apareçam.
             container.querySelectorAll('.threat-top-item[data-filter-target]').forEach(function (el) {
-                el.addEventListener('click', function () {
+                el.addEventListener('click', async function () {
                     const searchEl = document.getElementById('threatsSearch');
-                    if (searchEl) {
-                        searchEl.value = el.getAttribute('data-filter-value') || '';
+                    const limitSel = document.getElementById('threatsLimit');
+                    const target = el.getAttribute('data-filter-value') || '';
+                    if (searchEl) searchEl.value = target;
+
+                    if (limitSel && limitSel.value !== 'todos') {
+                        limitSel.value = 'todos';
+                        await loadThreatsData();    // re-fetch + renderThreatRows chama filterThreats no final
+                    } else {
                         filterThreats();
-                        searchEl.focus();
                     }
+                    if (searchEl) searchEl.focus();
                 });
             });
         }
