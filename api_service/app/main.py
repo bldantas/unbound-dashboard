@@ -33,6 +33,7 @@ from app.routers import (
     dns_security,
     doh_inbound,
     exports,
+    external_health,
     geo_blocking,
     geoip,
     grafana,
@@ -248,6 +249,7 @@ app.include_router(compliance.router)
 app.include_router(dns_security.router)
 app.include_router(doh_inbound.router)
 app.include_router(exports.router)
+app.include_router(external_health.router)
 app.include_router(geo_blocking.router)
 app.include_router(geoip.router)
 app.include_router(grafana.router)

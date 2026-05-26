@@ -1,5 +1,55 @@
 # Changelog
 
+## v2.70.0 — 2026-05-26
+
+### feat(external-health): monitor SLA externo + script standalone
+
+Frente Health-check externo. Permite ver "de fora" se o DNS está
+respondendo, independente do monitor interno (que pode estar
+comprometido junto com o servidor).
+
+#### Migration V19 `external_health_probes`
+
+(id, probed_at, probe_source, target_host, query_name, success,
+latency_ms, response_correct, error). 2 índices.
+
+#### Service `external_health_service`
+
+- `record_probe(dict)` — INSERT com timezone-aware datetime
+- `list_recent(probe_source?, hours, limit)` — paginação básica
+- `sla(hours, probe_source?)` — calcula uptime/correct % +
+  latency P50/P95/P99/avg via SELECT + Python statistics
+- `list_sources(hours)` — distintos probe_source recentes
+- `prune_old(days)` — TODO worker no futuro
+
+#### Endpoints `/api/v1/external-health`
+
+- `POST /report` — recebe probe (auth: config.write, idealmente
+  API token dedicado role admin)
+- `GET /list` — top N probes na janela
+- `GET /sla` — métricas agregadas
+- `GET /sources` — distintos probe sources
+
+#### Script standalone `api_service/tools/external_healthcheck.py`
+
+- **Zero deps** (só stdlib): faz query DNS A via socket UDP cru
+  (monta pacote DNS manualmente), POSTa resultado via urllib.request
+- Validação: parse RCODE + ANSWER count → `response_correct`
+- Tempo execução típico 50-200ms
+- Args: `--dns-server IP:porta --query-name --probe-source --api-url --api-token`
+- Crontab sugerido `* * * * *` (1x/min)
+
+#### Página `/external_health.php`
+
+- 8 KPIs (uptime %, resposta correta %, total probes, falhas,
+  latência P50/P95/P99 + média)
+- Filtros: janela 1h..30d + dropdown probe_source dinâmico
+- Tabela últimos 100 probes com status colorido e tooltip de erro
+- Painel "Como rodar" com snippet de crontab + caminho do script
+- Auto-refresh 60s
+
+Sidebar entry "Health Externo".
+
 ## v2.69.0 — 2026-05-26
 
 ### feat(api): rate-limit per-token (key_func) + endpoint admin
