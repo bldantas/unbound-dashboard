@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.49.0 — 2026-05-26
+
+### feat(allowlist): bulk ops + CSV import/export
+
+Allowlist global tinha add 1-a-1. Agora suporta operações em lote.
+
+#### Endpoints
+
+- `POST /api/v1/blocklist/exceptions/bulk` — body `{domains: [...], reason?}`.
+  Aceita até 50k domínios por chamada. Pula inválidos (sem ponto, com
+  espaço, vazio, >255 chars) e duplicados (já na tabela e repetidos no
+  payload). Retorna `{added, skipped_dup, skipped_invalid}`.
+- `POST /api/v1/blocklist/exceptions/bulk-delete` — body `{domains: [...]}`.
+  Retorna `{removed, not_found}`.
+- `GET /api/v1/blocklist/exceptions/export.csv` — download CSV com
+  colunas `domain,reason,created_by,created_at`.
+
+#### UI
+
+`/blocklists.php` aba Exceções ganhou panel "Bulk / CSV" com 2 botões:
+
+- **Importar CSV/TXT** — file picker aceita .csv/.txt; parser pega 1ª
+  coluna de cada linha, ignora `#` comentário e header `domain`.
+- **Exportar CSV** — fetch + blob + download (passa JWT no header).
+
+Status inline mostra contagem após import (added/dup/invalid).
+
 ## v2.48.0 — 2026-05-26
 
 ### feat(dns-privacy): qname-minimisation toggle + status DoH inbound

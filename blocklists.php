@@ -180,6 +180,28 @@ $currentPage = 'blocklists.php';
                     <?php endif; ?>
                 </div>
 
+                <!-- Bulk operations (D.2) -->
+                <?php if (\App\Auth::can('blocklist.write')): ?>
+                <div class="glass-panel border-slate-200 dark:border-white/5 mb-4">
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3">Bulk / CSV</h3>
+                    <p class="text-[11px] text-slate-500 mb-4">
+                        Importa lista de domínios (CSV ou texto, 1 por linha). Exporta toda a allowlist em CSV.
+                    </p>
+                    <div class="flex flex-wrap gap-3 items-center">
+                        <label class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black flex items-center gap-2 cursor-pointer">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                            <span>Importar CSV/TXT</span>
+                            <input type="file" id="exImportFile" accept=".csv,.txt,text/csv,text/plain" class="hidden">
+                        </label>
+                        <a href="/api/v1/blocklist/exceptions/export.csv" id="exExportLink" target="_blank" rel="noopener" class="glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                            <span>Exportar CSV</span>
+                        </a>
+                        <span id="exBulkStatus" class="text-[10px] text-slate-500"></span>
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <div class="glass-panel border-slate-200 dark:border-white/5">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Exceções Ativas (<span id="exCount">0</span>)</h3>
@@ -590,6 +612,62 @@ $currentPage = 'blocklists.php';
     function toast(msg, type = 'info') {
         if (window.AppUI && typeof window.AppUI.toast === 'function') window.AppUI.toast(msg, type);
         else console.log('[' + type + ']', msg);
+    }
+
+    // ============ BULK / CSV (D.2) ============
+    const exImportFile = document.getElementById('exImportFile');
+    const exBulkStatus = document.getElementById('exBulkStatus');
+    const exExportLink = document.getElementById('exExportLink');
+    // Export precisa de JWT no header — converte clique em fetch+blob
+    if (exExportLink) {
+        exExportLink.addEventListener('click', async (e) => {
+            e.preventDefault();
+            try {
+                const r = await fetch('/api/v1/blocklist/exceptions/export.csv', { headers: H });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const blob = await r.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'allowlist.csv';
+                document.body.appendChild(a); a.click(); a.remove();
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                toast('Falha export: ' + err.message, 'error');
+            }
+        });
+    }
+    if (exImportFile) {
+        exImportFile.addEventListener('change', async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            exBulkStatus.textContent = `Lendo ${file.name}...`;
+            try {
+                const text = await file.text();
+                // Parse: 1 domínio por linha. Aceita CSV simples (1ª coluna se houver vírgula).
+                const domains = text.split(/\r?\n/).map(l => {
+                    const trimmed = l.trim();
+                    if (!trimmed || trimmed.startsWith('#') || trimmed === 'domain') return '';
+                    const firstCol = trimmed.split(',')[0].trim();
+                    return firstCol.replace(/^["']|["']$/g, '');
+                }).filter(Boolean);
+                if (!domains.length) { exBulkStatus.textContent = 'Arquivo vazio.'; return; }
+                exBulkStatus.textContent = `Enviando ${domains.length} domínios...`;
+                const r = await fetch('/api/v1/blocklist/exceptions/bulk', {
+                    method: 'POST', headers: HJ,
+                    body: JSON.stringify({ domains, reason: 'CSV import — ' + file.name }),
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const d = await r.json();
+                exBulkStatus.textContent = `+${d.added} adicionados · ${d.skipped_dup} duplicados · ${d.skipped_invalid} inválidos`;
+                toast(`${d.added} domínios adicionados à allowlist`, 'success');
+                await loadExceptions();
+            } catch (err) {
+                exBulkStatus.textContent = 'Falha: ' + err.message;
+                toast('Falha import: ' + err.message, 'error');
+            } finally {
+                exImportFile.value = '';
+            }
+        });
     }
 
     // boot

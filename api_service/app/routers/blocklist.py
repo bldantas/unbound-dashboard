@@ -264,3 +264,68 @@ async def remove_exception(
 ) -> dict:
     removed = await blocklist_exceptions_repo.remove(domain)
     return {"removed": removed, "domain": domain.lower().strip()}
+
+
+@router.post("/exceptions/bulk")
+async def bulk_add_exceptions(
+    user: Annotated[dict, Depends(require_capability("blocklist.write"))],
+    body: dict = Body(...),
+) -> dict:
+    """
+    Bulk add. Body: `{"domains": [...], "reason": str?}`.
+    Aceita até 50.000 domínios. Pula inválidos (sem ponto, vazio, com espaço) e
+    duplicados (já na tabela ou repetidos no payload).
+    """
+    domains = body.get("domains") or []
+    if not isinstance(domains, list):
+        raise HTTPException(status_code=400, detail="`domains` deve ser uma lista de strings")
+    if len(domains) > 50000:
+        raise HTTPException(status_code=400, detail="Máximo 50.000 domínios por chamada")
+    reason = (body.get("reason") or "").strip() or None
+    created_by = user.get("username") if isinstance(user, dict) else None
+    return await blocklist_exceptions_repo.add_many(
+        [str(x) for x in domains], reason=reason, created_by=created_by
+    )
+
+
+@router.post("/exceptions/bulk-delete")
+async def bulk_remove_exceptions(
+    _: Annotated[dict, Depends(require_capability("blocklist.write"))],
+    body: dict = Body(...),
+) -> dict:
+    """Bulk delete. Body: `{"domains": [...]}`."""
+    domains = body.get("domains") or []
+    if not isinstance(domains, list):
+        raise HTTPException(status_code=400, detail="`domains` deve ser uma lista de strings")
+    if len(domains) > 50000:
+        raise HTTPException(status_code=400, detail="Máximo 50.000 domínios por chamada")
+    return await blocklist_exceptions_repo.remove_many([str(x) for x in domains])
+
+
+@router.get("/exceptions/export.csv")
+async def export_exceptions_csv(
+    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
+):
+    """Download da allowlist em CSV. 1 domínio por linha (compat com import)."""
+    import csv
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    rows = await blocklist_exceptions_repo.list_all()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["domain", "reason", "created_by", "created_at"])
+    for r in rows:
+        writer.writerow([
+            r["domain"],
+            r.get("reason") or "",
+            r.get("created_by") or "",
+            r["created_at"].isoformat() if r.get("created_at") else "",
+        ])
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="allowlist.csv"'},
+    )
