@@ -1,5 +1,43 @@
 # Changelog
 
+## v2.58.0 — 2026-05-26
+
+### feat(performance): página de Performance & Cache + tuning fino + P50/P95/P99
+
+Nova frente Performance & Cache v2. Página dedicada `/performance.php`
+com 5 toggles + 6 inputs de tuning + 12 KPIs (incluindo percentis P50/P95/P99
+calculados a partir do histograma do Unbound, com fallback pra median).
+
+#### Toggles & TTLs configuráveis via UI
+
+- **prefetch / prefetch-key** — atualiza popular records antes do TTL expirar
+- **serve-expired (RFC 8767)** + `serve-expired-ttl` + `serve-expired-client-timeout`
+- **minimal-responses** — omite Authority/Additional não-essenciais
+- **rrset-roundrobin** — embaralha ordem dos A records
+- **cache-min-ttl / cache-max-ttl** — controla janela de cache
+- **msg-cache-size / rrset-cache-size** (em MB) — capacity tuning
+
+Geração: bloco `server:` extra concatenado no `forwarders.conf` dinâmico
+junto com hardening/ratelimit/privacy. Só emite linhas que diferem dos
+defaults pra não over-override `optimization.conf`/`performance.conf`.
+
+#### Endpoints novos em /api/v1/dns-security
+
+- `GET/PUT /performance/settings` — read/write das 11 chaves
+- `GET /performance/metrics` — snapshot rico (QPS, hit_ratio, P50/P95/P99,
+  prefetch counter, req_list_avg/max, cache memory, uptime)
+
+#### unbound_stats_service estendido
+
+- `_parse_histogram()` extrai buckets `histogram.<s>.<us>.to.<s>.<us>`
+- `_percentile()` calcula CDF-based percentile, output em ms
+- Payload de `/stats` ganhou `latency_p50/p95/p99`
+
+P50 cai pra `latency_median` quando o histograma do unbound está desabilitado
+(precisaria `extended-statistics: yes` no `performance.conf` pra emitir buckets).
+
+Sidebar ganhou entrada "Performance".
+
 ## v2.57.0 — 2026-05-26
 
 ### feat(notifications): WebSocket push + página dedicada + retention

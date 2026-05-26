@@ -111,6 +111,38 @@ HARDENING_KEYS = (
 )
 HARDENING_DEFAULTS = {k: "0" for k in HARDENING_KEYS}
 
+# Performance & Cache v2 (D.4). Mistura booleans (toggles) e ints (TTLs, sizes).
+# Override semântico igual hardening: o bloco extra sobrepõe optimization.conf
+# e performance.conf via merge do Unbound (última diretiva vence).
+PERFORMANCE_BOOL_KEYS = (
+    "unbound_perf_prefetch",
+    "unbound_perf_prefetch_key",
+    "unbound_perf_serve_expired",
+    "unbound_perf_minimal_responses",
+    "unbound_perf_rrset_roundrobin",
+)
+PERFORMANCE_INT_KEYS = (
+    "unbound_perf_serve_expired_ttl",          # seg, default 86400
+    "unbound_perf_serve_expired_client_timeout",  # ms, default 1800
+    "unbound_perf_cache_min_ttl",              # seg, default 0
+    "unbound_perf_cache_max_ttl",              # seg, default 86400
+    "unbound_perf_msg_cache_size_mb",          # MB, default 50
+    "unbound_perf_rrset_cache_size_mb",        # MB, default 100
+)
+PERFORMANCE_DEFAULTS = {
+    "unbound_perf_prefetch": "0",
+    "unbound_perf_prefetch_key": "0",
+    "unbound_perf_serve_expired": "0",
+    "unbound_perf_minimal_responses": "0",
+    "unbound_perf_rrset_roundrobin": "0",
+    "unbound_perf_serve_expired_ttl": "86400",
+    "unbound_perf_serve_expired_client_timeout": "1800",
+    "unbound_perf_cache_min_ttl": "0",
+    "unbound_perf_cache_max_ttl": "86400",
+    "unbound_perf_msg_cache_size_mb": "50",
+    "unbound_perf_rrset_cache_size_mb": "100",
+}
+
 
 async def get_settings() -> dict[str, Any]:
     out = {}
@@ -186,6 +218,85 @@ async def update_hardening_settings(body: dict[str, Any]) -> int:
     if not entries:
         return 0
     return await settings_repo.bulk_upsert(entries)
+
+
+async def get_performance_settings() -> dict[str, Any]:
+    out = {}
+    for k in PERFORMANCE_BOOL_KEYS + PERFORMANCE_INT_KEYS:
+        out[k] = await settings_repo.get(k, PERFORMANCE_DEFAULTS[k])
+    return {"settings": out, "defaults": PERFORMANCE_DEFAULTS}
+
+
+async def update_performance_settings(body: dict[str, Any]) -> int:
+    entries = []
+    for k, v in body.items():
+        if k in PERFORMANCE_BOOL_KEYS:
+            val = "1" if str(v) in ("1", "true", "True", "on", "yes") else "0"
+            entries.append({"setting_key": k, "setting_value": val})
+        elif k in PERFORMANCE_INT_KEYS:
+            try:
+                n = int(v)
+            except (TypeError, ValueError):
+                continue
+            n = max(0, n)
+            if k == "unbound_perf_msg_cache_size_mb":
+                n = max(4, min(4096, n))
+            elif k == "unbound_perf_rrset_cache_size_mb":
+                n = max(8, min(8192, n))
+            elif k.endswith("_ttl") or k.endswith("_timeout"):
+                n = min(2592000, n)  # cap em 30 dias / 30000s
+            entries.append({"setting_key": k, "setting_value": str(n)})
+    if not entries:
+        return 0
+    return await settings_repo.bulk_upsert(entries)
+
+
+def _build_performance_block(
+    bools: dict[str, bool], ints: dict[str, int]
+) -> str:
+    """Bloco `server:` com diretivas de performance/cache. Vazio se tudo default.
+
+    Só emite linhas que diferem do default — pra evitar override desnecessário
+    e deixar `optimization.conf`/`performance.conf` em controle quando o user
+    não tocou em nada na UI.
+    """
+    lines: list[str] = []
+    if bools.get("unbound_perf_prefetch"):
+        lines.append("    prefetch: yes")
+    if bools.get("unbound_perf_prefetch_key"):
+        lines.append("    prefetch-key: yes")
+    if bools.get("unbound_perf_serve_expired"):
+        lines.append("    serve-expired: yes")
+        ttl = ints.get("unbound_perf_serve_expired_ttl", 86400)
+        timeout = ints.get("unbound_perf_serve_expired_client_timeout", 1800)
+        if ttl > 0:
+            lines.append(f"    serve-expired-ttl: {ttl}")
+        if timeout > 0:
+            lines.append(f"    serve-expired-client-timeout: {timeout}")
+    if bools.get("unbound_perf_minimal_responses"):
+        lines.append("    minimal-responses: yes")
+    if bools.get("unbound_perf_rrset_roundrobin"):
+        lines.append("    rrset-roundrobin: yes")
+
+    cmin = ints.get("unbound_perf_cache_min_ttl", 0)
+    cmax = ints.get("unbound_perf_cache_max_ttl", 86400)
+    msg_mb = ints.get("unbound_perf_msg_cache_size_mb", 50)
+    rrset_mb = ints.get("unbound_perf_rrset_cache_size_mb", 100)
+
+    if cmin > 0:
+        lines.append(f"    cache-min-ttl: {cmin}")
+    # cache-max-ttl: só emite se diferente do default (86400 = 1 dia)
+    if cmax != 86400:
+        lines.append(f"    cache-max-ttl: {cmax}")
+    # Cache sizes: só emite se diferente do default (50m msg / 100m rrset)
+    if msg_mb != 50:
+        lines.append(f"    msg-cache-size: {msg_mb}m")
+    if rrset_mb != 100:
+        lines.append(f"    rrset-cache-size: {rrset_mb}m")
+
+    if not lines:
+        return ""
+    return "server:\n" + "\n".join(lines) + "\n"
 
 
 def _build_hardening_block(flags: dict[str, bool]) -> str:
@@ -276,15 +387,16 @@ def _build_forwarders_conf(
     ratelimit_block: str = "",
     privacy_block: str = "",
     hardening_block: str = "",
+    performance_block: str = "",
 ) -> str:
     """Gera conteúdo do forwarders.conf conforme settings.
 
-    Os blocos extras (ratelimit, privacy, hardening) são concatenados ao final
-    — unbound aceita múltiplos `server:` blocks (são merged), então coexistem
-    com o `server:` do tls-cert-bundle.
+    Os blocos extras (ratelimit, privacy, hardening, performance) são
+    concatenados ao final — unbound aceita múltiplos `server:` blocks
+    (são merged), então coexistem com o `server:` do tls-cert-bundle.
     """
     def _append_extras(body: str) -> str:
-        for extra in (ratelimit_block, privacy_block, hardening_block):
+        for extra in (ratelimit_block, privacy_block, hardening_block, performance_block):
             if extra:
                 body += "\n" + extra
         return body
@@ -365,8 +477,17 @@ async def apply() -> dict[str, Any]:
         hardening_flags[k] = await settings_repo.get_bool(k, False)
     hardening_block = _build_hardening_block(hardening_flags)
 
+    perf_bools = {}
+    for k in PERFORMANCE_BOOL_KEYS:
+        perf_bools[k] = await settings_repo.get_bool(k, False)
+    perf_ints = {}
+    for k in PERFORMANCE_INT_KEYS:
+        perf_ints[k] = await settings_repo.get_int(k, int(PERFORMANCE_DEFAULTS[k]))
+    performance_block = _build_performance_block(perf_bools, perf_ints)
+
     content = _build_forwarders_conf(
-        mode, provider, custom, ratelimit_block, privacy_block, hardening_block
+        mode, provider, custom, ratelimit_block, privacy_block,
+        hardening_block, performance_block,
     )
 
     # Snapshot do conteúdo atual pra rollback

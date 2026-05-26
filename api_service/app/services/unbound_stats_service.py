@@ -47,6 +47,48 @@ def _format_bytes(b: float) -> str:
     return f"{round(b / 1_073_741_824, 2)} GB"
 
 
+def _parse_histogram(stats: dict[str, Any]) -> list[tuple[float, int]]:
+    """Extrai buckets do histograma de tempo de recursão.
+
+    Chaves do unbound têm forma `histogram.<s>.<us>.to.<s>.<us>=<count>`.
+    Retorna lista ordenada por upper-bound em segundos: [(upper_sec, count), ...]
+    """
+    buckets: list[tuple[float, int]] = []
+    for key, val in stats.items():
+        if not key.startswith("histogram."):
+            continue
+        parts = key.split(".")
+        # histogram . s_lower . us_lower . to . s_upper . us_upper
+        if len(parts) != 7 or parts[3] != "to":
+            continue
+        try:
+            s_upper = int(parts[5])
+            us_upper = int(parts[6])
+            upper = s_upper + us_upper / 1_000_000
+            buckets.append((upper, int(val)))
+        except (ValueError, TypeError):
+            continue
+    buckets.sort(key=lambda b: b[0])
+    return buckets
+
+
+def _percentile(buckets: list[tuple[float, int]], p: float) -> float:
+    """Calcula percentil aproximado (upper-bound do bucket que cumpre o cap).
+
+    Pega o primeiro bucket cujo CDF >= p. Retorna ms.
+    """
+    total = sum(c for _, c in buckets)
+    if total == 0:
+        return 0.0
+    target = total * (p / 100.0)
+    acc = 0
+    for upper, count in buckets:
+        acc += count
+        if acc >= target:
+            return round(upper * 1000.0, 2)
+    return round(buckets[-1][0] * 1000.0, 2) if buckets else 0.0
+
+
 def _format_uptime(seconds: int) -> str:
     days = seconds // 86400
     seconds -= days * 86400
@@ -90,6 +132,12 @@ async def _build_payload() -> dict[str, Any]:
     latency_recursion = round(stats.get("total.recursion.time.avg", 0) * 1000, 2)
     latency_median = round(stats.get("total.recursion.time.median", 0) * 1000, 2)
 
+    # Histograma → P50/P95/P99 reais (em ms). Vazio se unbound não emitiu buckets.
+    hist = _parse_histogram(stats)
+    latency_p50 = _percentile(hist, 50.0) if hist else latency_median
+    latency_p95 = _percentile(hist, 95.0) if hist else 0.0
+    latency_p99 = _percentile(hist, 99.0) if hist else 0.0
+
     hit_ratio = (
         round((cache_hits / (cache_hits + cache_miss)) * 100, 2)
         if (cache_hits + cache_miss) > 0
@@ -115,6 +163,9 @@ async def _build_payload() -> dict[str, Any]:
         "latency_avg": latency_avg,
         "latency_recursion": latency_recursion,
         "latency_median": latency_median,
+        "latency_p50": latency_p50,
+        "latency_p95": latency_p95,
+        "latency_p99": latency_p99,
         "hit_ratio": hit_ratio,
         "dnssec_ratio": dnssec_ratio,
         "dnssec_secure": dnssec_secure,
