@@ -15,7 +15,7 @@
  * Arquivos em /lang/<locale>.php retornando array nested.
  */
 
-namespace App;
+namespace App {
 
 class I18n
 {
@@ -113,10 +113,14 @@ class I18n
     }
 }
 
+}  // end namespace App
+
 // Helper global pra reduzir verbosidade nas views
-if (!function_exists('t')) {
-    function t(string $key, array $vars = []): string
-    {
-        return \App\I18n::t($key, $vars);
+namespace {
+    if (!function_exists('t')) {
+        function t(string $key, array $vars = []): string
+        {
+            return \App\I18n::t($key, $vars);
+        }
     }
 }
