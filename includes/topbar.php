@@ -246,9 +246,19 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
             if (!dropdown.contains(e.target) && e.target !== bell) dropdown.classList.add('hidden');
         });
         markBtn.addEventListener('click', async () => {
-            const r = await fetch('/api/v1/notifications/feed?limit=1', { headers: H });
-            if (r.ok) {
-                const d = await r.json();
+            // Server-side dismiss-all (era client-side via localStorage)
+            try {
+                const r = await fetch('/api/v1/notifications/dismiss-all', { method: 'POST', headers: H });
+                if (r.ok) {
+                    badge.classList.add('hidden');
+                    load();
+                    return;
+                }
+            } catch (e) { /* fallback abaixo */ }
+            // Fallback se endpoint falhar (sem capability ou erro): client-side via localStorage
+            const r2 = await fetch('/api/v1/notifications/feed?limit=1', { headers: H });
+            if (r2.ok) {
+                const d = await r2.json();
                 const maxId = (d.items || []).reduce((m, i) => Math.max(m, i.id), 0);
                 if (maxId > 0) setLastSeen(maxId);
                 badge.classList.add('hidden');
@@ -256,7 +266,25 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
             }
         });
 
+        // WebSocket push em tempo real — bell atualiza sem esperar polling
+        let ws = null;
+        function connectWs() {
+            try {
+                const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                ws = new WebSocket(`${proto}//${window.location.host}/api/v1/ws/notifications?token=${encodeURIComponent(JWT)}`);
+                ws.onmessage = (ev) => {
+                    try {
+                        const m = JSON.parse(ev.data);
+                        if (m.type === 'alert') load();
+                    } catch {}
+                };
+                ws.onclose = () => { ws = null; setTimeout(connectWs, 10000); };
+                ws.onerror = () => { try { ws.close(); } catch {} };
+            } catch (e) { /* polling continua */ }
+        }
+        connectWs();
+
         load();
-        setInterval(load, 60000);  // refresh 1x/min
+        setInterval(load, 60000);  // fallback se WS cair
     })();
 </script>

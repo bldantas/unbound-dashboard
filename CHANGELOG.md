@@ -1,5 +1,57 @@
 # Changelog
 
+## v2.57.0 — 2026-05-26
+
+### feat(notifications): WebSocket push + página dedicada + retention
+
+Fecha a frente Notifications & WebSocket v2. Substitui o "mark-read"
+client-side (localStorage) por dismiss server-side, adiciona push em
+tempo real via WS pro bell, página dedicada com filtros, e worker
+de retenção.
+
+#### WebSocket
+
+- Novo broker `alerts_broker` (espelho do `query_broker`) — publish
+  fan-out best-effort com drop-oldest, thread-safe via `queue.Queue`.
+- Endpoint `WS /api/v1/ws/notifications?token=<jwt>` — autentica via
+  JWT ou X-Api-Token no query string, envia frames
+  `{type:"alert", event:"created|resolved|dismissed|dismissed_all", ...}`
+  com heartbeat ping a cada ~30s.
+- Publish injetado em `alert_checker._raise_alert`, `..._resolve_alert`,
+  `..._check_no_queries`, `anomaly_detector._raise_alert`, e
+  `alert_repo.resolve_by_id` — toda mudança de estado vira evento WS.
+- Bell (`includes/topbar.php`) abre WS no carregamento, faz reconnect
+  em 10s se cair, polling 1x/min continua como fallback.
+
+#### Página /notifications.php
+
+- 4 KPIs (Total, Ativos não-lidos, Critical, Status WS).
+- Filtros: severidade, categoria (alert/anomaly), resolvido, dismissed.
+- Paginação 50 por página com prev/next.
+- Botão "Marcar como Lida" individual + "Marcar Todas Lidas" (admin).
+- Painel de retenção (dias + Salvar + Rodar Agora) para admins.
+- Sidebar ganhou entrada "Notificações" abaixo de "Alertas".
+
+#### Endpoints novos em /api/v1/notifications
+
+- `GET /list` — feed completo com filtros + paginação (severity,
+  type_prefix, resolved, dismissed, limit, offset).
+- `POST /{id}/dismiss` — mark-as-read individual server-side.
+- `POST /dismiss-all` — bulk mark-as-read (substitui localStorage).
+- `GET/PUT /retention/settings` — read/write `notifications_retention_days`.
+- `POST /prune-now` — admin trigger imediato do pruner.
+
+Helpers novos em `alert_repo`: `dismiss_by_id`, `dismiss_all_active`,
+`list_filtered`, `prune_old`.
+
+#### Worker NotificationPruner
+
+- 1x/24h, apaga alerts (resolved OR dismissed) com `started_at`
+  > N dias. Alerts ativos não-dismissed nunca são apagados.
+- Setting `notifications_retention_days` (default 30, range 1..365).
+- Persistência de estado em `notification_pruner_last_run` /
+  `notification_pruner_last_deleted` pra UI.
+
 ## v2.56.0 — 2026-05-26
 
 ### feat(dns-security): hardening v2 — 12 toggles + ECS off + TLS strict verify

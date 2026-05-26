@@ -37,7 +37,7 @@ import structlog
 from app.core.metrics import worker_errors
 from app.infrastructure import system_health
 from app.repositories.duckdb import settings_repo
-from app.repositories.duckdb.connection import db_execute, db_fetchone
+from app.repositories.duckdb.connection import db_execute, db_fetchall, db_fetchone
 
 log = structlog.get_logger(__name__)
 
@@ -132,6 +132,11 @@ class AlertChecker:
             [alert_type, severity, message],
         )
         log.warning("alert_checker.created", type=alert_type, severity=severity, message=message)
+        # Publish no broker WS pra bell em tempo real
+        from app.services import alerts_broker
+        alerts_broker.publish({
+            "event": "created", "type": alert_type, "severity": severity, "message": message,
+        })
         # Webhook best-effort — não derruba o worker
         try:
             from app.services.webhook_notifier import notify as webhook_notify
@@ -141,10 +146,19 @@ class AlertChecker:
 
     async def _resolve_alert(self, alert_type: str) -> None:
         """Marca alertas ativos do type como resolvidos (UPDATE WHERE resolved_at IS NULL)."""
+        rows = await db_fetchall(
+            "SELECT id FROM alerts WHERE type = ? AND resolved_at IS NULL",
+            [alert_type],
+        )
+        if not rows:
+            return
         await db_execute(
             "UPDATE alerts SET resolved_at = NOW() WHERE type = ? AND resolved_at IS NULL",
             [alert_type],
         )
+        from app.services import alerts_broker
+        for r in rows:
+            alerts_broker.publish({"event": "resolved", "type": alert_type, "id": int(r["id"])})
 
     # ----------------------------------------------------------------- #
     # Checks individuais                                                   #
@@ -194,14 +208,17 @@ class AlertChecker:
         if recent_alert:
             return
 
+        msg = "Nenhuma query DNS registrada nos últimos 10 minutos."
         await db_execute(
             """
             INSERT INTO alerts (type, severity, message, started_at)
             VALUES ('no_queries', 'critical', ?, NOW())
             """,
-            ["Nenhuma query DNS registrada nos últimos 10 minutos."],
+            [msg],
         )
         log.warning("alert_checker.created", type="no_queries")
+        from app.services import alerts_broker
+        alerts_broker.publish({"event": "created", "type": "no_queries", "severity": "critical", "message": msg})
 
     async def _check_cpu(self) -> None:
         load1 = system_health.cpu_load1()

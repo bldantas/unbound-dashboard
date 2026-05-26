@@ -5,6 +5,7 @@ from app.workers.blocklist_syncer import BlocklistSyncer
 from app.workers.geo_block_updater import GeoBlockUpdater
 from app.workers.host_poller import HostPoller
 from app.workers.log_watcher import LogWatcher
+from app.workers.notification_pruner import NotificationPruner
 from app.workers.query_log_pruner import QueryLogPruner
 from app.workers.stats_aggregator import StatsAggregator
 from app.workers.unbound_collector import UnboundCollector
@@ -18,6 +19,7 @@ __all__ = [
     "GeoBlockUpdater",
     "HostPoller",
     "LogWatcher",
+    "NotificationPruner",
     "QueryLogPruner",
     "StatsAggregator",
     "UnboundCollector",

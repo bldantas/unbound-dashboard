@@ -191,6 +191,10 @@ async def _raise_alert(alert_type: str, severity: str, message: str) -> None:
         [alert_type, severity, message],
     )
     log.warning("anomaly.detected", type=alert_type, severity=severity, message=message)
+    from app.services import alerts_broker
+    alerts_broker.publish({
+        "event": "created", "type": alert_type, "severity": severity, "message": message,
+    })
     try:
         from app.services.webhook_notifier import notify as webhook_notify
         await webhook_notify(alert_type, severity, message)

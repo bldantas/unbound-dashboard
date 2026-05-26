@@ -45,6 +45,7 @@ from app.routers import (
     updates,
     users,
     webhooks,
+    ws_notifications,
     ws_queries,
 )
 from app.routers import unbound as unbound_router
@@ -56,6 +57,7 @@ from app.workers import (
     GeoBlockUpdater,
     HostPoller,
     LogWatcher,
+    NotificationPruner,
     QueryLogPruner,
     StatsAggregator,
     UnboundCollector,
@@ -122,6 +124,8 @@ async def lifespan(app: FastAPI):
     backup_uploader = BackupUploader()
     query_log_pruner = QueryLogPruner()
     app.state.query_log_pruner = query_log_pruner  # exposto p/ endpoint "run-now"
+    notification_pruner = NotificationPruner()
+    app.state.notification_pruner = notification_pruner
     geo_block_updater = GeoBlockUpdater()
     app.state.geo_block_updater = geo_block_updater
     _background_tasks.extend(
@@ -153,6 +157,9 @@ async def lifespan(app: FastAPI):
                 _supervised("query_log_pruner", query_log_pruner), name="query_log_pruner"
             ),
             asyncio.create_task(
+                _supervised("notification_pruner", notification_pruner), name="notification_pruner"
+            ),
+            asyncio.create_task(
                 _supervised("geo_block_updater", geo_block_updater), name="geo_block_updater"
             ),
         ]
@@ -173,6 +180,7 @@ async def lifespan(app: FastAPI):
     await anomaly_detector.stop()
     await backup_uploader.stop()
     await query_log_pruner.stop()
+    await notification_pruner.stop()
     await geo_block_updater.stop()
     for task in _background_tasks:
         task.cancel()
@@ -226,4 +234,5 @@ app.include_router(unbound_router.router)
 app.include_router(updates.router)
 app.include_router(users.router)
 app.include_router(webhooks.router)
+app.include_router(ws_notifications.router)
 app.include_router(ws_queries.router)
