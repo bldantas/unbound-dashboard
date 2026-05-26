@@ -33,18 +33,37 @@ async def blocklist_count() -> int:
     return int(row["n"]) if row else 0
 
 
-async def recent_blocked(limit: int) -> list[dict]:
+async def recent_blocked(
+    limit: int,
+    *,
+    client_ip: str | None = None,
+    domain: str | None = None,
+) -> list[dict]:
     """Últimos N eventos blocked, com category/severity via JOIN com sources.
+
+    Filtros opcionais (`client_ip` exato, `domain` exato) buscam no histórico
+    inteiro de query_logs e retornam até `limit` linhas — usado pelos chips
+    do Top quando o IP/domínio não aparece na cauda recente (caso comum em
+    IPv6 que bloqueou muito mas há horas/dias).
 
     Se o domínio está em mais de uma source, escolhe a de maior severidade
     (high > medium > low) — agg via MAX num CASE, evita explosão do JOIN.
     """
+    where = "WHERE action = 'blocked'"
+    args: list = []
+    if client_ip:
+        where += " AND client_ip = ?"
+        args.append(client_ip)
+    if domain:
+        where += " AND domain = ?"
+        args.append(domain)
+    args.append(limit)
     return await db_fetchall(
-        """
+        f"""
         WITH recent AS (
             SELECT timestamp, client_ip, domain, action
             FROM query_logs
-            WHERE action = 'blocked'
+            {where}
             ORDER BY timestamp DESC
             LIMIT ?
         ),
@@ -64,7 +83,7 @@ async def recent_blocked(limit: int) -> list[dict]:
         LEFT JOIN cat c ON r.domain = c.domain
         ORDER BY r.timestamp DESC
         """,
-        [limit],
+        args,
     )
 
 

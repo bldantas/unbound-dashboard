@@ -13,11 +13,16 @@ from datetime import datetime
 from app.repositories.duckdb import threats_repo
 
 
-async def get_threats_data(limit: int = 10) -> dict:
+async def get_threats_data(
+    limit: int = 10,
+    *,
+    client_ip: str | None = None,
+    domain: str | None = None,
+) -> dict:
     daily, blacklist_n, recent, top_clients, top_doms = await asyncio.gather(
         threats_repo.daily_totals(),
         threats_repo.blocklist_count(),
-        threats_repo.recent_blocked(limit),
+        threats_repo.recent_blocked(limit, client_ip=client_ip, domain=domain),
         threats_repo.top_blocked_clients(10),
         threats_repo.top_blocked_domains_with_blacklist(10),
     )

@@ -204,14 +204,17 @@ $currentPage = 'threats.php';
                     const searchEl = document.getElementById('threatsSearch');
                     const limitSel = document.getElementById('threatsLimit');
                     const target = el.getAttribute('data-filter-value') || '';
-                    if (searchEl) searchEl.value = target;
+                    const which = el.getAttribute('data-filter-target') || '';
 
-                    if (limitSel && limitSel.value !== 'todos') {
-                        limitSel.value = 'todos';
-                        await loadThreatsData();    // re-fetch + renderThreatRows chama filterThreats no final
-                    } else {
-                        filterThreats();
-                    }
+                    // Server-side: pede ao backend exatamente as linhas desse IP/domínio.
+                    // Resolve o caso IPv6 / domínio do top que não aparecia na cauda recente.
+                    __serverFilter = { client_ip: '', domain: '' };
+                    if (which === 'client_ip') __serverFilter.client_ip = target;
+                    else if (which === 'domain') __serverFilter.domain = target;
+
+                    if (searchEl) searchEl.value = target;
+                    if (limitSel) limitSel.value = 'todos';
+                    await loadThreatsData();
                     if (searchEl) searchEl.focus();
                 });
             });
@@ -301,14 +304,25 @@ $currentPage = 'threats.php';
         document.addEventListener('DOMContentLoaded', function () {
             const clearBtn = document.getElementById('threatsClearFilters');
             if (clearBtn) {
-                clearBtn.addEventListener('click', function () {
+                clearBtn.addEventListener('click', async function () {
                     document.getElementById('threatsSearch').value = '';
                     document.getElementById('threatsCategory').value = '';
                     document.getElementById('threatsSeverity').value = '';
-                    filterThreats();
+                    // Se havia filtro server-side de chip, reseta e re-fetch sem filtro.
+                    if (__serverFilter.client_ip || __serverFilter.domain) {
+                        __serverFilter = { client_ip: '', domain: '' };
+                        await loadThreatsData();
+                    } else {
+                        filterThreats();
+                    }
                 });
             }
         });
+
+        // Filtros server-side ativos (setados ao clicar num chip do Top).
+        // O backend só usa esses pra montar a tabela `recent`; o "Top" continua
+        // sendo histórico cumulativo (independe do filtro).
+        let __serverFilter = { client_ip: '', domain: '' };
 
         async function loadThreatsData() {
             const limitSelect = document.getElementById('threatsLimit');
@@ -322,7 +336,10 @@ $currentPage = 'threats.php';
                 const jwt = meta ? meta.content : '';
                 if (jwt) {
                     try {
-                        const r = await fetch('/api/v1/threats/data?limit=' + encodeURIComponent(limitVal), {
+                        const params = new URLSearchParams({ limit: limitVal });
+                        if (__serverFilter.client_ip) params.set('client_ip', __serverFilter.client_ip);
+                        if (__serverFilter.domain) params.set('domain', __serverFilter.domain);
+                        const r = await fetch('/api/v1/threats/data?' + params.toString(), {
                             cache: 'no-store',
                             headers: { 'Authorization': 'Bearer ' + jwt },
                         });
@@ -332,6 +349,7 @@ $currentPage = 'threats.php';
                         // Erro de rede: fallback.
                     }
                 }
+                // Fallback PHP — não suporta filtros server-side, retorna tudo recente.
                 const r2 = await fetch('api/threats_data.php?limit=' + encodeURIComponent(limitVal), { cache: 'no-store' });
                 if (!r2.ok) throw new Error('Falha HTTP ' + r2.status);
                 return await r2.json();

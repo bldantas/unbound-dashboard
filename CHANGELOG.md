@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.43.2 — 2026-05-26
+
+### fix(threats): chip do Top com filtro server-side (resolve IPv6 e cauda longa)
+
+O fix da v2.43.1 (bumpar limit pra 1000 ao clicar no chip) **não bastava**.
+Validei empiricamente: o IPv6 `2804:2990:1400::a4ee` é #1 do Top com 55k
+blocks, mas tem **zero** ocorrências nas últimas 1000 blocked — bloqueou
+muito ontem, hoje nada. O filtro client-side não acha nada.
+
+**Causa raiz mais profunda**: "Top" usa histórico cumulativo de toda a
+tabela (20M+ linhas); "recent" é só uma janela temporal. Cauda longa
+fora da janela = invisível para o client-side.
+
+**Fix**: filtro server-side. `/api/v1/threats/data` aceita
+`?client_ip=` e `?domain=` (exatos). Quando o usuário clica num chip,
+o frontend seta `__serverFilter`, força `limit=todos`, e re-fetch
+busca diretamente as linhas daquele IP/domínio em **todo o histórico**
+(até 1000). Botão "Limpar filtros" reseta + re-fetch sem filtro.
+
+Fallback PHP legado não suporta os novos params — degrada pra "sem
+filtro" se FastAPI cair.
+
 ## v2.43.1 — 2026-05-26
 
 ### fix(threats): clicar em chip do Top com poucas linhas mostrava vazio
