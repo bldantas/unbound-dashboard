@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.47.0 — 2026-05-26
+
+### feat(geoip): enrichment IP→país + top países em Ameaças
+
+Fecha a Fase C. Service `geoip_service.py` resolve IP→país on-demand
+via http://ip-api.com/json (gratuito, 45 req/min sem chave) com cache
+Redis 30 dias. IPs privados (RFC1918/loopback/link-local/multicast)
+nunca saem da máquina — resolvidos local como "Rede privada".
+
+#### Endpoints
+
+- `GET /api/v1/geoip/lookup?ip=X` — single
+- `POST /api/v1/geoip/lookup-bulk` body `{ips:[...]}` — paralelo, cap 200
+- `GET /api/v1/geoip/top-countries?hours=24&limit=20` — agrega top IPs
+  blocked por país
+
+#### UI
+
+`/threats.php` ganhou seção "Top Países" (24h) com bandeiras
+emoji (regional indicator letters), contagem de hits e clientes
+distintos por país.
+
+#### Privacidade
+
+Só pergunta `countryCode` e `country` ao ip-api (campos mínimos).
+Não envia geo-location precisa nem ASN. Cache local em Redis evita
+re-consultar IPs já conhecidos.
+
 ## v2.46.0 — 2026-05-26
 
 ### feat(ratelimit): per-IP e per-domain configurável via UI

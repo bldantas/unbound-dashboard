@@ -30,6 +30,7 @@ from app.routers import (
     blocklist,
     dns_security,
     exports,
+    geoip,
     grafana,
     health,
     history,
@@ -199,6 +200,7 @@ app.include_router(backup_offsite.router)
 app.include_router(blocklist.router)
 app.include_router(dns_security.router)
 app.include_router(exports.router)
+app.include_router(geoip.router)
 app.include_router(grafana.router)
 app.include_router(health.router)
 app.include_router(history.router)
