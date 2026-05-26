@@ -67,6 +67,26 @@ DEFAULTS = {
     "dns_upstream_custom": "[]",
 }
 
+# Rate-limit settings (C.4). Defaults = off. Unbound interpreta 0 como desabilitado.
+# `factor` é "1 a cada N queries passa mesmo limitado" — proteção contra cache-miss
+# 100% (NXDOMAIN amplification). 10 = ~10% passa.
+RATELIMIT_KEYS = (
+    "dns_ratelimit_ip_enabled",
+    "dns_ratelimit_ip_qps",
+    "dns_ratelimit_ip_factor",
+    "dns_ratelimit_domain_enabled",
+    "dns_ratelimit_domain_qps",
+    "dns_ratelimit_domain_factor",
+)
+RATELIMIT_DEFAULTS = {
+    "dns_ratelimit_ip_enabled": "0",
+    "dns_ratelimit_ip_qps": "0",
+    "dns_ratelimit_ip_factor": "10",
+    "dns_ratelimit_domain_enabled": "0",
+    "dns_ratelimit_domain_qps": "0",
+    "dns_ratelimit_domain_factor": "10",
+}
+
 
 async def get_settings() -> dict[str, Any]:
     out = {}
@@ -89,11 +109,57 @@ async def update_settings(body: dict[str, Any]) -> int:
     return await settings_repo.bulk_upsert(entries)
 
 
-def _build_forwarders_conf(mode: str, provider: str, custom_json: str) -> str:
-    """Gera conteúdo do forwarders.conf conforme settings."""
+async def get_ratelimit_settings() -> dict[str, Any]:
+    out = {}
+    for k in RATELIMIT_KEYS:
+        out[k] = await settings_repo.get(k, RATELIMIT_DEFAULTS[k])
+    return {"settings": out, "defaults": RATELIMIT_DEFAULTS}
+
+
+async def update_ratelimit_settings(body: dict[str, Any]) -> int:
+    entries = []
+    for k, v in body.items():
+        if k in RATELIMIT_KEYS:
+            entries.append({"setting_key": k, "setting_value": str(v)})
+    if not entries:
+        return 0
+    return await settings_repo.bulk_upsert(entries)
+
+
+def _build_ratelimit_block(
+    *,
+    ip_enabled: bool,
+    ip_qps: int,
+    ip_factor: int,
+    dom_enabled: bool,
+    dom_qps: int,
+    dom_factor: int,
+) -> str:
+    """Bloco `server:` com diretivas ratelimit. Vazio se ambos disabled."""
+    if not ip_enabled and not dom_enabled:
+        return ""
+    lines = ["server:"]
+    if ip_enabled and ip_qps > 0:
+        lines.append(f"    ip-ratelimit: {ip_qps}")
+        lines.append(f"    ip-ratelimit-factor: {max(0, ip_factor)}")
+    if dom_enabled and dom_qps > 0:
+        lines.append(f"    ratelimit: {dom_qps}")
+        lines.append(f"    ratelimit-factor: {max(0, dom_factor)}")
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines) + "\n"
+
+
+def _build_forwarders_conf(mode: str, provider: str, custom_json: str, ratelimit_block: str = "") -> str:
+    """Gera conteúdo do forwarders.conf conforme settings.
+
+    `ratelimit_block` é concatenado ao final — unbound aceita múltiplos `server:`
+    blocks (são merged), então pode coexistir com o `server:` do tls-cert-bundle.
+    """
     header = "# Gerado por dns_security_service — NÃO edite à mão (será sobrescrito).\n"
     if mode == "recursive":
-        return header + "# Modo recursivo — sem forward-zone, Unbound resolve do root.\n"
+        body = header + "# Modo recursivo — sem forward-zone, Unbound resolve do root.\n"
+        return body + ("\n" + ratelimit_block if ratelimit_block else "")
 
     if provider == "custom":
         try:
@@ -105,7 +171,8 @@ def _build_forwarders_conf(mode: str, provider: str, custom_json: str) -> str:
         addresses = preset["addresses"]
 
     if not addresses:
-        return header + "# Lista vazia — fallback recursivo.\n"
+        body = header + "# Lista vazia — fallback recursivo.\n"
+        return body + ("\n" + ratelimit_block if ratelimit_block else "")
 
     lines = [
         header,
@@ -123,7 +190,8 @@ def _build_forwarders_conf(mode: str, provider: str, custom_json: str) -> str:
         if not addr or not host:
             continue
         lines.append(f"    forward-addr: {addr}@{port}#{host}")
-    return "\n".join(lines) + "\n"
+    body = "\n".join(lines) + "\n"
+    return body + ("\n" + ratelimit_block if ratelimit_block else "")
 
 
 async def _run(cmd: list[str]) -> tuple[int, str, str]:
@@ -147,7 +215,16 @@ async def apply() -> dict[str, Any]:
     provider = await settings_repo.get("dns_upstream_provider", DEFAULTS["dns_upstream_provider"]) or DEFAULTS["dns_upstream_provider"]
     custom = await settings_repo.get("dns_upstream_custom", DEFAULTS["dns_upstream_custom"]) or DEFAULTS["dns_upstream_custom"]
 
-    content = _build_forwarders_conf(mode, provider, custom)
+    ratelimit_block = _build_ratelimit_block(
+        ip_enabled=await settings_repo.get_bool("dns_ratelimit_ip_enabled", False),
+        ip_qps=await settings_repo.get_int("dns_ratelimit_ip_qps", 0),
+        ip_factor=await settings_repo.get_int("dns_ratelimit_ip_factor", 10),
+        dom_enabled=await settings_repo.get_bool("dns_ratelimit_domain_enabled", False),
+        dom_qps=await settings_repo.get_int("dns_ratelimit_domain_qps", 0),
+        dom_factor=await settings_repo.get_int("dns_ratelimit_domain_factor", 10),
+    )
+
+    content = _build_forwarders_conf(mode, provider, custom, ratelimit_block)
 
     # Snapshot do conteúdo atual pra rollback
     target = Path(TARGET_FORWARDERS)

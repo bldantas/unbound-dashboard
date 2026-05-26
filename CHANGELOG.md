@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.46.0 — 2026-05-26
+
+### feat(ratelimit): per-IP e per-domain configurável via UI
+
+Unbound suporta `ip-ratelimit` (limite QPS por IP cliente) e `ratelimit`
+(per nome de domínio destino) nativamente. Faltava expor configuração
+pela UI — agora `/dns_security.php` ganhou seção "Rate Limit".
+
+#### Settings novos
+
+- `dns_ratelimit_ip_enabled`, `dns_ratelimit_ip_qps`, `dns_ratelimit_ip_factor`
+- `dns_ratelimit_domain_enabled`, `dns_ratelimit_domain_qps`, `dns_ratelimit_domain_factor`
+
+`factor` = "1 a cada N queries passa mesmo limitado" (default 10 = ~10%).
+Evita NXDOMAIN amplification: cliente em loop ainda recebe alguma resposta.
+
+#### Como entra no `forwarders.conf`
+
+`_build_ratelimit_block` emite um `server:` block adicional concatenado
+ao final do arquivo. Unbound aceita múltiplos `server:` blocks (são
+merged), então coexiste com o `server:` do `tls-cert-bundle` (DoT).
+
+#### Endpoints
+
+- `GET/PUT /api/v1/dns-security/ratelimit/settings`
+- `POST /api/v1/dns-security/apply` (mesmo do upstream — aplica tudo do
+  forwarders.conf de uma vez, com rollback)
+
 ## v2.45.0 — 2026-05-26
 
 ### feat(api): página de API & Integrações + endpoints Grafana

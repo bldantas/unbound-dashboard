@@ -51,3 +51,19 @@ async def apply(
     _: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
     return await dns_security_service.apply()
+
+
+@router.get("/ratelimit/settings")
+async def get_ratelimit(
+    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+) -> dict:
+    return await dns_security_service.get_ratelimit_settings()
+
+
+@router.put("/ratelimit/settings")
+async def update_ratelimit(
+    body: dict,
+    _: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    n = await dns_security_service.update_ratelimit_settings(body)
+    return {"updated": n}

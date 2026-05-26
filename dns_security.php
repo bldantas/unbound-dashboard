@@ -98,6 +98,66 @@ $isAdmin = Auth::isAdmin();
                 </div>
             </div>
 
+            <!-- Rate-limit -->
+            <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
+                <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Rate Limit (defesa contra abuso)</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Limita queries por segundo (QPS) por IP cliente e/ou por domínio destino. <code>factor</code> = "1 a cada N queries passa mesmo limitado" (evita NXDOMAIN amplification).</p>
+                </div>
+                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Per-IP -->
+                    <div class="space-y-3 border border-slate-200 dark:border-white/10 rounded-xl p-4">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-[11px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-200">Per-IP (cliente)</h4>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="rlIpEnabled" class="sr-only peer">
+                                <div class="w-9 h-5 bg-slate-300 dark:bg-slate-700 rounded-full peer-checked:bg-emerald-500 transition-colors relative">
+                                    <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4"></div>
+                                </div>
+                            </label>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black uppercase tracking-widest text-slate-500">QPS máximo</label>
+                            <input type="number" id="rlIpQps" min="0" max="100000" class="glass-input w-full mt-1 font-mono">
+                            <p class="text-[10px] text-slate-500 mt-1">Queries/s por IP. 0 = ilimitado.</p>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black uppercase tracking-widest text-slate-500">Factor (passagem)</label>
+                            <input type="number" id="rlIpFactor" min="0" max="1000" class="glass-input w-full mt-1 font-mono">
+                            <p class="text-[10px] text-slate-500 mt-1">10 = ~10% passa mesmo limitado.</p>
+                        </div>
+                    </div>
+                    <!-- Per-domain -->
+                    <div class="space-y-3 border border-slate-200 dark:border-white/10 rounded-xl p-4">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-[11px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-200">Per-domínio (destino)</h4>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="rlDomEnabled" class="sr-only peer">
+                                <div class="w-9 h-5 bg-slate-300 dark:bg-slate-700 rounded-full peer-checked:bg-emerald-500 transition-colors relative">
+                                    <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4"></div>
+                                </div>
+                            </label>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black uppercase tracking-widest text-slate-500">QPS máximo</label>
+                            <input type="number" id="rlDomQps" min="0" max="100000" class="glass-input w-full mt-1 font-mono">
+                            <p class="text-[10px] text-slate-500 mt-1">Queries/s por nome de domínio. 0 = ilimitado.</p>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black uppercase tracking-widest text-slate-500">Factor (passagem)</label>
+                            <input type="number" id="rlDomFactor" min="0" max="1000" class="glass-input w-full mt-1 font-mono">
+                            <p class="text-[10px] text-slate-500 mt-1">10 = ~10% passa mesmo limitado.</p>
+                        </div>
+                    </div>
+                </div>
+                <?php if ($isAdmin): ?>
+                <div class="px-6 py-4 border-t border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex flex-wrap gap-2 justify-end">
+                    <button type="button" id="btnRlSave" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Salvar ratelimit</button>
+                    <button type="button" id="btnRlApply" class="glass-btn !bg-amber-600 !text-white text-[10px] uppercase font-black">Aplicar + Restart Unbound</button>
+                </div>
+                <?php endif; ?>
+            </div>
+
             <?php include 'includes/footer.php'; ?>
         </div>
     </main>
@@ -191,6 +251,45 @@ $isAdmin = Auth::isAdmin();
     loadInfo();
     loadSettings();
     setInterval(loadInfo, 60000);
+
+    // === Rate-limit ===
+    async function loadRatelimit() {
+        const r = await fetch('/api/v1/dns-security/ratelimit/settings', { headers: H });
+        if (!r.ok) return;
+        const d = await r.json();
+        const s = d.settings || {};
+        $('rlIpEnabled').checked = String(s.dns_ratelimit_ip_enabled) === '1';
+        $('rlIpQps').value = parseInt(s.dns_ratelimit_ip_qps || '0', 10);
+        $('rlIpFactor').value = parseInt(s.dns_ratelimit_ip_factor || '10', 10);
+        $('rlDomEnabled').checked = String(s.dns_ratelimit_domain_enabled) === '1';
+        $('rlDomQps').value = parseInt(s.dns_ratelimit_domain_qps || '0', 10);
+        $('rlDomFactor').value = parseInt(s.dns_ratelimit_domain_factor || '10', 10);
+    }
+
+    if (IS_ADMIN) {
+        $('btnRlSave')?.addEventListener('click', async () => {
+            const body = {
+                dns_ratelimit_ip_enabled:     $('rlIpEnabled').checked ? '1' : '0',
+                dns_ratelimit_ip_qps:         String(Math.max(0, parseInt($('rlIpQps').value || '0', 10))),
+                dns_ratelimit_ip_factor:      String(Math.max(0, parseInt($('rlIpFactor').value || '10', 10))),
+                dns_ratelimit_domain_enabled: $('rlDomEnabled').checked ? '1' : '0',
+                dns_ratelimit_domain_qps:     String(Math.max(0, parseInt($('rlDomQps').value || '0', 10))),
+                dns_ratelimit_domain_factor:  String(Math.max(0, parseInt($('rlDomFactor').value || '10', 10))),
+            };
+            const r = await fetch('/api/v1/dns-security/ratelimit/settings', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
+            (window.customAlert || alert)(r.ok ? 'Salvo. Clique em Aplicar pra recarregar o Unbound.' : 'Erro ao salvar.');
+        });
+
+        $('btnRlApply')?.addEventListener('click', async () => {
+            const ok = await (window.customConfirm ? customConfirm('Aplicar e restart Unbound? ~2s de interrupção.') : Promise.resolve(confirm('Aplicar?')));
+            if (!ok) return;
+            const r = await fetch('/api/v1/dns-security/apply', { method: 'POST', headers: H });
+            const d = await r.json().catch(() => ({}));
+            if (r.ok && d.ok) (window.customAlert || alert)('Ratelimit aplicado.');
+            else (window.customAlert || alert)(`Falha em "${d.stage || '?'}": ${d.error || r.statusText}`);
+        });
+    }
+    loadRatelimit();
 })();
 </script>
 
