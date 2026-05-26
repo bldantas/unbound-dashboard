@@ -63,6 +63,20 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
             </div>
         </div>
 
+        <!-- Seletor de Idioma (PT/EN) -->
+        <?php
+        if (!class_exists('\\App\\I18n')) {
+            @require_once __DIR__ . '/../src/I18n.php';
+        }
+        $tb_locale = \App\I18n::current();
+        ?>
+        <form method="POST" action="/set_locale.php" class="inline-block" id="langForm">
+            <input type="hidden" name="lang" id="langField" value="<?= $tb_locale === 'pt-BR' ? 'en' : 'pt-BR' ?>">
+            <button type="submit" class="p-2.5 rounded-2xl bg-slate-200 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-white/10 transition-all shadow-sm text-[10px] font-black uppercase tracking-widest" title="<?= htmlspecialchars(\App\I18n::t('topbar.lang_toggle')) ?>">
+                <?= $tb_locale === 'pt-BR' ? 'PT' : 'EN' ?>
+            </button>
+        </form>
+
         <!-- Seletor de Tema (Sol/Lua) -->
         <button id="themeToggle" class="p-2.5 rounded-2xl bg-slate-200 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-white/10 transition-all shadow-sm group">
             <!-- Ícone Sol -->

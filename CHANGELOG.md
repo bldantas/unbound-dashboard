@@ -9,6 +9,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### UX & UI (continuação)
+- **v2.76**: i18n base — helper `t()` (PHP), arquivos `lang/pt-BR.php` e `lang/en.php`, toggle PT/EN no topbar (cookie 1 ano + session), `set_locale.php` endpoint. Detect: session → cookie → Accept-Language → default pt-BR. Sidebar 100% migrada; outras páginas migram progressivamente. Keys ausentes mostram a própria key (debug-friendly).
+
 ### Auth, segurança & compliance
 - **v2.75**: wire de approvals expandido — `geo_blocking.apply` e `users.delete` agora também passam por `enforce_approval`. Total: 5 handlers registrados (dns/doh/ha/geo/users).
 - **v2.74**: múltiplos destinos S3 (multi-cloud redundância); cada destino com secret cifrado via cipher_service. `BackupUploader` itera priority DESC.
