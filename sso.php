@@ -2,7 +2,11 @@
 require_once 'src/Auth.php';
 use App\Auth;
 Auth::check();
-Auth::requireAdmin();
+
+if (!Auth::isAdmin()) {
+    header('Location: index.php?error=admin_only');
+    exit;
+}
 
 $currentPage = 'sso.php';
 ?>
