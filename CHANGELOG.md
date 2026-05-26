@@ -1,5 +1,50 @@
 # Changelog
 
+## v2.63.0 — 2026-05-26
+
+### feat(observability): 13 Gauges Unbound + worker exporter + dashboard Grafana
+
+Frente Observability Prometheus. Endpoint `/metrics` já existia (via
+`prometheus-fastapi-instrumentator`) com counters básicos dos workers
++ HTTP automático; agora expõe também 13 Gauges com o estado real
+do Unbound.
+
+#### Métricas novas em `app/core/metrics.py`
+
+- `unbound_online` (1 = unbound-control responde)
+- `unbound_qps` (queries/sec)
+- `unbound_hit_ratio` (cache hit %, 0..100)
+- `unbound_latency_milliseconds{kind}` (avg/median/p50/p95/p99)
+- `unbound_total_queries` (since boot)
+- `unbound_cache{kind}` (hits/miss/prefetch)
+- `unbound_cache_memory_bytes{kind}` (rrset/msg)
+- `unbound_request_list{kind}` (avg/max)
+- `unbound_dnssec{kind}` (secure/bogus/ratio)
+- `unbound_uptime_seconds`
+- `unbound_alerts_active{severity}` (critical/warning/info)
+- `unbound_blocks{category}` (adware/phishing/judicial)
+
+#### Worker novo `PrometheusExporter`
+
+- Tick 60s. Reusa cache TTL=60s de `unbound_stats_service.get_stats()`
+  (sem chamadas extras a unbound-control).
+- Atualiza todos os 13 Gauges + uma query DuckDB pra alertas por
+  severidade.
+- Helper `_parse_bytes()` converte "3.86 MB" → bytes.
+
+#### Dashboard Grafana pronto
+
+- `docs/grafana/unbound-overview.json` — 13 painéis: 6 stats no
+  topo (Online, QPS, Hit Ratio, P95, Critical alerts, Uptime) +
+  timeseries de latência (P50/P95/P99/avg), QPS+hit, cache memory,
+  hits/miss/prefetch, alertas por severidade, request list,
+  worker errors rate.
+- Placeholder `PROMETHEUS_DS` pro datasource (Grafana pede ao
+  importar).
+- Refresh 30s, time range 1h default.
+- `docs/grafana/README.md` documenta importação + tabela completa
+  de métricas expostas.
+
 ## v2.62.0 — 2026-05-26
 
 ### chore(tests): +21 testes (services v2.56-v2.60) + fix migrate baseline

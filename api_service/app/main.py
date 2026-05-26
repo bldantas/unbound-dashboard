@@ -61,6 +61,7 @@ from app.workers import (
     HostPoller,
     LogWatcher,
     NotificationPruner,
+    PrometheusExporter,
     QueryLogPruner,
     StatsAggregator,
     UnboundCollector,
@@ -131,6 +132,8 @@ async def lifespan(app: FastAPI):
     app.state.notification_pruner = notification_pruner
     audit_pruner = AuditPruner()
     app.state.audit_pruner = audit_pruner
+    prometheus_exporter = PrometheusExporter()
+    app.state.prometheus_exporter = prometheus_exporter
     geo_block_updater = GeoBlockUpdater()
     app.state.geo_block_updater = geo_block_updater
     _background_tasks.extend(
@@ -168,6 +171,9 @@ async def lifespan(app: FastAPI):
                 _supervised("audit_pruner", audit_pruner), name="audit_pruner"
             ),
             asyncio.create_task(
+                _supervised("prometheus_exporter", prometheus_exporter), name="prometheus_exporter"
+            ),
+            asyncio.create_task(
                 _supervised("geo_block_updater", geo_block_updater), name="geo_block_updater"
             ),
         ]
@@ -190,6 +196,7 @@ async def lifespan(app: FastAPI):
     await query_log_pruner.stop()
     await notification_pruner.stop()
     await audit_pruner.stop()
+    await prometheus_exporter.stop()
     await geo_block_updater.stop()
     for task in _background_tasks:
         task.cancel()

@@ -1,0 +1,175 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "value", "graphMode": "none", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "title": "Online",
+      "type": "stat",
+      "targets": [{"expr": "unbound_online", "refId": "A"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 1}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "title": "QPS",
+      "type": "stat",
+      "targets": [{"expr": "unbound_qps", "refId": "A"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "min": 0, "max": 100, "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "yellow", "value": 60}, {"color": "green", "value": 80}]}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+      "id": 3,
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "title": "Hit Ratio",
+      "type": "stat",
+      "targets": [{"expr": "unbound_hit_ratio", "refId": "A"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"unit": "ms", "decimals": 1}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "id": 4,
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "title": "Latência P95",
+      "type": "stat",
+      "targets": [{"expr": "unbound_latency_milliseconds{kind=\"p95\"}", "refId": "A"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+      "id": 5,
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "title": "Alertas Critical",
+      "type": "stat",
+      "targets": [{"expr": "unbound_alerts_active{severity=\"critical\"}", "refId": "A"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+      "id": 6,
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "title": "Uptime",
+      "type": "stat",
+      "targets": [{"expr": "unbound_uptime_seconds", "refId": "A"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"unit": "ms", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 4},
+      "id": 7,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "Latência DNS (P50/P95/P99 + média)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "unbound_latency_milliseconds{kind=\"p50\"}", "legendFormat": "P50", "refId": "A"},
+        {"expr": "unbound_latency_milliseconds{kind=\"p95\"}", "legendFormat": "P95", "refId": "B"},
+        {"expr": "unbound_latency_milliseconds{kind=\"p99\"}", "legendFormat": "P99", "refId": "C"},
+        {"expr": "unbound_latency_milliseconds{kind=\"avg\"}", "legendFormat": "média", "refId": "D"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 4},
+      "id": 8,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "QPS / Hit Ratio",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "unbound_qps", "legendFormat": "QPS", "refId": "A"},
+        {"expr": "unbound_hit_ratio", "legendFormat": "Hit %", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "id": 9,
+      "options": {"legend": {"displayMode": "list"}, "tooltip": {"mode": "multi"}},
+      "title": "Cache memory",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "unbound_cache_memory_bytes{kind=\"rrset\"}", "legendFormat": "RRset", "refId": "A"},
+        {"expr": "unbound_cache_memory_bytes{kind=\"msg\"}", "legendFormat": "Msg", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "id": 10,
+      "options": {"legend": {"displayMode": "list"}, "tooltip": {"mode": "multi"}},
+      "title": "Cache hits/miss/prefetch",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "unbound_cache{kind=\"hits\"}", "legendFormat": "hits", "refId": "A"},
+        {"expr": "unbound_cache{kind=\"miss\"}", "legendFormat": "miss", "refId": "B"},
+        {"expr": "unbound_cache{kind=\"prefetch\"}", "legendFormat": "prefetch", "refId": "C"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 21},
+      "id": 11,
+      "options": {"legend": {"displayMode": "list"}, "tooltip": {"mode": "multi"}},
+      "title": "Alertas ativos por severidade",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "unbound_alerts_active{severity=\"critical\"}", "legendFormat": "critical", "refId": "A"},
+        {"expr": "unbound_alerts_active{severity=\"warning\"}", "legendFormat": "warning", "refId": "B"},
+        {"expr": "unbound_alerts_active{severity=\"info\"}", "legendFormat": "info", "refId": "C"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 21},
+      "id": 12,
+      "options": {"legend": {"displayMode": "list"}, "tooltip": {"mode": "multi"}},
+      "title": "Request list (queue depth)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "unbound_request_list{kind=\"avg\"}", "legendFormat": "avg", "refId": "A"},
+        {"expr": "unbound_request_list{kind=\"max\"}", "legendFormat": "max", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "PROMETHEUS_DS"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 28},
+      "id": 13,
+      "options": {"legend": {"displayMode": "list"}, "tooltip": {"mode": "multi"}},
+      "title": "Worker errors (rate)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "rate(unbound_worker_errors_total[5m])", "legendFormat": "{{worker}}", "refId": "A"}
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["unbound", "dns"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Unbound DNS — Overview",
+  "uid": "unbound-overview",
+  "version": 1
+}
