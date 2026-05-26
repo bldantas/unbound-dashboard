@@ -42,6 +42,7 @@ from app.routers import (
     hosts,
     notifications,
     observability,
+    oidc,
     policies,
     stats,
     threats,
@@ -254,6 +255,7 @@ app.include_router(host.router)
 app.include_router(hosts.router)
 app.include_router(notifications.router)
 app.include_router(observability.router)
+app.include_router(oidc.router)
 app.include_router(policies.router)
 app.include_router(stats.router)
 app.include_router(threats.router)

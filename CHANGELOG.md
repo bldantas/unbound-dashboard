@@ -1,5 +1,59 @@
 # Changelog
 
+## v2.65.0 — 2026-05-26
+
+### feat(sso): OIDC Authorization Code flow + página /sso.php
+
+Frente SSO Enterprise. Integração com qualquer IdP OpenID Connect
+(Google Workspace, Microsoft Entra ID, Keycloak, Authentik, etc).
+
+#### Migration V17 `oidc_config`
+
+Single-row (id=1, CHECK forçado): enabled, issuer_url, client_id,
+client_secret, scopes, allowed_email_domains (CSV), auto_create_users,
+default_role, updated_at.
+
+**Limitação conhecida:** client_secret em texto plano. TODO secrets
+store cifrado pra prod sensível — aviso explícito na UI.
+
+#### Service `oidc_service`
+
+- `_discover(issuer)` — GET `/.well-known/openid-configuration`
+- `_get_jwks(issuer)` — cache 1h dos JWKS pra validar assinatura
+- `build_auth_url(callback)` — gera state+nonce, guarda em settings
+  com TTL 10min, retorna URL `authorization_endpoint?...`
+- `handle_callback(code, state, redirect_uri)` — valida state,
+  troca code por tokens, valida id_token (sig + audience + issuer +
+  nonce), sync user por email
+- Matching: email do id_token → `user_repo.find_by_email`. Se não
+  achar e `auto_create_users=true`, cria com `default_role` e
+  username baseado no email
+- `allowed_email_domains` (CSV): filtra IdPs públicos a domínios
+  corporativos
+
+#### Endpoints `/api/v1/auth/oidc`
+
+- `GET /public-info` (sem auth) — login.php pergunta se SSO está on
+- `GET/PUT /config` (admin)
+- `GET /login` — redireciona pro IdP
+- `GET /callback` — recebe code, valida, emite JWT local, redireciona
+  pra `/login.php#oidc=<jwt>`
+
+Login fail → `/login.php?error=oidc&detail=...`. Toda tentativa
+(success/fail) loga em `admin_audit` (category=auth).
+
+#### UI
+
+- `/sso.php` admin-only: toggle enabled, issuer/client_id/secret/scopes,
+  allowed domains CSV, auto-create + default role, callback URL
+  exibido pro IdP, botão "Testar login SSO".
+- `/login.php` ganhou:
+  - Botão "Entrar com SSO" (mostra só se `/public-info` reporta
+    enabled=true)
+  - JS captura `#oidc=<jwt>` no fragment, re-posta como POST
+    `oidc_jwt=...` → PHP cria session normal
+- Sidebar entry "SSO / OIDC" (admin-only)
+
 ## v2.64.0 — 2026-05-26
 
 ### feat(ha): cluster HA peers + healthcheck 30s + manual failover

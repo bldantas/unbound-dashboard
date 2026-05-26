@@ -32,20 +32,40 @@ if (isset($_GET['reason']) && isset($reasonMessages[$_GET['reason']])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = $_POST['username'] ?? '';
-    $password = $_POST['password'] ?? '';
-
-    $result = \App\Auth::login($username, $password);
-
-    if ($result['success']) {
-        if (!empty($result['requires_totp'])) {
-            header('Location: login_2fa.php');
-            exit;
+    // OIDC callback: o frontend recebe #oidc=<jwt> e re-posta pra cá
+    if (!empty($_POST['oidc_jwt'])) {
+        $jwt = $_POST['oidc_jwt'];
+        // Decodifica claims sem verificar (a API já validou ao emitir)
+        $parts = explode('.', $jwt);
+        if (count($parts) === 3) {
+            $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+            if ($payload && isset($payload['sub'], $payload['role'])) {
+                $_SESSION['logged_in'] = true;
+                $_SESSION['user_id']   = (int)$payload['sub'];
+                $_SESSION['username']  = $payload['username'] ?? 'sso-user';
+                $_SESSION['role']      = $payload['role'];
+                $_SESSION['api_jwt']   = $jwt;
+                header('Location: index.php');
+                exit;
+            }
         }
-        header('Location: index.php');
-        exit;
+        $error = 'JWT SSO inválido.';
     } else {
-        $error = $result['message'] ?? 'Credenciais incorretas ou usuário inativo.';
+        $username = $_POST['username'] ?? '';
+        $password = $_POST['password'] ?? '';
+
+        $result = \App\Auth::login($username, $password);
+
+        if ($result['success']) {
+            if (!empty($result['requires_totp'])) {
+                header('Location: login_2fa.php');
+                exit;
+            }
+            header('Location: index.php');
+            exit;
+        } else {
+            $error = $result['message'] ?? 'Credenciais incorretas ou usuário inativo.';
+        }
     }
 }
 ?>
@@ -222,10 +242,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </button>
                 </div>
             </form>
+
+            <div id="oidc-section" class="hidden mt-6 pt-6 border-t border-white/10">
+                <p class="text-xs text-slate-500 text-center mb-3 uppercase tracking-widest font-black">ou</p>
+                <a href="/api/v1/auth/oidc/login" class="block w-full text-center bg-slate-700/60 hover:bg-slate-700 text-white font-bold px-6 py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"></path></svg>
+                    Entrar com SSO
+                </a>
+            </div>
         </div>
     </div>
 
     <script>
+        // Hash-based OIDC callback redirect: /login.php#oidc=<jwt> → POST hidden
+        (function () {
+            const hash = window.location.hash || '';
+            const m = hash.match(/oidc=([^&]+)/);
+            if (m) {
+                const jwt = decodeURIComponent(m[1]);
+                // Posta o JWT pro login.php pra criar a session PHP
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = 'login.php';
+                const inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = 'oidc_jwt';
+                inp.value = jwt;
+                form.appendChild(inp);
+                document.body.appendChild(form);
+                form.submit();
+                return;
+            }
+            // Detecta SSO habilitado e mostra botão
+            fetch('/api/v1/auth/oidc/public-info').then(r => r.ok ? r.json() : null).then(d => {
+                if (d && d.enabled) {
+                    document.getElementById('oidc-section')?.classList.remove('hidden');
+                }
+            }).catch(() => {});
+        })();
+
         (function () {
             const form = document.getElementById('login-form');
             const loader = document.getElementById('login-loader');
