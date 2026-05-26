@@ -258,6 +258,39 @@ html.dark .nav-link:hover {
     margin: 0 auto;
     animation: fadeIn 0.4s ease-out forwards;
 }
+@media (max-width: 768px) {
+    .page-container { padding: 1rem; }
+    .page-title { font-size: 1.5rem !important; }
+    .page-header { margin-bottom: 1rem !important; }
+}
+
+/* Mobile sidebar drawer + backdrop */
+@media (max-width: 767px) {
+    #mainSidebar {
+        position: fixed !important;
+        top: 0; left: 0;
+        height: 100vh !important;
+        width: 17rem !important;
+        min-width: 17rem !important;
+        opacity: 1 !important;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease-out;
+        z-index: 70;
+    }
+    #mainSidebar.mobile-open { transform: translateX(0); }
+    #sidebarBackdrop {
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 65;
+        opacity: 0; pointer-events: none;
+        transition: opacity 0.2s ease;
+    }
+    #sidebarBackdrop.mobile-open { opacity: 1; pointer-events: auto; }
+    /* Topbar pra caber em mobile */
+    header.sticky { padding: 0.75rem 1rem !important; }
+    /* Tabelas: deixa fluir scroll horizontal */
+    table { font-size: 0.7rem; }
+}
 
 .app-toast-root {
     position: fixed;

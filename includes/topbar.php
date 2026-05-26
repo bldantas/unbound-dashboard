@@ -19,6 +19,7 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
     } catch (\Exception $e) {}
 }
 ?>
+<div id="sidebarBackdrop"></div>
 <header class="px-8 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-100/80 dark:bg-slate-900/40 flex items-center justify-between sticky top-0 z-50 backdrop-blur-md w-full transition-colors duration-300">
     <div class="flex items-center gap-4">
         <!-- Botão Abrir/Fechar Sidebar -->
@@ -93,11 +94,36 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
     const btnSidebar = document.getElementById('sidebarToggle');
     const btnTheme = document.getElementById('themeToggle');
     const sidebar = document.getElementById('mainSidebar');
+    const sidebarBackdrop = document.getElementById('sidebarBackdrop');
     const iconOpen = document.getElementById('iconSidebarOpen');
     const iconClose = document.getElementById('iconSidebarClose');
 
+    // Mobile breakpoint = Tailwind md (768px)
+    const mqMobile = window.matchMedia('(max-width: 767px)');
+
     // --- SIDEBAR LOGIC ---
+    // Desktop: colapsa width pra 0. Mobile: drawer fixed com backdrop.
     function updateSidebarUI(isCollapsed) {
+        if (mqMobile.matches) {
+            // Mobile: isCollapsed=true significa drawer fechada
+            if (isCollapsed) {
+                sidebar.classList.remove('mobile-open');
+                sidebarBackdrop?.classList.remove('mobile-open');
+                document.body.style.overflow = '';
+            } else {
+                sidebar.classList.add('mobile-open');
+                sidebarBackdrop?.classList.add('mobile-open');
+                document.body.style.overflow = 'hidden';
+            }
+            // Limpa inline styles do desktop mode (CSS responsivo cuida)
+            sidebar.style.width = '';
+            sidebar.style.minWidth = '';
+            sidebar.style.opacity = '';
+            iconOpen.classList.toggle('hidden', !isCollapsed);
+            iconClose.classList.toggle('hidden', isCollapsed);
+            return;
+        }
+        // Desktop: width collapse
         if (isCollapsed) {
             sidebar.classList.add('sidebar-collapsed');
             sidebar.style.width = '0px';
@@ -107,7 +133,7 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
             iconClose.classList.add('hidden');
         } else {
             sidebar.classList.remove('sidebar-collapsed');
-            sidebar.style.width = '256px'; // w-64
+            sidebar.style.width = '256px';
             sidebar.style.minWidth = '256px';
             sidebar.style.opacity = '1';
             iconOpen.classList.add('hidden');
@@ -115,15 +141,49 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
         }
     }
 
+    function isCurrentlyCollapsed() {
+        if (mqMobile.matches) return !sidebar.classList.contains('mobile-open');
+        return sidebar.classList.contains('sidebar-collapsed');
+    }
+
     btnSidebar.addEventListener('click', () => {
-        const currentlyCollapsed = sidebar.classList.contains('sidebar-collapsed');
-        const newState = !currentlyCollapsed;
-        localStorage.setItem('sidebar_collapsed', newState);
-        updateSidebarUI(newState);
+        const newCollapsed = !isCurrentlyCollapsed();
+        // Em desktop persiste; em mobile nunca (sempre começa fechada após reload)
+        if (!mqMobile.matches) localStorage.setItem('sidebar_collapsed', newCollapsed);
+        updateSidebarUI(newCollapsed);
     });
 
-    // Inicializar Sidebar
-    if (localStorage.getItem('sidebar_collapsed') === 'true') {
+    // Click no backdrop fecha o drawer mobile
+    sidebarBackdrop?.addEventListener('click', () => {
+        if (mqMobile.matches) updateSidebarUI(true);
+    });
+
+    // Link da sidebar fecha o drawer (UX mobile)
+    sidebar?.addEventListener('click', (e) => {
+        if (mqMobile.matches && e.target.closest('a')) {
+            updateSidebarUI(true);
+        }
+    });
+
+    // Resize handler: alterna entre modos
+    mqMobile.addEventListener('change', () => {
+        // Reset estado ao trocar de breakpoint
+        sidebar.classList.remove('mobile-open');
+        sidebarBackdrop?.classList.remove('mobile-open');
+        document.body.style.overflow = '';
+        if (mqMobile.matches) {
+            // Entrando em mobile: drawer fechada
+            updateSidebarUI(true);
+        } else {
+            // Voltando pra desktop: restaura estado salvo
+            updateSidebarUI(localStorage.getItem('sidebar_collapsed') === 'true');
+        }
+    });
+
+    // Inicializar
+    if (mqMobile.matches) {
+        updateSidebarUI(true);  // mobile sempre começa fechada
+    } else if (localStorage.getItem('sidebar_collapsed') === 'true') {
         updateSidebarUI(true);
     }
 

@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.61.0 — 2026-05-26
+
+### feat(ui): mobile responsive — sidebar drawer + padding adaptativo
+
+Frente Mobile/Responsive UI. Sidebar vira drawer com backdrop em
+telas < 768px (Tailwind `md`), padding do `page-container` reduz
+pela metade, font do título encolhe.
+
+#### Sidebar drawer mobile
+
+- CSS responsivo em `dashboard.css`: `@media (max-width: 767px)`
+  posiciona `#mainSidebar` como `position: fixed` com
+  `transform: translateX(-100%)`; classe `.mobile-open` puxa pra
+  `translateX(0)`.
+- Novo `#sidebarBackdrop` (rendered pelo topbar) — overlay escuro
+  z-65 que aparece junto com o drawer.
+- Topbar hamburger (já existia) ganhou lógica dual: em mobile abre
+  drawer com backdrop, em desktop colapsa width como antes.
+- Click no backdrop OU em qualquer link da sidebar fecha o drawer.
+- `body.style.overflow='hidden'` enquanto drawer aberta (previne
+  scroll do conteúdo atrás).
+- Resize handler (`matchMedia('change')`) reseta estado ao cruzar
+  o breakpoint — não fica state misturado.
+
+#### Mobile-friendly fundamentos
+
+- `.page-container { padding: 1rem }` em mobile (era 2rem).
+- `.page-title { font-size: 1.5rem }` em mobile (encolhe).
+- `header.sticky { padding: 0.75rem 1rem }` em mobile.
+- Tabelas: `font-size: 0.7rem` em mobile, continuam com scroll
+  horizontal via overflow-x-auto já existente nas páginas.
+
+Páginas críticas (dashboard, threats, query_search, anomalies,
+performance, audit, notifications) já usavam grids `grid-cols-1
+md:grid-cols-N` — não precisaram ser tocadas individualmente.
+
 ## v2.60.0 — 2026-05-26
 
 ### feat(audit): admin_audit + LGPD report + página /audit.php
