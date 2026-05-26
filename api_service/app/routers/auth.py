@@ -38,20 +38,39 @@ async def login(request: Request, body: LoginRequest) -> dict:
     se o user tem 2FA habilitado. Frontend (login.php) precisa detectar
     `requires_totp` e redirecionar pro fluxo de 2FA.
     """
+    ip = request.client.host if request.client else None
     try:
         result = await auth_service.login(body.username, body.password)
     except auth_service.TOTPRequired as exc:
         return {"requires_totp": True, "challenge_token": exc.challenge_token}
     except (auth_service.InvalidCredentials, auth_service.AccountInactive):
+        from app.services import admin_audit_service
+        await admin_audit_service.log(
+            actor_id=None, actor_username=body.username, actor_ip=ip,
+            action="login.fail", category="auth",
+            details={"reason": "invalid_credentials_or_inactive"},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciais inválidas",
         ) from None
     except auth_service.AccountLocked:
+        from app.services import admin_audit_service
+        await admin_audit_service.log(
+            actor_id=None, actor_username=body.username, actor_ip=ip,
+            action="login.locked", category="auth",
+            details={"reason": "account_locked"},
+        )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Conta bloqueada temporariamente. Tente novamente em 15 minutos.",
         ) from None
+    # Login OK (sem 2FA required)
+    from app.services import admin_audit_service
+    await admin_audit_service.log(
+        actor_id=None, actor_username=body.username, actor_ip=ip,
+        action="login.success", category="auth",
+    )
     return result
 
 

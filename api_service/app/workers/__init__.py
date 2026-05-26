@@ -1,5 +1,6 @@
 from app.workers.alert_checker import AlertChecker
 from app.workers.anomaly_detector import AnomalyDetector
+from app.workers.audit_pruner import AuditPruner
 from app.workers.backup_uploader import BackupUploader
 from app.workers.blocklist_syncer import BlocklistSyncer
 from app.workers.geo_block_updater import GeoBlockUpdater
@@ -14,6 +15,7 @@ from app.workers.update_checker import UpdateChecker
 __all__ = [
     "AlertChecker",
     "AnomalyDetector",
+    "AuditPruner",
     "BackupUploader",
     "BlocklistSyncer",
     "GeoBlockUpdater",

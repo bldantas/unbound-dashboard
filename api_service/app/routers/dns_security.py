@@ -15,12 +15,19 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from app.core.deps import require_capability
-from app.services import dns_security_service
+from app.services import admin_audit_service, dns_security_service
 
 router = APIRouter(prefix="/api/v1/dns-security", tags=["dns-security"])
+
+
+def _coerce_int(v) -> int | None:
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 @router.get("/info")
@@ -48,9 +55,19 @@ async def update_settings(
 
 @router.post("/apply")
 async def apply(
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    request: Request,
+    user: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
-    return await dns_security_service.apply()
+    result = await dns_security_service.apply()
+    await admin_audit_service.log(
+        actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
+        actor_username=user.get("username"),
+        actor_ip=request.client.host if request.client else None,
+        action="dns_security.apply",
+        category="config",
+        details={"ok": result.get("ok"), "mode": result.get("mode"), "stage": result.get("stage")},
+    )
+    return result
 
 
 @router.get("/ratelimit/settings")

@@ -1,5 +1,66 @@
 # Changelog
 
+## v2.60.0 — 2026-05-26
+
+### feat(audit): admin_audit + LGPD report + página /audit.php
+
+Frente Audit & Compliance v2. Trilha geral de ações administrativas
+(diferente do `update_audit` V5, que só cobre updates/restores) e
+ferramenta LGPD pra atender Art. 18 ("quais dados meus você tem?").
+
+#### Migration V15 `admin_audit`
+
+Tabela append-only com (id, created_at, actor_id, actor_username,
+actor_ip, action, category, target_type, target_id, details JSON).
+3 índices: created_at, (category, created_at), (actor_id, created_at).
+
+#### Service `admin_audit_service`
+
+- `log(...)` append-only com falha silenciosa (nunca bloqueia caller)
+- `list_filtered(...)` com filtros category/actor_id/action_prefix/
+  janela temporal + paginação
+- `export_csv(...)` cap 10k linhas
+- `prune_old(days)` por retenção configurável
+- `lgpd_report(client_ip, hours, limit)` dump de queries de um IP
+- `lgpd_report_csv(report)` CSV pronto pra download
+
+#### Endpoints
+
+- `GET /api/v1/audit/admin/list` — filtros + paginação
+- `GET /api/v1/audit/admin/export-csv` — auto-loga o próprio export
+- `GET/PUT /api/v1/audit/admin/retention/settings` — setting
+  `audit_retention_days` (default 365, range 30..3650)
+- `POST /api/v1/audit/admin/prune-now`
+- `GET /api/v1/compliance/lgpd-report` — JSON
+- `GET /api/v1/compliance/lgpd-report.csv` — CSV download
+
+Cada acesso a `/compliance/lgpd-report` é auto-registrado em
+`admin_audit` (category=data_export) — quem viu o quê fica rastreado.
+
+#### Worker `AuditPruner`
+
+1x/24h, apaga entries com mais de N dias. Mínimo 30, default 365.
+Persiste `audit_pruner_last_run` / `audit_pruner_last_deleted`.
+
+#### Página `/audit.php`
+
+3 abas:
+- **Admin Audit** — tabela com filtros (categoria, action prefix,
+  janela), paginação 100, details expansível em JSON, export CSV +
+  painel retenção (admin).
+- **LGPD Report** — input IP + janela + limite + dois botões
+  (gerar JSON inline / download CSV). Resultado em viewer monospace.
+- **Updates** — histórico V5 que estava só na API; agora tem UI.
+
+Sidebar ganhou entrada "Auditoria".
+
+#### Wires iniciais
+
+- `auth.login`: registra `login.success`, `login.fail`, `login.locked`
+  com IP + username
+- `dns_security.apply`: registra a action + resultado (ok, mode, stage)
+- Outros wires virão conforme uso real
+
 ## v2.59.0 — 2026-05-26
 
 ### feat(doh-inbound): cert info detalhado + geração self-signed

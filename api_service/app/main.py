@@ -28,6 +28,7 @@ from app.routers import (
     auth,
     backup_offsite,
     blocklist,
+    compliance,
     dns_security,
     doh_inbound,
     exports,
@@ -53,6 +54,7 @@ from app.routers import unbound as unbound_router
 from app.workers import (
     AlertChecker,
     AnomalyDetector,
+    AuditPruner,
     BackupUploader,
     BlocklistSyncer,
     GeoBlockUpdater,
@@ -127,6 +129,8 @@ async def lifespan(app: FastAPI):
     app.state.query_log_pruner = query_log_pruner  # exposto p/ endpoint "run-now"
     notification_pruner = NotificationPruner()
     app.state.notification_pruner = notification_pruner
+    audit_pruner = AuditPruner()
+    app.state.audit_pruner = audit_pruner
     geo_block_updater = GeoBlockUpdater()
     app.state.geo_block_updater = geo_block_updater
     _background_tasks.extend(
@@ -161,6 +165,9 @@ async def lifespan(app: FastAPI):
                 _supervised("notification_pruner", notification_pruner), name="notification_pruner"
             ),
             asyncio.create_task(
+                _supervised("audit_pruner", audit_pruner), name="audit_pruner"
+            ),
+            asyncio.create_task(
                 _supervised("geo_block_updater", geo_block_updater), name="geo_block_updater"
             ),
         ]
@@ -182,6 +189,7 @@ async def lifespan(app: FastAPI):
     await backup_uploader.stop()
     await query_log_pruner.stop()
     await notification_pruner.stop()
+    await audit_pruner.stop()
     await geo_block_updater.stop()
     for task in _background_tasks:
         task.cancel()
@@ -217,6 +225,7 @@ app.include_router(audit.router)
 app.include_router(auth.router)
 app.include_router(backup_offsite.router)
 app.include_router(blocklist.router)
+app.include_router(compliance.router)
 app.include_router(dns_security.router)
 app.include_router(doh_inbound.router)
 app.include_router(exports.router)
