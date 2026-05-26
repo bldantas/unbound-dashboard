@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.44.0 — 2026-05-26
+
+### feat(ux): command palette (Ctrl+K) + atalhos de teclado
+
+Kickoff da Fase C. Toggle dark/light já existia no header (sol/lua),
+faltava navegação por teclado.
+
+#### Command Palette
+
+`Ctrl/Cmd+K` em qualquer página abre busca de comandos. 24 entradas
+catalogadas (todas as páginas + Sair). Fuzzy match em label + hint +
+keywords. Setas pra navegar, Enter abre, Esc fecha. Modal full-screen
+com backdrop blur.
+
+#### Atalhos vim-style
+
+`g` seguido de letra navega (timeout 1.5s):
+
+- `g h` → Dashboard
+- `g t` → Ameaças
+- `g a` → Analítico
+- `g o` → Observabilidade
+- `g d` → Segurança DNS
+- `g c` → Cache
+- `g l` → Logs
+- `g ,` → Configurações
+
+Outros: `?` mostra ajuda dos atalhos, `Shift+T` alterna tema.
+
+Atalhos são suprimidos quando há input/textarea/select focado.
+
+#### Onde
+
+`includes/command_palette.php` (novo) é incluído em `includes/footer.php`
+— aparece em todas as páginas autenticadas sem mudança individual.
+
 ## v2.43.2 — 2026-05-26
 
 ### fix(threats): chip do Top com filtro server-side (resolve IPv6 e cauda longa)

@@ -193,3 +193,5 @@ if (!isset($unbound)) {
         })();
     }
 </script>
+
+<?php include __DIR__ . '/command_palette.php'; ?>
