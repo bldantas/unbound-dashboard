@@ -1,5 +1,39 @@
 # Changelog
 
+## v2.41.0 — 2026-05-26
+
+### feat(dns-security): página DNSSEC + upstream DoT (DNS-over-TLS)
+
+`/dns_security.php` nova. Duas funções:
+
+1. **Visão DNSSEC** — 4 cards (ratio %, secure count, bogus count, trust
+   anchor presença/path/tamanho). Lê snapshot do daemon a cada 60s.
+
+2. **Modo Upstream** — toggle entre:
+   - **Recursivo** (default): Unbound consulta autoritativos a partir do
+     root. Mais privacidade, sem dependência de terceiro.
+   - **DoT (forward-tls-upstream)**: Unbound encaminha pra um resolver
+     externo via DNS-over-TLS. Presets curados (Quad9, Cloudflare 1.1.1.1,
+     Google, AdGuard unfiltered) ou lista custom em JSON.
+
+#### Service + endpoints
+
+- `dns_security_service.py` — gera `/etc/unbound/includes/forwarders.conf`
+  com `forward-zone "."`, `forward-tls-upstream: yes` e `tls-cert-bundle`
+  no `server:` block. Aplica com rollback automático: snapshot do conteúdo
+  atual, escreve novo, restart unbound; se restart falhar, restaura
+  conteúdo anterior e tenta restart de novo.
+- `/api/v1/dns-security/{info,settings,apply}` (GET/PUT/POST).
+- `unbound-checkconf` foi removido do fluxo: precisa `AF_NETLINK` pra
+  `getifaddrs`, e a unit tem `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6`.
+  Validação fica a cargo do próprio restart + rollback.
+
+#### Systemd
+
+`/etc/systemd/system/unbound-dashboard-api.service` ganhou
+`ReadWritePaths=/etc/unbound` (necessário com `ProtectSystem=strict`
+pra `sudo cp` herdar o mount writable).
+
 ## v2.40.0 — 2026-05-26
 
 ### feat(observability): página dedicada com KPIs, séries temporais e status de workers

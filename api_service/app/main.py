@@ -28,6 +28,7 @@ from app.routers import (
     auth,
     backup_offsite,
     blocklist,
+    dns_security,
     exports,
     health,
     history,
@@ -195,6 +196,7 @@ app.include_router(audit.router)
 app.include_router(auth.router)
 app.include_router(backup_offsite.router)
 app.include_router(blocklist.router)
+app.include_router(dns_security.router)
 app.include_router(exports.router)
 app.include_router(health.router)
 app.include_router(history.router)

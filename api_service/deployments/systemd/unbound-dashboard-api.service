@@ -51,6 +51,7 @@ ReadWritePaths=/etc/systemd/system
 ReadWritePaths=/etc/apache2
 ReadWritePaths=/etc/php
 ReadWritePaths=/etc/unbound-dashboard
+ReadWritePaths=/etc/unbound
 ReadWritePaths=/usr/local/bin
 ReadWritePaths=/var/spool/cron
 ReadWritePaths=/tmp
