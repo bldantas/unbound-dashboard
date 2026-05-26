@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.54.1 — 2026-05-26
+
+### fix(threats): mapa-múndi não carregava — CDN path errado
+
+O `<script src>` apontava pra `/dist/jsvectormap.min.js` (path
+inexistente no npm) em vez de `/dist/js/jsvectormap.min.js`. CDN
+respondia 404, lib nunca carregava, mapa ficava vazio mesmo com a
+API retornando dados.
+
+Também: `applyMapValues` agora faz retry até 25× / 5s em vez de 1× a
+400ms (necessário com `defer` em conexões lentas). Se esgotar, exibe
+mensagem amber clara no painel em vez de ficar silenciosamente vazio.
+
+---
+
 ## v2.54.0 — 2026-05-26
 
 ### feat(geoip): ASN enrichment + Top ASNs em Ameaças
