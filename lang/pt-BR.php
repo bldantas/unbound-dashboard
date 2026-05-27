@@ -233,6 +233,38 @@ return [
     'query_search' => [
         'title'                    => 'Busca em Queries',
     ],
+    'diagnostics' => [
+        'title'                    => 'Painel de Diagnóstico',
+        'card_ping'                => 'ICMP Ping',
+        'card_traceroute'          => 'Traceroute',
+        'card_dns_lookup'          => 'DNS Lookup',
+        'card_connectivity'        => 'Conectividade',
+    ],
+    'health' => [
+        'title'                    => 'Auditoria & Saúde do Sistema',
+        'subtitle'                 => 'Snapshot de hardware, serviços, versões e integridade.',
+        'section_integrity'        => 'Checklist de Integridade',
+        'section_repair_console'   => 'Console de Reparo',
+    ],
+    'live_stream' => [
+        'title'                    => 'Stream ao Vivo',
+        'subtitle'                 => 'Cada query parseada pelo LogWatcher chega aqui via WebSocket. Cap 200 eventos visíveis; antigos rolam.',
+    ],
+    'exports' => [
+        'title'                    => 'Central de Exportação',
+        'card_queries'             => 'Consultas DNS',
+        'card_stats'               => 'Estatísticas',
+        'card_system_log'          => 'Log do Sistema',
+        'card_backup'              => 'Backup & Restauração',
+        'card_blacklist'           => 'Blacklist',
+        'card_cache'               => 'Cache DNS',
+    ],
+    'history' => [
+        'title'                    => 'Análise Temporal',
+        'subtitle'                 => 'Tendências de tráfego e latência histórica.',
+        'section_resolution'       => 'Desempenho de Resolução',
+        'section_logs_live'        => 'Logs de Consulta em Tempo Real',
+    ],
     'config' => [
         'title'                    => 'Configurações do Sistema',
         'tab_geral'                => 'Configurações Unbound',

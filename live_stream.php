@@ -8,7 +8,7 @@ $currentPage = 'live_stream.php';
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Stream ao Vivo - Unbound DNS</title>
+    <title><?= t('live_stream.title') ?> - Unbound DNS</title>
     <meta name="description" content="Feed em tempo real de queries DNS via WebSocket — vê cada consulta no momento que acontece.">
     <?php include 'includes/head.php'; ?>
 </head>
@@ -18,7 +18,7 @@ $currentPage = 'live_stream.php';
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Stream ao Vivo";
+        $pageTitle = t('live_stream.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">
@@ -27,9 +27,9 @@ $currentPage = 'live_stream.php';
                 <div>
                     <h1 class="page-title flex items-center gap-3">
                         <svg class="w-8 h-8 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                        Stream ao Vivo
+                        <?= t('live_stream.title') ?>
                     </h1>
-                    <p class="page-subtitle">Cada query parseada pelo LogWatcher chega aqui via WebSocket. Cap 200 eventos visíveis; antigos rolam.</p>
+                    <p class="page-subtitle"><?= t('live_stream.subtitle') ?></p>
                 </div>
                 <div class="flex items-center gap-3">
                     <span id="streamStatus" class="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full bg-slate-200 dark:bg-white/5 text-slate-500">Desconectado</span>

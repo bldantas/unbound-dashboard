@@ -12,7 +12,7 @@ ob_start();
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Histórico - Unbound DNS</title>
+    <title><?= t('history.title') ?> - Unbound DNS</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <?php include 'includes/head.php'; ?>
 </head>
@@ -105,16 +105,16 @@ $currentPage = 'history.php';
                 <div>
                     <h1 class="page-title">
                         <svg class="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-                        Análise Temporal
+                        <?= t('history.title') ?>
                     </h1>
-                    <p class="page-subtitle">Tendências de tráfego e latência histórica.</p>
+                    <p class="page-subtitle"><?= t('history.subtitle') ?></p>
                 </div>
             </header>
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
                 <!-- Performance do Cache -->
                 <div class="glass-panel text-center border-slate-200 dark:border-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6 text-left border-b border-slate-900/10 dark:border-white/5 pb-2">Desempenho de Resolução</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6 text-left border-b border-slate-900/10 dark:border-white/5 pb-2"><?= t('history.section_resolution') ?></h3>
                     <div class="h-[300px]"><canvas id="cachePerfChart"></canvas></div>
                 </div>
 
@@ -170,7 +170,7 @@ $currentPage = 'history.php';
 
             <div class="glass-table-container mb-8 border-slate-200 dark:border-white/5">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Logs de Consulta em Tempo Real</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('history.section_logs_live') ?></h3>
                     <form method="GET" class="flex items-center gap-2">
                         <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Exibir:</label>
                         <select name="limit" onchange="this.form.submit()" class="bg-slate-200 dark:bg-slate-900 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white text-[10px] font-black uppercase rounded-lg px-3 py-1 outline-none focus:ring-1 focus:ring-blue-500">

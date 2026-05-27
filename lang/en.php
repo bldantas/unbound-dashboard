@@ -232,6 +232,38 @@ return [
     'query_search' => [
         'title'                    => 'Query Search',
     ],
+    'diagnostics' => [
+        'title'                    => 'Diagnostics Panel',
+        'card_ping'                => 'ICMP Ping',
+        'card_traceroute'          => 'Traceroute',
+        'card_dns_lookup'          => 'DNS Lookup',
+        'card_connectivity'        => 'Connectivity',
+    ],
+    'health' => [
+        'title'                    => 'System Audit & Health',
+        'subtitle'                 => 'Snapshot of hardware, services, versions and integrity.',
+        'section_integrity'        => 'Integrity Checklist',
+        'section_repair_console'   => 'Repair Console',
+    ],
+    'live_stream' => [
+        'title'                    => 'Live Stream',
+        'subtitle'                 => 'Each query parsed by LogWatcher arrives here via WebSocket. Cap 200 visible events; older ones scroll off.',
+    ],
+    'exports' => [
+        'title'                    => 'Export Center',
+        'card_queries'             => 'DNS Queries',
+        'card_stats'               => 'Statistics',
+        'card_system_log'          => 'System Log',
+        'card_backup'              => 'Backup & Restore',
+        'card_blacklist'           => 'Blacklist',
+        'card_cache'               => 'DNS Cache',
+    ],
+    'history' => [
+        'title'                    => 'Time-Series Analysis',
+        'subtitle'                 => 'Traffic trends and historical latency.',
+        'section_resolution'       => 'Resolution Performance',
+        'section_logs_live'        => 'Real-Time Query Logs',
+    ],
     'config' => [
         'title'                    => 'System Settings',
         'tab_geral'                => 'Unbound Settings',

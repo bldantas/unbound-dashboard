@@ -58,7 +58,7 @@ $currentPage = 'diagnostics.php';
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Diagnóstico - Unbound DNS</title>
+    <title><?= t('diagnostics.title') ?> - Unbound DNS</title>
     <?php include 'includes/head.php'; ?>
     <style>
         .loader {
@@ -78,7 +78,7 @@ $currentPage = 'diagnostics.php';
     
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php 
-        $pageTitle = "Painel de Diagnóstico";
+        $pageTitle = t('diagnostics.title');
         include 'includes/topbar.php'; 
         ?>
         <div class="page-container relative">
@@ -97,7 +97,7 @@ $currentPage = 'diagnostics.php';
                         <div class="w-10 h-10 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500 dark:text-blue-400">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                         </div>
-                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">ICMP Ping</h3>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('diagnostics.card_ping') ?></h3>
                     </div>
                     <form class="diag-form space-y-4" data-tool-id="ping">
                         <input type="hidden" name="action" value="run_tool">
@@ -113,7 +113,7 @@ $currentPage = 'diagnostics.php';
                         <div class="w-10 h-10 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-500 dark:text-purple-400">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path></svg>
                         </div>
-                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Traceroute</h3>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('diagnostics.card_traceroute') ?></h3>
                     </div>
                     <form class="diag-form space-y-4" data-tool-id="traceroute">
                         <input type="hidden" name="action" value="run_tool">
@@ -129,7 +129,7 @@ $currentPage = 'diagnostics.php';
                         <div class="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 dark:text-emerald-400">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                         </div>
-                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">DNS Lookup</h3>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('diagnostics.card_dns_lookup') ?></h3>
                     </div>
                     <form class="diag-form space-y-3" data-tool-id="dns">
                         <input type="hidden" name="action" value="run_tool">
@@ -155,7 +155,7 @@ $currentPage = 'diagnostics.php';
                         <div class="w-10 h-10 rounded-2xl bg-orange-500/10 flex items-center justify-center text-orange-500 dark:text-orange-400">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 002 2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                         </div>
-                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Conectividade</h3>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('diagnostics.card_connectivity') ?></h3>
                     </div>
                     <div class="space-y-4">
                         <p class="text-[10px] text-slate-500 font-medium leading-relaxed">Verifica rotas de saída IPv4/IPv6, gateway padrão e resolução externa.</p>

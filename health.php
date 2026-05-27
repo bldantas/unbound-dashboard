@@ -180,7 +180,7 @@ $currentPage = 'health.php';
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Saúde - Unbound DNS</title>
+    <title><?= t('health.title') ?> - Unbound DNS</title>
     <?php include 'includes/head.php'; ?>
 </head>
 <body class="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 transition-colors duration-300">
@@ -189,7 +189,7 @@ $currentPage = 'health.php';
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Auditoria & Saúde do Sistema";
+        $pageTitle = t('health.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container relative z-10">
@@ -274,7 +274,7 @@ $currentPage = 'health.php';
                 <!-- Serviços + Checklist -->
                 <div class="glass-panel !p-0 overflow-hidden flex flex-col">
                     <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-slate-900/50 flex items-center justify-between">
-                        <h2 class="text-xs font-black uppercase tracking-widest">Checklist de Integridade</h2>
+                        <h2 class="text-xs font-black uppercase tracking-widest"><?= t('health.section_integrity') ?></h2>
                         <span class="text-[9px] font-black bg-emerald-500/10 text-emerald-500 px-2 py-1 rounded border border-emerald-500/30 tracking-widest uppercase">
                             <?= $auditOkCount ?>/<?= count($auditResults) ?> OK
                         </span>
@@ -351,7 +351,7 @@ $currentPage = 'health.php';
                             <div class="w-2.5 h-2.5 rounded-full bg-slate-700"></div>
                             <div class="w-2.5 h-2.5 rounded-full bg-slate-700"></div>
                         </div>
-                        <span class="text-[10px] font-black text-slate-300 dark:text-slate-500 uppercase tracking-widest">Console de Reparo</span>
+                        <span class="text-[10px] font-black text-slate-300 dark:text-slate-500 uppercase tracking-widest"><?= t('health.section_repair_console') ?></span>
                     </div>
                     <div id="fixTerminal" class="flex-1 p-6 bg-[#0a0a0a] overflow-auto font-mono text-xs text-slate-500 italic">
                         Aguardando execução de '/usr/local/bin/unbound-health-fix.sh'. Roda <code class="text-slate-400">chown</code> + <code class="text-slate-400">chmod</code> + cria chaves TLS faltantes.

@@ -13,7 +13,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Exportações - Unbound DNS</title>
+    <title><?= t('exports.title') ?> - Unbound DNS</title>
     <?php include 'includes/head.php'; ?>
 </head>
 <body class="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 transition-colors duration-300">
@@ -22,7 +22,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
     
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php 
-        $pageTitle = "Central de Exportação";
+        $pageTitle = t('exports.title');
         include 'includes/topbar.php'; 
         ?>
         <div class="page-container">
@@ -51,7 +51,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                         </div>
                         <div>
-                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Consultas DNS</h3>
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('exports.card_queries') ?></h3>
                             <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Formato CSV</p>
                         </div>
                     </div>
@@ -83,7 +83,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
                         </div>
                         <div>
-                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Estatísticas</h3>
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('exports.card_stats') ?></h3>
                             <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Formato JSON</p>
                         </div>
                     </div>
@@ -107,7 +107,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                         </div>
                         <div>
-                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Log do Sistema</h3>
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('exports.card_system_log') ?></h3>
                             <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Formato TXT</p>
                         </div>
                     </div>
@@ -131,7 +131,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
                         </div>
                         <div>
-                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Backup & Restauração</h3>
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('exports.card_backup') ?></h3>
                             <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Formato TAR.GZ</p>
                         </div>
                     </div>
@@ -171,7 +171,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
                         </div>
                         <div>
-                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Blacklist</h3>
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('exports.card_blacklist') ?></h3>
                             <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Formato CSV</p>
                         </div>
                     </div>
@@ -195,7 +195,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
                         </div>
                         <div>
-                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Cache DNS</h3>
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('exports.card_cache') ?></h3>
                             <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Formato TXT (raw)</p>
                         </div>
                     </div>
