@@ -9,7 +9,7 @@ $isAdmin = Auth::isAdmin();
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Geo-Blocking - Unbound DNS</title>
+    <title><?= t('geo_blocking.title') ?> - Unbound DNS</title>
     <meta name="description" content="Bloqueio de países inteiros via access-control do Unbound. CIDRs baixados de iwik.org.">
     <?php include 'includes/head.php'; ?>
 </head>
@@ -19,7 +19,7 @@ $isAdmin = Auth::isAdmin();
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Geo-Blocking";
+        $pageTitle = t('geo_blocking.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">
@@ -27,9 +27,9 @@ $isAdmin = Auth::isAdmin();
             <header class="page-header mb-6">
                 <h1 class="page-title flex items-center gap-3">
                     <svg class="w-8 h-8 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    Geo-Blocking
+                    <?= t('geo_blocking.title') ?>
                 </h1>
-                <p class="page-subtitle">Bloquear países inteiros via <code>access-control: &lt;cidr&gt; refuse</code>. CIDRs vêm de iwik.org (atualizados diariamente).</p>
+                <p class="page-subtitle"><?= t('geo_blocking.subtitle') ?></p>
             </header>
 
             <!-- Aviso master -->
@@ -61,7 +61,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Master toggle + actions -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Configuração</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('geo_blocking.section_config') ?></h3>
                 </div>
                 <div class="p-6 space-y-4">
                     <label class="flex items-center justify-between cursor-pointer">
@@ -92,7 +92,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Countries table -->
             <div class="glass-table-container border-slate-200 dark:border-white/5">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between flex-wrap gap-2">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Países cadastrados (<span id="countryCount" class="text-rose-500">—</span>)</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('geo_blocking.section_countries') ?> (<span id="countryCount" class="text-rose-500">—</span>)</h3>
                     <div class="flex items-center gap-2">
                         <input type="text" id="newCC" placeholder="ISO-2 ex: CN" maxlength="2" class="glass-input text-xs uppercase font-mono w-24" <?= $isAdmin ? '' : 'disabled' ?>>
                         <input type="text" id="newName" placeholder="Nome (ex: China)" maxlength="80" class="glass-input text-xs w-44" <?= $isAdmin ? '' : 'disabled' ?>>

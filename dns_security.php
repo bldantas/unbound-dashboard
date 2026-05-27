@@ -9,7 +9,7 @@ $isAdmin = Auth::isAdmin();
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Segurança DNS - Unbound DNS</title>
+    <title><?= t('dns_security.title') ?> - Unbound DNS</title>
     <meta name="description" content="DNSSEC, upstream DoT (DNS-over-TLS), trust anchors e modo de resolução.">
     <?php include 'includes/head.php'; ?>
 </head>
@@ -19,7 +19,7 @@ $isAdmin = Auth::isAdmin();
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Segurança DNS";
+        $pageTitle = t('dns_security.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">
@@ -27,9 +27,9 @@ $isAdmin = Auth::isAdmin();
             <header class="page-header mb-6">
                 <h1 class="page-title flex items-center gap-3">
                     <svg class="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-                    Segurança DNS
+                    <?= t('dns_security.title') ?>
                 </h1>
-                <p class="page-subtitle">DNSSEC, trust anchors e modo de resolução upstream (recursivo direto ou via DoT).</p>
+                <p class="page-subtitle"><?= t('dns_security.subtitle') ?></p>
             </header>
 
             <!-- DNSSEC -->
@@ -55,7 +55,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Upstream config -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Modo Upstream</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('dns_security.section_upstream') ?></h3>
                     <p class="text-[10px] text-slate-500 mt-1">Recursivo: Unbound consulta diretamente os servidores autoritativos a partir do root (padrão, mais privacidade). DoT: Unbound encaminha pra um resolver via DNS-over-TLS (criptografado, mas confia no provedor).</p>
                 </div>
                 <div class="p-6 space-y-4">
@@ -101,7 +101,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Privacidade (qname-minimisation) -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Privacidade (QNAME Minimisation)</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('dns_security.section_qname') ?></h3>
                     <p class="text-[10px] text-slate-500 mt-1">RFC 7816: ao resolver `foo.example.com.`, o Unbound pergunta ao root só `com.`, depois ao TLD só `example.com.`, e só pro auth final pergunta o nome completo. Reduz vazamento pros operadores de DNS upstream. Modo `strict` segue o RFC ao pé da letra (mais privacidade, mas pode quebrar com auths mal-configurados).</p>
                 </div>
                 <div class="p-6">
@@ -131,7 +131,7 @@ $isAdmin = Auth::isAdmin();
             <!-- DoH Inbound v2 (info + cert mgmt) -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">DoH/DoT Inbound (servidor)</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('dns_security.section_doh_inbound') ?></h3>
                     <p class="text-[10px] text-slate-500 mt-1">Unbound aceita consultas via DoH (porta 8443) e DoT (porta 853). Ambos usam o mesmo cert TLS (<code>tls-service-pem/key</code>). Esta seção mostra info do cert e permite gerar self-signed pra dev/teste.</p>
                 </div>
                 <div class="p-6 space-y-4 text-xs">
@@ -192,7 +192,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Rate-limit -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Rate Limit (defesa contra abuso)</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('dns_security.section_rate_limit') ?></h3>
                     <p class="text-[10px] text-slate-500 mt-1">Limita queries por segundo (QPS) por IP cliente e/ou por domínio destino. <code>factor</code> = "1 a cada N queries passa mesmo limitado" (evita NXDOMAIN amplification).</p>
                 </div>
                 <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -252,7 +252,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Hardening v2 (D.2) -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Hardening & Privacidade Avançada</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('dns_security.section_hardening') ?></h3>
                     <p class="text-[10px] text-slate-500 mt-1">Sobrepõem as defaults de <code>/etc/unbound/includes/security.conf</code>. Cada toggle ativa uma diretiva extra no <code>forwarders.conf</code> e exige Apply pra entrar em vigor.</p>
                 </div>
                 <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">

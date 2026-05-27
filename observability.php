@@ -8,7 +8,7 @@ $currentPage = 'observability.php';
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Observabilidade - Unbound DNS</title>
+    <title><?= t('observability.title') ?> - Unbound DNS</title>
     <meta name="description" content="Saúde do daemon Unbound, latência p50/avg, hit ratio, status dos workers e série temporal de queries.">
     <?php include 'includes/head.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -19,7 +19,7 @@ $currentPage = 'observability.php';
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Observabilidade";
+        $pageTitle = t('observability.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">
@@ -28,9 +28,9 @@ $currentPage = 'observability.php';
                 <div>
                     <h1 class="page-title flex items-center gap-3">
                         <svg class="w-8 h-8 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-                        Observabilidade
+                        <?= t('observability.title') ?>
                     </h1>
-                    <p class="page-subtitle">Saúde do daemon, latência, hit ratio e status dos workers em tempo real.</p>
+                    <p class="page-subtitle"><?= t('observability.subtitle') ?></p>
                 </div>
                 <button type="button" id="btnRefresh" class="glass-btn !bg-purple-600 !text-white text-[10px] uppercase font-black flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
@@ -70,21 +70,21 @@ $currentPage = 'observability.php';
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
                 <div class="glass-panel border-slate-200 dark:border-white/5">
                     <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Latência — última hora (60 samples)</h3>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('observability.section_latency') ?></h3>
                         <p class="text-[10px] text-slate-500 mt-1">avg vs median (ms), 1 sample/min</p>
                     </div>
                     <div class="p-4 h-64"><canvas id="chartLat"></canvas></div>
                 </div>
                 <div class="glass-panel border-slate-200 dark:border-white/5">
                     <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Queries por minuto — última hora</h3>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('observability.section_qpm') ?></h3>
                         <p class="text-[10px] text-slate-500 mt-1">hits / miss derivados do counter</p>
                     </div>
                     <div class="p-4 h-64"><canvas id="chartQpm"></canvas></div>
                 </div>
                 <div class="glass-panel border-slate-200 dark:border-white/5 lg:col-span-2">
                     <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Queries por hora — últimas 24h</h3>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('observability.section_qph') ?></h3>
                         <p class="text-[10px] text-slate-500 mt-1">hourly_stats (total vs blocked)</p>
                     </div>
                     <div class="p-4 h-64"><canvas id="chartHourly"></canvas></div>
@@ -95,7 +95,7 @@ $currentPage = 'observability.php';
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
                     <div>
-                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Workers em background</h3>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('observability.section_workers') ?></h3>
                         <p class="text-[10px] text-slate-500 mt-1">Tasks supervisionadas no api_service (backoff exponencial em crash)</p>
                     </div>
                     <span id="workersSummary" class="text-[10px] font-black uppercase tracking-widest text-emerald-500">—</span>

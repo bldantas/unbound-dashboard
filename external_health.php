@@ -9,7 +9,7 @@ $isAdmin = Auth::isAdmin();
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Health Externo - Unbound DNS</title>
+    <title><?= t('external_health.title') ?> - Unbound DNS</title>
     <meta name="description" content="SLA externo: monitor de fora do servidor reporta probes DNS contínuos.">
     <?php include 'includes/head.php'; ?>
 </head>
@@ -19,7 +19,7 @@ $isAdmin = Auth::isAdmin();
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Health Externo";
+        $pageTitle = t('external_health.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">
@@ -27,9 +27,9 @@ $isAdmin = Auth::isAdmin();
             <header class="page-header mb-6">
                 <h1 class="page-title flex items-center gap-3">
                     <svg class="w-8 h-8 text-lime-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    Health Externo
+                    <?= t('external_health.title') ?>
                 </h1>
-                <p class="page-subtitle">SLA medido de fora do servidor. Probes vêm de monitores externos via <code>POST /api/v1/external-health/report</code> e ficam no DuckDB.</p>
+                <p class="page-subtitle"><?= t('external_health.subtitle') ?></p>
             </header>
 
             <div class="flex flex-wrap items-end gap-3 mb-6 text-xs">
@@ -93,7 +93,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Recent probes -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6 overflow-hidden">
                 <div class="px-6 py-3 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Probes recentes (top 100)</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('external_health.section_probes') ?></h3>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-xs">
@@ -119,7 +119,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Retention -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Retenção</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('external_health.section_retention') ?></h3>
                     <p class="text-[10px] text-slate-500 mt-1">Worker <code>ExternalHealthPruner</code> apaga 1x/dia probes mais velhos que N dias. Default 90, mín 7, máx 3650.</p>
                 </div>
                 <div class="p-6 flex flex-wrap items-end gap-4 text-xs">
@@ -139,7 +139,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Setup helper -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Como rodar o monitor externo</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('external_health.section_monitor_howto') ?></h3>
                 </div>
                 <div class="p-6 text-xs space-y-3">
                     <p>1. Em outra máquina (idealmente fora da rede do servidor monitorado), baixe <code>api_service/tools/external_healthcheck.py</code> deste repo.</p>
