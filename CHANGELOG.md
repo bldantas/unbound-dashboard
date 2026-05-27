@@ -9,6 +9,14 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Login redesign
+- **v2.95**: `/login.php` redesenhado em split-pane (desktop) / single-card (mobile):
+  - **Hero pane esquerdo** (lg+): mesh gradient animado + grid mask, logo com pulse ring, tagline + 4 bullet features (DoH/DoT, blocklists+anti-DGA, multi-tenant+RBAC, backup+observabilidade), versão + badge "Sistema operacional" (consulta `/api/v1/healthz` público).
+  - **Form pane direito**: card glass com tema-aware (light/dark), animação de entrada, input com `autofocus`, toggle de visibilidade da senha (eye icon), CTA com seta animada.
+  - **Top-right toggles**: PT/EN (POST pra `set_locale.php`) + dark/light (localStorage + class `.dark` no `<html>`). FOUC-proof — script de tema roda antes do Tailwind.
+  - **Mobile**: hero some, form ocupa tela inteira, logo aparece dentro do card.
+  - Loader original preservado; OIDC hash redirect + botão SSO preservados; recover link, error/success banners, 2FA redirect — todos intactos.
+
 ### Dashboard
 - **v2.94**: dois widgets novos no topo de `/index.php`:
   - **Alertas Ativos**: count por severidade (critical/warning/info) + mensagem do mais recente + link pra resolução. Fetch de `/api/v1/alerts/list` a cada 30s.
