@@ -74,7 +74,6 @@ $ipv6Total = $initialMetrics['ipv6_total'];
 $prefetch = $initialMetrics['prefetch'];
 $rrsetMem = $initialMetrics['rrset_mem'];
 $msgMem = $initialMetrics['msg_mem'];
-$unwanted = $initialMetrics['unwanted'];
 $unwantedQueries = $initialMetrics['unwanted_queries'];
 $unwantedReplies = $initialMetrics['unwanted_replies'];
 $adwareBlocks = $initialMetrics['blocks']['adware'];

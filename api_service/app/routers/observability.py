@@ -72,6 +72,18 @@ async def get_workers_status(
     last_backup = await _stat("backup_s3_last_upload_at")
     last_prune_run = await _stat("query_log_pruner_last_run")
     last_prune_deleted = await _stat("query_log_pruner_last_deleted")
+    last_notif_prune = await _stat("notification_pruner_last_run")
+    last_notif_pruned = await _stat("notification_pruner_last_deleted")
+    last_audit_prune = await _stat("audit_pruner_last_run")
+    last_audit_pruned = await _stat("audit_pruner_last_deleted")
+    last_eh_prune = await _stat("external_health_pruner_last_run")
+    last_baseline_learn = await _stat("baseline_learner_last_run")
+    last_geo_update = await _stat("geo_block_updater_last_run")
+    last_restore_test = await _stat("restore_test_last_run")
+    last_restore_result = await _stat("restore_test_last_result")
+    last_ha_check = await _stat("ha_peer_monitor_last_run")
+    last_digest_run = await _stat("digest_sender_last_run")
+    last_digest_sent = await _stat("digest_sender_last_sent")
 
     # blocklist syncs — pega o mais recente entre todas as sources ativas
     bl_row = await db_fetchone(
@@ -179,6 +191,73 @@ async def get_workers_status(
             "description": "Deleta query_logs > retention_days",
             "last_run": last_prune_run,
             "extra": {"last_deleted": int(last_prune_deleted or 0)},
+        },
+        {
+            "name": "notification_pruner",
+            "tick_seconds": 86400,
+            "status": task_status.get("notification_pruner", "unknown"),
+            "description": "Apaga alerts/notifications resolvidos > retention",
+            "last_run": last_notif_prune,
+            "extra": {"last_deleted": int(last_notif_pruned or 0)},
+        },
+        {
+            "name": "audit_pruner",
+            "tick_seconds": 86400,
+            "status": task_status.get("audit_pruner", "unknown"),
+            "description": "Apaga admin_audit entries > retention",
+            "last_run": last_audit_prune,
+            "extra": {"last_deleted": int(last_audit_pruned or 0)},
+        },
+        {
+            "name": "external_health_pruner",
+            "tick_seconds": 86400,
+            "status": task_status.get("external_health_pruner", "unknown"),
+            "description": "Apaga external_health_probes > retention",
+            "last_run": last_eh_prune,
+        },
+        {
+            "name": "prometheus_exporter",
+            "tick_seconds": 30,
+            "status": task_status.get("prometheus_exporter", "unknown"),
+            "description": "Atualiza gauges Prometheus (qps, latency, cache, alerts)",
+            "last_run": None,  # contínuo
+        },
+        {
+            "name": "ha_peer_monitor",
+            "tick_seconds": 30,
+            "status": task_status.get("ha_peer_monitor", "unknown"),
+            "description": "Healthcheck nos peers HA via /healthz remoto",
+            "last_run": last_ha_check,
+        },
+        {
+            "name": "restore_test_runner",
+            "tick_seconds": 86400,
+            "status": task_status.get("restore_test_runner", "unknown"),
+            "description": "Baixa backup mais recente e valida abertura DuckDB",
+            "last_run": last_restore_test,
+            "extra": {"last_result": last_restore_result or "?"},
+        },
+        {
+            "name": "baseline_learner",
+            "tick_seconds": 86400,
+            "status": task_status.get("baseline_learner", "unknown"),
+            "description": "ML baseline 24×7 (hod × dow) — sazonalidade pra anomaly_deviation",
+            "last_run": last_baseline_learn,
+        },
+        {
+            "name": "geo_block_updater",
+            "tick_seconds": 86400,
+            "status": task_status.get("geo_block_updater", "unknown"),
+            "description": "Re-sincroniza CIDRs por país (iwik.org) das regiões habilitadas",
+            "last_run": last_geo_update,
+        },
+        {
+            "name": "digest_sender",
+            "tick_seconds": 3600,
+            "status": task_status.get("digest_sender", "unknown"),
+            "description": "Envia digest diário por email pros users que optaram",
+            "last_run": last_digest_run,
+            "extra": {"last_sent_count": int(last_digest_sent or 0)},
         },
     ]
 

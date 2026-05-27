@@ -9,6 +9,11 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Polish + fix
+- **v2.97**: limpeza pós-v2.96:
+  - **/api/v1/observability/workers** agora enumera os **19 workers** (era 10) — incluindo NotificationPruner, AuditPruner, ExternalHealthPruner, PrometheusExporter, HAPeerMonitor, RestoreTestRunner, BaselineLearner, GeoBlockUpdater, DigestSender. Cada um com `tick_seconds`, descrição, `last_run` (best-effort de settings) e `extra` quando aplicável. Reflete corretamente o widget Workers do dashboard.
+  - **Fix**: `Undefined array key "unwanted"` em [index.php:77](index.php#L77). A variável era setada mas nunca usada — `unbound_collector` escreve `unwanted_queries` e `unwanted_replies` separados, não `unwanted` total. Linha removida.
+
 ### Polish
 - **v2.96**: polimento da rodada anterior:
   - **Login i18n**: hero + form 100% via `t()` (novo namespace `login.*` com ~24 chaves em pt-BR/en). Health badge tem `data-text-*` injetados pelo PHP — JS só lê. SSO button, "Esqueceu a senha?", "Acessar", labels, divider "ou", e tooltips dos toggles tudo localizado.
