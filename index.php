@@ -215,7 +215,7 @@ $currentPage = 'index.php';
             <!-- OVERVIEW ROW: Active Alerts + Storage/Redis health -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <!-- ACTIVE ALERTS WIDGET -->
-                <div id="widgetAlerts" class="glass-panel border-l-4 border-amber-500/40 flex flex-col">
+                <div id="widgetAlerts" class="glass-panel border-l-4 border-amber-500/40 flex flex-col stagger-item stagger-0a">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
                             <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
@@ -243,7 +243,7 @@ $currentPage = 'index.php';
                 </div>
 
                 <!-- STORAGE & REDIS HEALTH WIDGET -->
-                <div id="widgetStorage" class="glass-panel border-l-4 border-cyan-500/40 flex flex-col">
+                <div id="widgetStorage" class="glass-panel border-l-4 border-cyan-500/40 flex flex-col stagger-item stagger-0b">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
                             <svg class="w-4 h-4 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
@@ -276,6 +276,21 @@ $currentPage = 'index.php';
                             <p class="text-[9px] text-slate-500">background</p>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- WORKERS HEALTH ROW -->
+            <div id="widgetWorkers" class="glass-panel border-slate-200 dark:border-white/5 stagger-item stagger-0c">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                        <svg class="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        Workers em background
+                        <span id="workersSummary" class="ml-1 text-[10px] text-slate-500 normal-case tracking-normal font-bold">—</span>
+                    </h3>
+                    <a href="observability.php" class="text-[10px] text-slate-500 hover:text-purple-500 font-black uppercase tracking-widest">Detalhes ›</a>
+                </div>
+                <div id="workersRow" class="flex flex-wrap gap-1.5 text-[10px]">
+                    <span class="text-slate-500 italic">Carregando…</span>
                 </div>
             </div>
 
@@ -359,10 +374,53 @@ $currentPage = 'index.php';
                 </div>
             </div>
 
+            <!-- TOP 5 + RECENT ACTIVITY (tabs) -->
+            <div id="widgetTopRecent" class="glass-panel border-slate-200 dark:border-white/5 stagger-item stagger-7">
+                <div class="flex items-center justify-between border-b border-slate-900/10 dark:border-white/5 pb-3 mb-4">
+                    <div class="flex items-center gap-1">
+                        <button type="button" data-trtab="domains" class="tr-tab text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all">
+                            Top Domínios Bloqueados
+                        </button>
+                        <button type="button" data-trtab="clients" class="tr-tab text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all">
+                            Top Clientes
+                        </button>
+                        <button type="button" data-trtab="audit" class="tr-tab text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all">
+                            Atividade Recente
+                        </button>
+                    </div>
+                    <span class="text-[10px] text-slate-500 font-black uppercase tracking-widest">últimas 24h</span>
+                </div>
+
+                <div id="trPanel-domains" class="tr-panel">
+                    <ul id="trListDomains" class="space-y-1.5 text-xs">
+                        <li class="text-slate-500 italic">Carregando…</li>
+                    </ul>
+                </div>
+                <div id="trPanel-clients" class="tr-panel hidden">
+                    <ul id="trListClients" class="space-y-1.5 text-xs">
+                        <li class="text-slate-500 italic">Carregando…</li>
+                    </ul>
+                </div>
+                <div id="trPanel-audit" class="tr-panel hidden">
+                    <ul id="trListAudit" class="space-y-1.5 text-xs">
+                        <li class="text-slate-500 italic">Carregando…</li>
+                    </ul>
+                </div>
+            </div>
+            <style>
+                .tr-tab { color: rgb(100, 116, 139); }
+                .tr-tab:hover { background: rgba(148, 163, 184, 0.08); }
+                .tr-tab.is-active {
+                    background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(168, 85, 247, 0.12));
+                    color: rgb(37, 99, 235);
+                }
+                html.dark .tr-tab.is-active { color: rgb(96, 165, 250); }
+            </style>
+
             <!-- FILA INFERIOR: SEGURANCIA & SISTEMA -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-stretch">
                 <!-- SEGURANÇA -->
-                <div class="glass-panel glow-red border-l-4 border-red-500/40 flex flex-col h-full border-slate-900/10 dark:border-white/5 stagger-item stagger-7">
+                <div class="glass-panel glow-red border-l-4 border-red-500/40 flex flex-col h-full border-slate-900/10 dark:border-white/5 stagger-item stagger-8">
                     <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest mb-6 flex items-center gap-2">
                         <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                         <?= t('index.section_security') ?>
@@ -386,7 +444,7 @@ $currentPage = 'index.php';
                 </div>
 
                 <!-- CONSUMO RAM -->
-                <div class="glass-panel flex flex-col h-full border-slate-900/10 dark:border-white/5 stagger-item stagger-8">
+                <div class="glass-panel flex flex-col h-full border-slate-900/10 dark:border-white/5 stagger-item stagger-9">
                     <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest mb-6 flex items-center gap-2">
                         <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
                         <?= t('index.section_cache') ?>
@@ -417,7 +475,7 @@ $currentPage = 'index.php';
                 </div>
 
                 <!-- ALERTA ANOMALIA -->
-                <div class="glass-panel glow-orange group cursor-pointer hover:bg-orange-500/10 transition-all border border-slate-900/10 dark:border-transparent hover:border-orange-500/20 flex flex-col h-full stagger-item stagger-9">
+                <div class="glass-panel glow-orange group cursor-pointer hover:bg-orange-500/10 transition-all border border-slate-900/10 dark:border-transparent hover:border-orange-500/20 flex flex-col h-full stagger-item stagger-10">
                      <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest mb-4 flex items-center gap-2">
                         <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                         <?= t('index.section_anomalies') ?>
@@ -942,10 +1000,133 @@ $currentPage = 'index.php';
             return (i === 0 ? Math.round(s) : s.toFixed(1)) + ' ' + units[i];
         }
 
+        async function refreshWorkersWidget() {
+            try {
+                const r = await fetch('/api/v1/observability/workers', { headers: __H });
+                if (!r.ok) return;
+                const d = await r.json();
+                const workers = d.workers || [];
+                const summary = d.summary || {};
+                const sumEl = document.getElementById('workersSummary');
+                if (sumEl) {
+                    const total = summary.total || workers.length;
+                    const running = summary.running ?? 0;
+                    sumEl.textContent = `${running}/${total} ativos`;
+                    sumEl.className = 'ml-1 text-[10px] normal-case tracking-normal font-bold ' +
+                        (running === total ? 'text-emerald-500' : (running === 0 ? 'text-red-500' : 'text-amber-500'));
+                }
+                const row = document.getElementById('workersRow');
+                if (!row) return;
+                if (!workers.length) {
+                    row.innerHTML = '<span class="text-slate-500 italic">Nenhum worker registrado.</span>';
+                    return;
+                }
+                row.innerHTML = workers.map(w => {
+                    const status = w.status || 'unknown';
+                    const colorMap = {
+                        running: { dot: 'bg-emerald-500', wrap: 'bg-emerald-500/5 border-emerald-500/20 text-emerald-700 dark:text-emerald-300' },
+                        done:    { dot: 'bg-amber-500',   wrap: 'bg-amber-500/5 border-amber-500/20 text-amber-700 dark:text-amber-300' },
+                        unknown: { dot: 'bg-slate-400',   wrap: 'bg-slate-500/5 border-slate-500/20 text-slate-600 dark:text-slate-400' },
+                    };
+                    const c = colorMap[status] || colorMap.unknown;
+                    const name = String(w.name || '?').replace(/_/g, ' ');
+                    const lastRun = w.last_run ? new Date(w.last_run).toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+                    const titleEsc = (w.description || w.name) + ' · status: ' + status + ' · last_run: ' + lastRun;
+                    return `<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border ${c.wrap} font-mono" title="${titleEsc.replace(/"/g, '&quot;')}">`
+                        + `<span class="w-1.5 h-1.5 rounded-full ${c.dot}"></span>${name}</span>`;
+                }).join('');
+            } catch (_) { /* silencioso */ }
+        }
+
+        // --- Top 5 + Recent activity (tabs) ---
+        function escapeHtmlSafe(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+        function renderRankList(items, keyName, fmtCount) {
+            if (!items || !items.length) return '<li class="text-slate-500 italic">Sem dados nas últimas 24h.</li>';
+            return items.slice(0, 5).map((it, i) => {
+                const k = escapeHtmlSafe(String(it[keyName] || '?')).slice(0, 60);
+                const n = fmtCount(it);
+                return `<li class="flex items-center justify-between gap-3 p-2 bg-slate-900/5 dark:bg-white/5 rounded-lg">`
+                    + `<span class="flex items-center gap-2 min-w-0 flex-1"><span class="w-5 h-5 rounded-md bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center text-[10px] font-black flex-shrink-0">${i + 1}</span>`
+                    + `<span class="truncate font-mono text-slate-700 dark:text-slate-300">${k}</span></span>`
+                    + `<span class="font-black text-slate-900 dark:text-white tabular-nums text-[11px]">${n}</span>`
+                    + `</li>`;
+            }).join('');
+        }
+        async function refreshTopDomains() {
+            try {
+                const r = await fetch('/api/v1/analytics/top-domains?window=24h&limit=5&action=blocked', { headers: __H });
+                if (!r.ok) return;
+                const d = await r.json();
+                document.getElementById('trListDomains').innerHTML = renderRankList(
+                    d.items || [], 'domain', it => Number(it.total || it.count || 0).toLocaleString('pt-BR')
+                );
+            } catch (_) { /* silencioso */ }
+        }
+        async function refreshTopClients() {
+            try {
+                const r = await fetch('/api/v1/analytics/top-clients?window=24h&limit=5', { headers: __H });
+                if (!r.ok) return;
+                const d = await r.json();
+                document.getElementById('trListClients').innerHTML = renderRankList(
+                    d.items || [], 'client_ip', it => Number(it.total || it.count || 0).toLocaleString('pt-BR')
+                );
+            } catch (_) { /* silencioso */ }
+        }
+        async function refreshRecentAudit() {
+            try {
+                const r = await fetch('/api/v1/audit/admin/list?limit=5', { headers: __H });
+                if (!r.ok) return;
+                const d = await r.json();
+                const items = d.items || [];
+                if (!items.length) {
+                    document.getElementById('trListAudit').innerHTML = '<li class="text-slate-500 italic">Sem ações administrativas recentes.</li>';
+                    return;
+                }
+                document.getElementById('trListAudit').innerHTML = items.map(it => {
+                    const actor = escapeHtmlSafe(it.actor_username || '?');
+                    const action = escapeHtmlSafe(it.action || '?');
+                    const target = it.target_id ? ' → ' + escapeHtmlSafe(it.target_type || '') + ':' + escapeHtmlSafe(it.target_id) : '';
+                    const ts = it.created_at ? new Date(it.created_at).toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '—';
+                    return `<li class="flex items-center justify-between gap-3 p-2 bg-slate-900/5 dark:bg-white/5 rounded-lg">`
+                        + `<span class="flex-1 min-w-0 truncate"><span class="font-mono text-[11px] text-slate-700 dark:text-slate-300">${actor}</span>`
+                        + ` <span class="text-blue-600 dark:text-blue-400 font-bold">${action}</span>`
+                        + `<span class="text-slate-500 text-[10px]">${target}</span></span>`
+                        + `<span class="text-[10px] text-slate-500 font-mono">${ts}</span></li>`;
+                }).join('');
+            } catch (_) { /* silencioso */ }
+        }
+
+        // Tabs switching
+        (function () {
+            const tabs = document.querySelectorAll('.tr-tab');
+            const panels = { domains: document.getElementById('trPanel-domains'), clients: document.getElementById('trPanel-clients'), audit: document.getElementById('trPanel-audit') };
+            function activate(name) {
+                tabs.forEach(t => t.classList.toggle('is-active', t.dataset.trtab === name));
+                Object.entries(panels).forEach(([k, el]) => el && el.classList.toggle('hidden', k !== name));
+                if (name === 'domains') refreshTopDomains();
+                else if (name === 'clients') refreshTopClients();
+                else if (name === 'audit') refreshRecentAudit();
+            }
+            tabs.forEach(t => t.addEventListener('click', () => activate(t.dataset.trtab)));
+            activate('domains');
+        })();
+
         refreshAlertsWidget();
         refreshStorageWidget();
-        // Refresh slower (30s) — alerts/storage não mudam tão rápido quanto QPS
-        setInterval(() => { refreshAlertsWidget(); refreshStorageWidget(); }, 30000);
+        refreshWorkersWidget();
+        // Refresh slower (30s) — alerts/storage/workers não mudam tão rápido quanto QPS
+        setInterval(() => { refreshAlertsWidget(); refreshStorageWidget(); refreshWorkersWidget(); }, 30000);
+        // Top/Recent: refresh a cada 60s (24h window — não muda rápido)
+        setInterval(() => {
+            const tabs = document.querySelectorAll('.tr-tab.is-active');
+            if (!tabs.length) return;
+            const active = tabs[0].dataset.trtab;
+            if (active === 'domains') refreshTopDomains();
+            else if (active === 'clients') refreshTopClients();
+            else if (active === 'audit') refreshRecentAudit();
+        }, 60000);
 
         // Atualiza timestamp + permite pausar
         let __updateIntervalId = setInterval(() => {

@@ -207,6 +207,9 @@ html.dark .nav-link:hover {
     opacity: 0;
     animation: cardEntrance 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
+.stagger-0a { animation-delay: 0ms; }
+.stagger-0b { animation-delay: 60ms; }
+.stagger-0c { animation-delay: 120ms; }
 .stagger-1 { animation-delay: 0ms; }
 .stagger-2 { animation-delay: 80ms; }
 .stagger-3 { animation-delay: 160ms; }

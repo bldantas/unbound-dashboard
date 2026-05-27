@@ -278,7 +278,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div id="login-loader" aria-live="polite" aria-busy="true">
         <div class="login-loader-card">
             <span class="login-loader-dot" aria-hidden="true"></span>
-            <span>Entrando no painel...</span>
+            <span><?= htmlspecialchars(\App\I18n::t('login.entering')) ?></span>
         </div>
         <div class="login-loader-progress-track" aria-hidden="true">
             <div class="login-loader-progress-bar"></div>
@@ -298,56 +298,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </svg>
             </div>
             <div>
-                <p class="text-white text-base font-black tracking-tight">Unbound DNS</p>
-                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Recursive Resolver Suite</p>
+                <p class="text-white text-base font-black tracking-tight"><?= htmlspecialchars(\App\I18n::t('login.brand_title')) ?></p>
+                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest"><?= htmlspecialchars(\App\I18n::t('login.brand_subtitle')) ?></p>
             </div>
         </div>
 
         <!-- Middle: tagline + features -->
         <div class="relative z-10 max-w-lg">
+            <?php
+            // Hero H1: separa o highlight (gradient text) do resto.
+            // hero_h1_a + hero_h1_b. O highlight é substring de hero_h1_b.
+            $heroA = \App\I18n::t('login.hero_h1_a');
+            $heroB = \App\I18n::t('login.hero_h1_b');
+            $heroHL = \App\I18n::t('login.hero_h1_highlight');
+            // Substitui o highlight no hero_h1_b por <span>...</span>
+            $heroBhtml = htmlspecialchars($heroB);
+            if ($heroHL && str_contains($heroB, $heroHL)) {
+                $heroBhtml = str_replace(
+                    htmlspecialchars($heroHL),
+                    '<span class="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">' . htmlspecialchars($heroHL) . '</span>',
+                    htmlspecialchars($heroB)
+                );
+            }
+            ?>
             <h1 class="text-white text-4xl xl:text-5xl font-black tracking-tight leading-tight mb-4">
-                DNS rápido, privado<br>
-                e <span class="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">sob seu controle</span>.
+                <?= htmlspecialchars($heroA) ?><br>
+                <?= $heroBhtml ?>
             </h1>
             <p class="text-slate-300 text-base mb-8 leading-relaxed">
-                Resolver recursivo com DoT/DoH inbound, blocklists multi-source, anti-DGA,
-                multi-tenant, multi-host e observabilidade Prometheus.
+                <?= htmlspecialchars(\App\I18n::t('login.hero_subtitle')) ?>
             </p>
 
             <ul class="space-y-3 text-slate-300 text-sm">
-                <li class="flex items-start gap-3">
-                    <span class="mt-0.5 w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center flex-shrink-0">
-                        <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                    </span>
-                    <span><strong class="text-white">DoH/DoT inbound</strong> com cert gerenciado + rate-limit per-token</span>
-                </li>
-                <li class="flex items-start gap-3">
-                    <span class="mt-0.5 w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center flex-shrink-0">
-                        <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                    </span>
-                    <span><strong class="text-white">10 blocklists curadas</strong> + allowlist + anti-DGA + baseline ML</span>
-                </li>
-                <li class="flex items-start gap-3">
-                    <span class="mt-0.5 w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center flex-shrink-0">
-                        <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                    </span>
-                    <span><strong class="text-white">Multi-host + Multi-tenant</strong> com RBAC, 2FA TOTP, SSO OIDC + group mapping</span>
-                </li>
-                <li class="flex items-start gap-3">
-                    <span class="mt-0.5 w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center flex-shrink-0">
-                        <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                    </span>
-                    <span><strong class="text-white">Backup S3 cifrado</strong> + restore-test + Prometheus + Grafana</span>
-                </li>
+                <?php foreach (['feature_doh', 'feature_blocklists', 'feature_multitenant', 'feature_backup'] as $featKey): ?>
+                    <li class="flex items-start gap-3">
+                        <span class="mt-0.5 w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center flex-shrink-0">
+                            <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                        </span>
+                        <span><?= htmlspecialchars(\App\I18n::t("login.{$featKey}")) ?></span>
+                    </li>
+                <?php endforeach; ?>
             </ul>
         </div>
 
         <!-- Bottom: version + health -->
         <div class="relative z-10 flex items-center justify-between text-[11px] text-slate-500">
             <span class="font-mono">v<?= htmlspecialchars($appVersion) ?></span>
-            <span id="systemHealth" class="flex items-center gap-2">
+            <span id="systemHealth"
+                  data-text-online="<?= htmlspecialchars(\App\I18n::t('login.health_online')) ?>"
+                  data-text-offline="<?= htmlspecialchars(\App\I18n::t('login.health_offline')) ?>"
+                  data-text-no-response="<?= htmlspecialchars(\App\I18n::t('login.health_no_response')) ?>"
+                  class="flex items-center gap-2">
                 <span class="w-1.5 h-1.5 rounded-full bg-slate-500 animate-pulse"></span>
-                <span class="font-black uppercase tracking-widest">Verificando…</span>
+                <span class="font-black uppercase tracking-widest"><?= htmlspecialchars(\App\I18n::t('login.health_checking')) ?></span>
             </span>
         </div>
     </aside>
@@ -358,11 +361,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="absolute top-4 right-4 flex items-center gap-2 z-20">
             <form method="POST" action="/set_locale.php" class="inline-block">
                 <input type="hidden" name="lang" value="<?= $loginLocale === 'pt-BR' ? 'en' : 'pt-BR' ?>">
-                <button type="submit" class="p-2.5 rounded-2xl bg-slate-200/70 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-white/10 transition-all text-[10px] font-black uppercase tracking-widest border border-transparent dark:border-white/5" title="Idioma / Language">
+                <button type="submit" class="p-2.5 rounded-2xl bg-slate-200/70 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-white/10 transition-all text-[10px] font-black uppercase tracking-widest border border-transparent dark:border-white/5" title="<?= htmlspecialchars(\App\I18n::t('login.lang_label')) ?>">
                     <?= $loginLocale === 'pt-BR' ? 'PT' : 'EN' ?>
                 </button>
             </form>
-            <button type="button" id="themeToggle" class="p-2.5 rounded-2xl bg-slate-200/70 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-white/10 transition-all border border-transparent dark:border-white/5" title="Tema / Theme">
+            <button type="button" id="themeToggle" class="p-2.5 rounded-2xl bg-slate-200/70 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-white/10 transition-all border border-transparent dark:border-white/5" title="<?= htmlspecialchars(\App\I18n::t('login.theme_label')) ?>">
                 <svg id="sunIcon" class="w-4 h-4 hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"/></svg>
                 <svg id="moonIcon" class="w-4 h-4 hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
             </button>
@@ -379,8 +382,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 </div>
 
-                <h2 class="text-2xl lg:text-3xl font-black tracking-tight text-slate-900 dark:text-white mb-1">Acessar painel</h2>
-                <p class="text-slate-500 dark:text-slate-400 text-sm mb-6">Use suas credenciais ou faça login via SSO.</p>
+                <h2 class="text-2xl lg:text-3xl font-black tracking-tight text-slate-900 dark:text-white mb-1"><?= htmlspecialchars(\App\I18n::t('login.card_title')) ?></h2>
+                <p class="text-slate-500 dark:text-slate-400 text-sm mb-6"><?= htmlspecialchars(\App\I18n::t('login.card_subtitle')) ?></p>
 
                 <?php if ($success_message): ?>
                     <div class="bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 p-3 rounded-xl text-xs mb-4 font-medium">
@@ -396,14 +399,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <form method="POST" action="login.php" class="space-y-4" id="login-form">
                     <div>
-                        <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-black mb-1.5 uppercase tracking-widest">Usuário</label>
+                        <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-black mb-1.5 uppercase tracking-widest"><?= htmlspecialchars(\App\I18n::t('login.label_username')) ?></label>
                         <input type="text" name="username" required autofocus class="login-input w-full rounded-xl px-4 py-3 transition-all" placeholder="admin" autocomplete="username">
                     </div>
                     <div>
-                        <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-black mb-1.5 uppercase tracking-widest">Senha</label>
+                        <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-black mb-1.5 uppercase tracking-widest"><?= htmlspecialchars(\App\I18n::t('login.label_password')) ?></label>
                         <div class="relative">
                             <input type="password" name="password" id="passwordInput" required class="login-input w-full rounded-xl px-4 py-3 pr-12 transition-all" placeholder="••••••••" autocomplete="current-password">
-                            <button type="button" id="togglePassword" tabindex="-1" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors" title="Mostrar/ocultar senha">
+                            <button type="button" id="togglePassword" tabindex="-1" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors" title="<?= htmlspecialchars(\App\I18n::t('login.password_toggle')) ?>">
                                 <svg id="eyeOpen" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                                 <svg id="eyeClosed" class="w-5 h-5 hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.879 9.878L3 3m6.878 6.878L21 21"/></svg>
                             </button>
@@ -411,9 +414,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
 
                     <div class="pt-2 flex items-center justify-between gap-3">
-                        <a href="recover.php" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">Esqueceu a senha?</a>
+                        <a href="recover.php" class="text-xs text-blue-600 dark:text-blue-400 hover:underline"><?= htmlspecialchars(\App\I18n::t('login.forgot')) ?></a>
                         <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-3 rounded-xl transition-all shadow-lg shadow-blue-500/30 focus:outline-none focus:ring-2 focus:ring-blue-400 flex items-center gap-2">
-                            <span>Acessar</span>
+                            <span><?= htmlspecialchars(\App\I18n::t('login.btn_signin')) ?></span>
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
                         </button>
                     </div>
@@ -421,11 +424,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <div id="oidc-section" class="hidden mt-6 pt-6 border-t border-slate-300/70 dark:border-white/10">
                     <div class="flex items-center justify-center mb-3">
-                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-black px-3">ou</p>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-black px-3"><?= htmlspecialchars(\App\I18n::t('login.or_divider')) ?></p>
                     </div>
                     <a href="/api/v1/auth/oidc/login" class="block w-full text-center bg-slate-700 dark:bg-slate-800 hover:bg-slate-600 dark:hover:bg-slate-700 text-white font-bold px-6 py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"></path></svg>
-                        Entrar com SSO
+                        <?= htmlspecialchars(\App\I18n::t('login.sso_signin')) ?>
                     </a>
                 </div>
 
@@ -536,23 +539,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             });
         })();
 
-        // Public healthz badge no hero (sem auth)
+        // Public healthz badge no hero (sem auth) — usa data-* injetados pelo PHP
         (function () {
             const badge = document.getElementById('systemHealth');
             if (!badge) return;
+            const tOnline = badge.dataset.textOnline || 'OK';
+            const tOffline = badge.dataset.textOffline || 'OFFLINE';
+            const tNoResp = badge.dataset.textNoResponse || '?';
+            function escapeHtml(s) {
+                return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            }
             fetch('/api/v1/healthz').then(function (r) {
                 return r.ok ? r.json() : null;
             }).then(function (d) {
                 if (d && d.status === 'ok') {
                     badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>'
-                        + '<span class="font-black uppercase tracking-widest text-emerald-400">Sistema operacional</span>';
+                        + '<span class="font-black uppercase tracking-widest text-emerald-400">' + escapeHtml(tOnline) + '</span>';
                 } else {
                     badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>'
-                        + '<span class="font-black uppercase tracking-widest text-red-400">API offline</span>';
+                        + '<span class="font-black uppercase tracking-widest text-red-400">' + escapeHtml(tOffline) + '</span>';
                 }
             }).catch(function () {
                 badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>'
-                    + '<span class="font-black uppercase tracking-widest text-amber-400">API sem resposta</span>';
+                    + '<span class="font-black uppercase tracking-widest text-amber-400">' + escapeHtml(tNoResp) + '</span>';
             });
         })();
     </script>

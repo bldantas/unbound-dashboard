@@ -9,6 +9,13 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Polish
+- **v2.96**: polimento da rodada anterior:
+  - **Login i18n**: hero + form 100% via `t()` (novo namespace `login.*` com ~24 chaves em pt-BR/en). Health badge tem `data-text-*` injetados pelo PHP — JS só lê. SSO button, "Esqueceu a senha?", "Acessar", labels, divider "ou", e tooltips dos toggles tudo localizado.
+  - **Stagger animation**: widgets novos do dashboard ganharam stagger-0a/0b/0c (CSS) — Alerts/Storage/Workers entram em cascata antes dos KPIs, mantendo consistência visual.
+  - **Workers health row**: linha compacta com chips coloridos por worker (verde=running, amber=done, slate=unknown). Summary `N/total ativos` com cor adaptada. Tooltip exibe descrição + last_run. Click no link → /observability. Fetch `/api/v1/observability/workers` 30s.
+  - **Top 5 + Recent activity** (tabs): card com 3 abas — Top Domínios Bloqueados (`/analytics/top-domains?action=blocked`), Top Clientes (`/analytics/top-clients`), Atividade Recente (`/audit/admin/list`). Todas com janela 24h. Tab ativa carrega lazy; auto-refresh 60s só na aba ativa.
+
 ### Login redesign
 - **v2.95**: `/login.php` redesenhado em split-pane (desktop) / single-card (mobile):
   - **Hero pane esquerdo** (lg+): mesh gradient animado + grid mask, logo com pulse ring, tagline + 4 bullet features (DoH/DoT, blocklists+anti-DGA, multi-tenant+RBAC, backup+observabilidade), versão + badge "Sistema operacional" (consulta `/api/v1/healthz` público).
