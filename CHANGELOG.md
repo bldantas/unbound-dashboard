@@ -9,6 +9,11 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Dashboard
+- **v2.94**: dois widgets novos no topo de `/index.php`:
+  - **Alertas Ativos**: count por severidade (critical/warning/info) + mensagem do mais recente + link pra resolução. Fetch de `/api/v1/alerts/list` a cada 30s.
+  - **Saúde de Infra**: tamanho do arquivo DuckDB + disco livre/usado com barra de progresso + Redis ping (status + latência) + count de workers. Fetch de novo endpoint `/api/v1/host/storage` (DuckDB size via `os.stat`, disco via `shutil.disk_usage`, Redis via `redis.ping()`). Refresh 30s.
+
 ### Notifications + SSO
 - **v2.93**: DigestSender HTML email + group mapping precedence por rank.
   - **HTML digest**: `email_notifier._send_via_smtp(html_body=...)` ganha `multipart/alternative` (text + html via `EmailMessage.add_alternative()`). Clientes texto-only ainda recebem o plain. `DigestSender` constrói tabela HTML com badges coloridos por severidade (critical=red, warning=amber, info=blue), tipo+mensagem+timestamp por evento, cap 100 itens com aviso de truncamento. Plain-text mantém o formato anterior como fallback.

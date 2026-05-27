@@ -212,6 +212,73 @@ $currentPage = 'index.php';
                 <?php endif; ?>
             </div>
 
+            <!-- OVERVIEW ROW: Active Alerts + Storage/Redis health -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- ACTIVE ALERTS WIDGET -->
+                <div id="widgetAlerts" class="glass-panel border-l-4 border-amber-500/40 flex flex-col">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                            <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                            Alertas Ativos
+                        </h3>
+                        <a href="alerts.php" class="text-[10px] text-slate-500 hover:text-amber-500 font-black uppercase tracking-widest">Resolver ›</a>
+                    </div>
+                    <div class="grid grid-cols-3 gap-3 flex-1">
+                        <div class="bg-red-500/5 border border-red-500/20 rounded-2xl p-4 text-center">
+                            <p class="text-[10px] font-black text-red-600 dark:text-red-400 uppercase tracking-widest">Critical</p>
+                            <p id="alertCritical" class="text-3xl font-black text-red-600 dark:text-red-400 mt-1 tabular-nums">—</p>
+                        </div>
+                        <div class="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 text-center">
+                            <p class="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest">Warning</p>
+                            <p id="alertWarning" class="text-3xl font-black text-amber-600 dark:text-amber-400 mt-1 tabular-nums">—</p>
+                        </div>
+                        <div class="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 text-center">
+                            <p class="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest">Info</p>
+                            <p id="alertInfo" class="text-3xl font-black text-blue-600 dark:text-blue-400 mt-1 tabular-nums">—</p>
+                        </div>
+                    </div>
+                    <div id="alertLatestRow" class="mt-3 text-[11px] text-slate-500 italic hidden">
+                        Mais recente: <span id="alertLatestMsg" class="text-slate-700 dark:text-slate-300 font-medium not-italic"></span>
+                    </div>
+                </div>
+
+                <!-- STORAGE & REDIS HEALTH WIDGET -->
+                <div id="widgetStorage" class="glass-panel border-l-4 border-cyan-500/40 flex flex-col">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                            <svg class="w-4 h-4 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
+                            Saúde de Infra
+                        </h3>
+                        <a href="observability.php" class="text-[10px] text-slate-500 hover:text-cyan-500 font-black uppercase tracking-widest">Detalhes ›</a>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 flex-1">
+                        <div class="bg-slate-900/5 dark:bg-white/5 rounded-2xl p-3">
+                            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">DuckDB</p>
+                            <p id="storageDbSize" class="text-lg font-black text-slate-900 dark:text-white mt-1 tabular-nums">—</p>
+                            <p class="text-[9px] text-slate-500">arquivo principal</p>
+                        </div>
+                        <div class="bg-slate-900/5 dark:bg-white/5 rounded-2xl p-3">
+                            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Disco</p>
+                            <p id="storageDiskFree" class="text-lg font-black text-slate-900 dark:text-white mt-1 tabular-nums">—</p>
+                            <div class="w-full bg-slate-900/10 dark:bg-white/10 h-1 rounded-full mt-1 overflow-hidden">
+                                <div id="storageDiskBar" class="bg-gradient-to-r from-emerald-500 to-cyan-500 h-full rounded-full transition-all duration-700" style="width: 0%"></div>
+                            </div>
+                            <p id="storageDiskPct" class="text-[9px] text-slate-500 mt-0.5">— usado</p>
+                        </div>
+                        <div class="bg-slate-900/5 dark:bg-white/5 rounded-2xl p-3">
+                            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Redis</p>
+                            <p id="storageRedisStatus" class="text-lg font-black text-slate-500 mt-1">—</p>
+                            <p id="storageRedisLatency" class="text-[9px] text-slate-500">ping</p>
+                        </div>
+                        <div class="bg-slate-900/5 dark:bg-white/5 rounded-2xl p-3">
+                            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Workers</p>
+                            <p id="storageWorkers" class="text-lg font-black text-emerald-500 mt-1 tabular-nums">19</p>
+                            <p class="text-[9px] text-slate-500">background</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- GRID DE METRICAS PRINCIPAIS -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <!-- QPS -->
@@ -807,6 +874,78 @@ $currentPage = 'index.php';
 
             } catch(e) { console.error("Poll error", e); }
         }
+
+        // --- Widgets: Active Alerts + Storage health ---
+        const __jwtMeta = document.querySelector('meta[name="api-jwt"]');
+        const __JWT = __jwtMeta ? __jwtMeta.content : '';
+        const __H = __JWT ? { 'Authorization': 'Bearer ' + __JWT } : {};
+
+        async function refreshAlertsWidget() {
+            try {
+                const r = await fetch('/api/v1/alerts/list', { headers: __H });
+                if (!r.ok) return;
+                const d = await r.json();
+                const items = (d.alerts || []).filter(a => !a.resolved_at);
+                const counts = { critical: 0, warning: 0, info: 0 };
+                let latest = null;
+                items.forEach(a => {
+                    const sev = (a.severity || 'info').toLowerCase();
+                    if (counts[sev] !== undefined) counts[sev]++;
+                    if (!latest || (a.started_at || '') > (latest.started_at || '')) latest = a;
+                });
+                document.getElementById('alertCritical').textContent = counts.critical;
+                document.getElementById('alertWarning').textContent  = counts.warning;
+                document.getElementById('alertInfo').textContent     = counts.info;
+                const row = document.getElementById('alertLatestRow');
+                const msg = document.getElementById('alertLatestMsg');
+                if (latest && msg && row) {
+                    const m = String(latest.message || latest.type || '?').slice(0, 90);
+                    msg.textContent = m;
+                    row.classList.remove('hidden');
+                } else if (row) {
+                    row.classList.add('hidden');
+                }
+            } catch (_) { /* silencioso */ }
+        }
+
+        async function refreshStorageWidget() {
+            try {
+                const r = await fetch('/api/v1/host/storage', { headers: __H });
+                if (!r.ok) return;
+                const d = await r.json();
+                document.getElementById('storageDbSize').textContent = d.duckdb_size_human || '—';
+                const free = d.disk_free || 0;
+                const dfHuman = humanBytes(free);
+                document.getElementById('storageDiskFree').textContent = dfHuman + ' livres';
+                document.getElementById('storageDiskBar').style.width = (d.disk_used_pct || 0) + '%';
+                document.getElementById('storageDiskPct').textContent = (d.disk_used_pct || 0).toFixed(1) + '% usado';
+                const statusEl = document.getElementById('storageRedisStatus');
+                const latEl = document.getElementById('storageRedisLatency');
+                if (d.redis_ok) {
+                    statusEl.textContent = '● OK';
+                    statusEl.className = 'text-lg font-black text-emerald-500 mt-1';
+                    latEl.textContent = (d.redis_latency_ms ?? 0).toFixed(2) + 'ms ping';
+                } else {
+                    statusEl.textContent = '✗ Down';
+                    statusEl.className = 'text-lg font-black text-red-500 mt-1';
+                    latEl.textContent = 'sem resposta';
+                }
+            } catch (_) { /* silencioso */ }
+        }
+
+        function humanBytes(n) {
+            if (!n) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let i = 0;
+            let s = n;
+            while (s >= 1024 && i < units.length - 1) { s /= 1024; i++; }
+            return (i === 0 ? Math.round(s) : s.toFixed(1)) + ' ' + units[i];
+        }
+
+        refreshAlertsWidget();
+        refreshStorageWidget();
+        // Refresh slower (30s) — alerts/storage não mudam tão rápido quanto QPS
+        setInterval(() => { refreshAlertsWidget(); refreshStorageWidget(); }, 30000);
 
         // Atualiza timestamp + permite pausar
         let __updateIntervalId = setInterval(() => {

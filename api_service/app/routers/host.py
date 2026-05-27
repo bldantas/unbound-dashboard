@@ -16,7 +16,9 @@ Endpoints:
 
 from __future__ import annotations
 
+import os
 import platform
+import shutil
 import socket
 import subprocess
 import time
@@ -132,6 +134,71 @@ async def host_status(payload: Annotated[dict, Depends(require_auth)]) -> dict:
         out["hit_ratio_24h"] = None
 
     return out
+
+
+@router.get("/storage")
+async def host_storage(_: Annotated[dict, Depends(require_auth)]) -> dict:
+    """Storage + Redis health pra widget do dashboard.
+
+    - duckdb_bytes / duckdb_size_human: tamanho do arquivo principal
+    - disk_total / disk_free / disk_used_pct: do mount onde o DuckDB está
+    - redis_ok / redis_latency_ms: ping síncrono
+    - workers_dir_bytes: total dos logs/WAL aux (best-effort)
+    """
+    out: dict = {
+        "duckdb_bytes": 0,
+        "duckdb_size_human": "—",
+        "disk_total": 0,
+        "disk_free": 0,
+        "disk_used_pct": 0.0,
+        "redis_ok": False,
+        "redis_latency_ms": None,
+    }
+
+    db_path = settings.db_path
+    try:
+        st = os.stat(db_path)
+        out["duckdb_bytes"] = int(st.st_size)
+        out["duckdb_size_human"] = _human_bytes(st.st_size)
+    except OSError:
+        pass
+
+    try:
+        target_dir = os.path.dirname(db_path) or "/"
+        usage = shutil.disk_usage(target_dir)
+        out["disk_total"] = int(usage.total)
+        out["disk_free"] = int(usage.free)
+        if usage.total > 0:
+            out["disk_used_pct"] = round(100.0 * (usage.total - usage.free) / usage.total, 1)
+    except OSError:
+        pass
+
+    try:
+        from app.infrastructure.redis_client import get_redis
+        r = await get_redis()
+        if r is not None:
+            t0 = time.perf_counter()
+            await r.ping()
+            elapsed = (time.perf_counter() - t0) * 1000
+            out["redis_ok"] = True
+            out["redis_latency_ms"] = round(elapsed, 2)
+    except Exception:  # noqa: BLE001
+        pass
+
+    return out
+
+
+def _human_bytes(n: int) -> str:
+    """KB/MB/GB humanos. Sempre 1 casa decimal."""
+    units = ["B", "KB", "MB", "GB", "TB"]
+    size = float(n)
+    i = 0
+    while size >= 1024.0 and i < len(units) - 1:
+        size /= 1024.0
+        i += 1
+    if i == 0:
+        return f"{int(size)} {units[i]}"
+    return f"{size:.1f} {units[i]}"
 
 
 # Whitelist explícito — qualquer outro valor é rejeitado antes de tocar systemctl.
