@@ -14,6 +14,7 @@ próprio user_notification_prefs. Falhas viram log + worker_errors metric.
 from __future__ import annotations
 
 import asyncio
+import html as html_lib
 from datetime import UTC, datetime, timedelta
 
 import structlog
@@ -41,7 +42,15 @@ def _passes_filter(item: dict, severity_min: str, categories: list[str]) -> bool
     return True
 
 
+_HTML_SEVERITY_STYLE = {
+    "critical": ("#dc2626", "#fee2e2"),
+    "warning":  ("#d97706", "#fef3c7"),
+    "info":     ("#2563eb", "#dbeafe"),
+}
+
+
 def _format_body(username: str, items: list[dict], window_hours: int = 24) -> str:
+    """Plain-text body — fallback pra clientes que não renderizam HTML."""
     if not items:
         return (
             f"Olá {username},\n\n"
@@ -55,7 +64,6 @@ def _format_body(username: str, items: list[dict], window_hours: int = 24) -> st
         f"Digest das últimas {window_hours}h ({len(items)} eventos):",
         "",
     ]
-    # Ordena por severidade desc, depois por started_at desc
     items_sorted = sorted(
         items,
         key=lambda r: (
@@ -64,7 +72,7 @@ def _format_body(username: str, items: list[dict], window_hours: int = 24) -> st
         ),
         reverse=False,
     )
-    for it in items_sorted[:100]:  # cap em 100 pra não estourar email
+    for it in items_sorted[:100]:
         sev = str(it.get("severity") or "info").upper()
         typ = str(it.get("type") or "?")
         msg = str(it.get("message") or "(sem mensagem)")[:200]
@@ -79,6 +87,74 @@ def _format_body(username: str, items: list[dict], window_hours: int = 24) -> st
     lines.append("")
     lines.append("— Unbound Dashboard")
     return "\n".join(lines)
+
+
+def _format_html_body(username: str, items: list[dict], window_hours: int = 24) -> str:
+    """HTML body — tabela com badges coloridos por severidade."""
+    esc = html_lib.escape
+    user_safe = esc(username)
+    if not items:
+        return (
+            "<html><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;\">"
+            f"<p>Olá <strong>{user_safe}</strong>,</p>"
+            f"<p>Nas últimas {window_hours}h não houve nenhum alerta ou anomalia "
+            "que atenda às suas preferências.</p>"
+            "<p style=\"color:#64748b;font-size:12px;\">— Unbound Dashboard</p>"
+            "</body></html>"
+        )
+    items_sorted = sorted(
+        items,
+        key=lambda r: (
+            -(_SEVERITY_RANK.get(str(r.get("severity") or "info"), 0)),
+            str(r.get("started_at") or ""),
+        ),
+    )
+    rows: list[str] = []
+    for it in items_sorted[:100]:
+        sev = str(it.get("severity") or "info").lower()
+        if sev not in _HTML_SEVERITY_STYLE:
+            sev = "info"
+        fg, bg = _HTML_SEVERITY_STYLE[sev]
+        typ = esc(str(it.get("type") or "?"))
+        msg = esc(str(it.get("message") or "(sem mensagem)")[:300])
+        ts = esc(str(it.get("started_at") or "?"))
+        badge = (
+            f"<span style=\"display:inline-block;padding:2px 8px;border-radius:8px;"
+            f"background:{bg};color:{fg};font-size:10px;font-weight:700;"
+            f"text-transform:uppercase;letter-spacing:0.5px;\">{sev}</span>"
+        )
+        rows.append(
+            "<tr>"
+            f"<td style=\"padding:8px;border-bottom:1px solid #e2e8f0;vertical-align:top;width:90px;\">{badge}</td>"
+            f"<td style=\"padding:8px;border-bottom:1px solid #e2e8f0;vertical-align:top;\">"
+            f"<div style=\"font-family:ui-monospace,'SF Mono',monospace;font-size:11px;color:#475569;\">{typ}</div>"
+            f"<div style=\"color:#0f172a;font-size:14px;margin-top:2px;\">{msg}</div>"
+            f"<div style=\"color:#94a3b8;font-size:11px;margin-top:4px;\">{ts}</div>"
+            "</td></tr>"
+        )
+    truncated = ""
+    if len(items) > 100:
+        truncated = (
+            f"<p style=\"color:#94a3b8;font-size:12px;font-style:italic;\">"
+            f"... e mais {len(items) - 100} eventos truncados. Acesse o dashboard pra ver todos."
+            "</p>"
+        )
+    return (
+        "<html><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
+        "color:#0f172a;background:#f8fafc;margin:0;padding:24px;\">"
+        f"<div style=\"max-width:680px;margin:0 auto;background:#fff;border-radius:12px;"
+        "padding:24px;border:1px solid #e2e8f0;\">"
+        f"<h2 style=\"margin:0 0 8px;font-size:20px;\">Olá, <strong>{user_safe}</strong></h2>"
+        f"<p style=\"color:#475569;margin:0 0 16px;\">Digest das últimas {window_hours}h "
+        f"(<strong>{len(items)}</strong> eventos):</p>"
+        "<table style=\"width:100%;border-collapse:collapse;\">"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
+        f"{truncated}"
+        "<p style=\"color:#94a3b8;font-size:11px;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:12px;\">"
+        "— Unbound Dashboard — Para alterar suas preferências, acesse /notifications.php"
+        "</p></div></body></html>"
+    )
 
 
 class DigestSender:
@@ -140,8 +216,12 @@ class DigestSender:
             cats = u["categories"]
             personalized = [it for it in all_items if _passes_filter(it, sev_min, cats)]
             subject = f"[Unbound Dashboard] Digest diário — {len(personalized)} eventos"
-            body = _format_body(u.get("username") or email, personalized)
-            ok, reason = email_notifier._send_via_smtp(cfg, email, subject, body)  # noqa: SLF001
+            uname = u.get("username") or email
+            body = _format_body(uname, personalized)
+            html_body = _format_html_body(uname, personalized)
+            ok, reason = email_notifier._send_via_smtp(  # noqa: SLF001
+                cfg, email, subject, body, html_body=html_body,
+            )
             if ok:
                 sent += 1
                 await notification_prefs_service.mark_digest_sent(user_id)

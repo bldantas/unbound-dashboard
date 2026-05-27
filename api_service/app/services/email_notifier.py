@@ -36,13 +36,23 @@ async def _load_smtp_config() -> dict[str, Any]:
     }
 
 
-def _send_via_smtp(cfg: dict[str, Any], to: str, subject: str, body: str) -> tuple[bool, str]:
-    """Envia 1 email. Retorna (success, message)."""
+def _send_via_smtp(
+    cfg: dict[str, Any],
+    to: str,
+    subject: str,
+    body: str,
+    html_body: str | None = None,
+) -> tuple[bool, str]:
+    """Envia 1 email. Se `html_body` for fornecido, manda multipart/alternative
+    (text + html) — clientes modernos exibem HTML, clientes texto-only veem o
+    fallback. Retorna (success, message)."""
     msg = EmailMessage()
     msg["From"] = f'{cfg["from_name"]} <{cfg["from_addr"]}>' if cfg["from_name"] else cfg["from_addr"]
     msg["To"] = to
     msg["Subject"] = subject
     msg.set_content(body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
 
     enc = cfg["encryption"]
     host = cfg["host"]

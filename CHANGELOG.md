@@ -9,6 +9,11 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Notifications + SSO
+- **v2.93**: DigestSender HTML email + group mapping precedence por rank.
+  - **HTML digest**: `email_notifier._send_via_smtp(html_body=...)` ganha `multipart/alternative` (text + html via `EmailMessage.add_alternative()`). Clientes texto-only ainda recebem o plain. `DigestSender` constrói tabela HTML com badges coloridos por severidade (critical=red, warning=amber, info=blue), tipo+mensagem+timestamp por evento, cap 100 itens com aviso de truncamento. Plain-text mantém o formato anterior como fallback.
+  - **OIDC group precedence**: `_resolve_role_from_groups()` coleta TODAS as roles mapeadas pelos grupos do user no claim e retorna a de maior `_ROLE_RANK` (admin=4 > readonly_admin=3 > operator=2 > viewer=1). Antes era "primeira match na ordem do claim vence", o que podia derrubar admins pra viewer se o IdP listasse `["dns-viewers", "dns-admins"]` nessa ordem. Hint atualizada em `/sso.php`.
+
 ### Multi-tenant
 - **v2.92**: estende multi-tenant pra `alerts` + `admin_audit`. V27 ALTER TABLE adiciona `org_id` em alerts e `actor_org_id` em admin_audit. Helper compartilhado `resolve_viewer_org_id(payload)` em `app/core/deps.py` (refatorado de hosts.py). `alert_repo.list_history()` e `list_filtered()` aceitam `viewer_org_id`; `admin_audit_service.list_filtered/export_csv/export_pdf` idem. `admin_audit.log()` resolve `actor_org_id` automaticamente do user no momento do log (snapshot). Endpoints atualizados: `/alerts/list`, `/notifications/feed`, `/notifications/list`, `/audit/admin/list`, `/audit/admin/export-csv`, `/audit/admin/export-pdf`. Mesma semântica de hosts: NULL = global (visível a todos), N = org N (visível a system admin + members da org N).
 

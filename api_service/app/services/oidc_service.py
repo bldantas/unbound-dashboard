@@ -36,6 +36,9 @@ from app.repositories.duckdb.connection import db_execute, db_fetchone
 log = structlog.get_logger(__name__)
 
 VALID_ROLES = ("admin", "readonly_admin", "operator", "viewer")
+# Rank pra group mapping precedence: maior rank vence sempre, independente
+# da ordem em que aparece no claim. Admin > readonly_admin > operator > viewer.
+_ROLE_RANK = {"admin": 4, "readonly_admin": 3, "operator": 2, "viewer": 1}
 _JWKS_CACHE: dict[str, dict[str, Any]] = {}
 _JWKS_CACHE_TTL = 3600.0
 
@@ -57,8 +60,12 @@ def _extract_claim_dotpath(claims: dict, path: str) -> Any:
 def _resolve_role_from_groups(claims: dict, cfg: dict) -> str | None:
     """Olha o claim configurado, intersecta com group_mappings.
 
-    Retorna a primeira role local mapeada que bate com algum grupo do IdP,
-    ou None se nada bater (caller decide o fallback).
+    Coleta TODAS as roles mapeadas pelos grupos do IdP e retorna a de
+    maior rank (admin > readonly_admin > operator > viewer). Isso evita
+    o usuário cair pra viewer só porque o grupo viewer aparece antes do
+    grupo admin no claim do IdP.
+
+    Retorna None se nada bater (caller decide o fallback).
     """
     claim_path = (cfg.get("group_claim") or "").strip()
     if not claim_path:
@@ -81,13 +88,17 @@ def _resolve_role_from_groups(claims: dict, cfg: dict) -> str | None:
     else:
         return None
 
-    # Match na ordem em que os grupos aparecem no claim (preserva precedência do IdP)
+    # Coleta todas as roles válidas mapeadas e devolve a de maior rank
+    best_role: str | None = None
+    best_rank = -1
     for g in groups:
-        if g in mapping:
-            role = mapping[g]
-            if role in VALID_ROLES:
-                return role
-    return None
+        role = mapping.get(g)
+        if role in VALID_ROLES:
+            rank = _ROLE_RANK.get(role, 0)
+            if rank > best_rank:
+                best_role = role
+                best_rank = rank
+    return best_role
 
 
 # ---------- Config ----------

@@ -131,7 +131,7 @@ $currentPage = 'sso.php';
                         <label class="flex flex-col">
                             <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Mapping (JSON: idp_group → local_role)</span>
                             <textarea id="sGroupMappings" rows="5" placeholder='{"dns-admins": "admin", "dns-ops": "operator", "dns-viewers": "viewer"}' class="glass-input w-full font-mono text-[11px]"></textarea>
-                            <span class="text-[10px] text-slate-500 mt-1">Roles válidas: <code>admin</code>, <code>readonly_admin</code>, <code>operator</code>, <code>viewer</code>. Match pela ordem dos grupos no claim — primeira role mapeada vence.</span>
+                            <span class="text-[10px] text-slate-500 mt-1">Roles válidas: <code>admin</code>, <code>readonly_admin</code>, <code>operator</code>, <code>viewer</code>. Se o user pertence a vários grupos mapeados, a role de maior privilégio vence (<code>admin &gt; readonly_admin &gt; operator &gt; viewer</code>) — ordem no claim do IdP não importa.</span>
                         </label>
 
                         <label class="flex items-center gap-2 cursor-pointer">
