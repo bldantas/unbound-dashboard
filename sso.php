@@ -116,6 +116,30 @@ $currentPage = 'sso.php';
                             </select>
                         </label>
                     </div>
+
+                    <!-- Group / role mapping -->
+                    <div class="border-t border-slate-900/10 dark:border-white/5 pt-4 space-y-3">
+                        <p class="text-[11px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-200">Mapeamento de Grupos → Roles</p>
+                        <p class="text-[10px] text-slate-500">Extrai claim do id_token e mapeia grupos do IdP em roles locais. Vazio = usa role default. Suporta dot-path (ex: <code>realm_access.roles</code> no Keycloak).</p>
+
+                        <label class="flex flex-col">
+                            <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Claim com grupos</span>
+                            <input type="text" id="sGroupClaim" placeholder="ex: groups | roles | realm_access.roles" class="glass-input w-full font-mono">
+                            <span class="text-[10px] text-slate-500 mt-1">Google: (não há claim nativo) · Entra: <code>groups</code> ou <code>roles</code> · Keycloak: <code>realm_access.roles</code> · Authentik: <code>groups</code></span>
+                        </label>
+
+                        <label class="flex flex-col">
+                            <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Mapping (JSON: idp_group → local_role)</span>
+                            <textarea id="sGroupMappings" rows="5" placeholder='{"dns-admins": "admin", "dns-ops": "operator", "dns-viewers": "viewer"}' class="glass-input w-full font-mono text-[11px]"></textarea>
+                            <span class="text-[10px] text-slate-500 mt-1">Roles válidas: <code>admin</code>, <code>readonly_admin</code>, <code>operator</code>, <code>viewer</code>. Match pela ordem dos grupos no claim — primeira role mapeada vence.</span>
+                        </label>
+
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="sSyncRole" class="w-4 h-4">
+                            <span class="text-[11px] font-black uppercase tracking-widest">Sincronizar role a cada login</span>
+                            <span class="text-[10px] text-slate-500 ml-2">Default OFF — mudanças no IdP só afetam users novos.</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div class="px-6 py-4 border-t border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex flex-wrap gap-2 justify-end">
@@ -152,6 +176,12 @@ $currentPage = 'sso.php';
         $('sDomains').value = d.allowed_email_domains || '';
         $('sAutoCreate').checked = !!d.auto_create_users;
         $('sDefaultRole').value = d.default_role || 'viewer';
+        $('sGroupClaim').value = d.group_claim || '';
+        try {
+            const m = JSON.parse(d.group_mappings || '{}');
+            $('sGroupMappings').value = Object.keys(m).length ? JSON.stringify(m, null, 2) : '';
+        } catch { $('sGroupMappings').value = d.group_mappings || ''; }
+        $('sSyncRole').checked = !!d.sync_role_on_login;
         if (d.has_secret) {
             $('secretStatus').textContent = d.secret_encrypted
                 ? '🔐 Secret cifrado (vazio no input = preserva).'
@@ -299,6 +329,18 @@ $currentPage = 'sso.php';
     }
 
     $('btnSave').addEventListener('click', async () => {
+        // Valida JSON do mapping antes de submeter
+        const rawMap = $('sGroupMappings').value.trim();
+        let mappingObj = {};
+        if (rawMap) {
+            try {
+                mappingObj = JSON.parse(rawMap);
+                if (typeof mappingObj !== 'object' || Array.isArray(mappingObj)) throw new Error('precisa ser objeto');
+            } catch (e) {
+                (window.customAlert || alert)('JSON inválido em "Mapping": ' + e.message);
+                return;
+            }
+        }
         const body = {
             enabled: $('sEnabled').checked,
             issuer_url: $('sIssuer').value.trim(),
@@ -307,6 +349,9 @@ $currentPage = 'sso.php';
             allowed_email_domains: $('sDomains').value.trim(),
             auto_create_users: $('sAutoCreate').checked,
             default_role: $('sDefaultRole').value,
+            group_claim: $('sGroupClaim').value.trim(),
+            group_mappings: mappingObj,
+            sync_role_on_login: $('sSyncRole').checked,
         };
         const secret = $('sClientSecret').value;
         if (secret) body.client_secret = secret;

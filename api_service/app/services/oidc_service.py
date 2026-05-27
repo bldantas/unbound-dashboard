@@ -40,6 +40,56 @@ _JWKS_CACHE: dict[str, dict[str, Any]] = {}
 _JWKS_CACHE_TTL = 3600.0
 
 
+def _extract_claim_dotpath(claims: dict, path: str) -> Any:
+    """Suporta dot-paths tipo 'realm_access.roles' (Keycloak)."""
+    if not path:
+        return None
+    cur: Any = claims
+    for part in path.split("."):
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+        if cur is None:
+            return None
+    return cur
+
+
+def _resolve_role_from_groups(claims: dict, cfg: dict) -> str | None:
+    """Olha o claim configurado, intersecta com group_mappings.
+
+    Retorna a primeira role local mapeada que bate com algum grupo do IdP,
+    ou None se nada bater (caller decide o fallback).
+    """
+    claim_path = (cfg.get("group_claim") or "").strip()
+    if not claim_path:
+        return None
+    raw_mapping = cfg.get("group_mappings") or "{}"
+    try:
+        mapping = json.loads(raw_mapping) if isinstance(raw_mapping, str) else dict(raw_mapping)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not mapping:
+        return None
+
+    groups_claim = _extract_claim_dotpath(claims, claim_path)
+    if groups_claim is None:
+        return None
+    if isinstance(groups_claim, str):
+        groups = [g.strip() for g in groups_claim.split(",") if g.strip()]
+    elif isinstance(groups_claim, list):
+        groups = [str(g) for g in groups_claim]
+    else:
+        return None
+
+    # Match na ordem em que os grupos aparecem no claim (preserva precedência do IdP)
+    for g in groups:
+        if g in mapping:
+            role = mapping[g]
+            if role in VALID_ROLES:
+                return role
+    return None
+
+
 # ---------- Config ----------
 
 async def get_config(include_secret: bool = False) -> dict:
@@ -59,6 +109,9 @@ async def get_config(include_secret: bool = False) -> dict:
         "allowed_email_domains": row.get("allowed_email_domains") or "",
         "auto_create_users": bool(row.get("auto_create_users")),
         "default_role": row.get("default_role") or "viewer",
+        "group_claim": row.get("group_claim") or "",
+        "group_mappings": row.get("group_mappings") or "{}",
+        "sync_role_on_login": bool(row.get("sync_role_on_login")),
         "has_secret": has_secret,
         "secret_encrypted": bool(encrypted),
         "updated_at": row["updated_at"].isoformat() if isinstance(row.get("updated_at"), datetime) else None,
@@ -80,6 +133,8 @@ async def update_config(body: dict) -> dict:
         "client_secret": "SECRET", "scopes": "STR",
         "allowed_email_domains": "STR", "auto_create_users": "BOOLEAN",
         "default_role": "ROLE",
+        "group_claim": "STR", "group_mappings": "MAPPINGS",
+        "sync_role_on_login": "BOOLEAN",
     }
     for k, typ in allowed.items():
         if k not in body:
@@ -90,6 +145,21 @@ async def update_config(body: dict) -> dict:
         elif typ == "ROLE":
             if v not in VALID_ROLES:
                 raise ValueError(f"default_role inválido: {v}")
+        elif typ == "MAPPINGS":
+            # Aceita dict ou JSON string; valida que valores são roles válidos
+            if isinstance(v, dict):
+                mapping = v
+            else:
+                try:
+                    mapping = json.loads(str(v or "{}"))
+                except json.JSONDecodeError:
+                    raise ValueError("group_mappings: JSON inválido")
+            if not isinstance(mapping, dict):
+                raise ValueError("group_mappings deve ser objeto/dict")
+            for grp, role in mapping.items():
+                if role not in VALID_ROLES:
+                    raise ValueError(f"group_mappings['{grp}']: role inválida '{role}'")
+            v = json.dumps(mapping, ensure_ascii=False)
         else:
             v = str(v or "").strip()
             if k == "issuer_url":
@@ -269,12 +339,16 @@ async def handle_callback(code: str, state: str, redirect_uri: str) -> dict:
         if allowed and domain not in allowed:
             raise ValueError(f"domínio '{domain}' não permitido")
 
+    # Resolve role via group mapping (se configurado)
+    mapped_role = _resolve_role_from_groups(claims, cfg)
+
     # Sync user
     user = await user_repo.find_by_email(email)
     if user is None:
         if not cfg["auto_create_users"]:
             raise ValueError(f"usuário '{email}' não cadastrado (auto-create desligado)")
-        # Cria com role default
+        # Cria com role mapeada (se houver) ou default
+        role_to_apply = mapped_role or cfg["default_role"]
         username = email.split("@", 1)[0]
         # Garante unicidade do username
         existing_by_name = await user_repo.find_by_username(username)
@@ -285,10 +359,20 @@ async def handle_callback(code: str, state: str, redirect_uri: str) -> dict:
             INSERT INTO users (username, password_hash, role, email, is_active, created_at)
             VALUES (?, '', ?, ?, true, NOW())
             """,
-            [username, cfg["default_role"], email],
+            [username, role_to_apply, email],
         )
         user = await user_repo.find_by_email(email)
-        log.info("oidc.user_auto_created", email=email, username=username, role=cfg["default_role"])
+        log.info("oidc.user_auto_created", email=email, username=username, role=role_to_apply,
+                 role_source="group_mapping" if mapped_role else "default")
+    elif cfg.get("sync_role_on_login") and mapped_role and mapped_role != user.get("role"):
+        # Sincroniza role com IdP (se config explicitamente liga isso)
+        await db_execute(
+            "UPDATE users SET role = ? WHERE id = ?",
+            [mapped_role, user["id"]],
+        )
+        log.info("oidc.role_synced", email=email, user_id=user["id"],
+                 old_role=user.get("role"), new_role=mapped_role)
+        user["role"] = mapped_role
 
     if not user.get("is_active"):
         raise ValueError(f"usuário '{email}' inativo")

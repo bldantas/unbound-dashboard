@@ -9,6 +9,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### SSO
+- **v2.88**: SSO group/role mapping — V24 ALTER TABLE `oidc_config` (`group_claim`, `group_mappings` JSON, `sync_role_on_login`). Callback OIDC extrai o claim configurado (suporta dot-path tipo `realm_access.roles` do Keycloak), intersecta com o JSON `{idp_group: local_role}` (admin/readonly_admin/operator/viewer) e usa a primeira role mapeada — fallback para `default_role` no auto-create. `sync_role_on_login=true` re-aplica a cada login pra users existentes (default OFF). UI nova em `/sso.php` (claim + textarea JSON + checkbox sync) com validação client-side. Audit log: `oidc.role_synced` quando role muda por sync.
+
 ### UX & UI (continuação)
 - **v2.87**: i18n incremental — `diagnostics.php`, `health.php`, `live_stream.php`, `exports.php`, `history.php` migradas. 5 novas seções nos `lang/*.php` (~26 chaves). Total: **24 páginas** com `t()` — cobertura essencialmente completa do dashboard principal.
 - **v2.86**: i18n incremental — `analytics.php`, `anomalies.php`, `query_search.php`, `config.php` migradas. config.php inclui 16 tab labels (Configurações Unbound, DoT/DoH, etc). 5 novas seções nos `lang/*.php` (~30 chaves). Total: **19 páginas** com `t()`.
