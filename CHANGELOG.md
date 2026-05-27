@@ -9,6 +9,12 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Dashboard widgets (rodada 2)
+- **v2.99**: 3 widgets novos no `/index.php`, antes do "Top 5 + Recent activity":
+  - **Live stream mini** (col-span-8): tabela compacta de 6 queries via WebSocket `/api/v1/ws/queries`. Mesmo WS de `/live_stream.php`. Reconnect exponencial 2s→30s. Status badge "● ao vivo" / "reconectando…".
+  - **Top países 24h** (col-span-4): top 5 países por hits bloqueados via `/api/v1/geoip/top-countries?action=blocked`. Refresh 60s.
+  - **Multi-host overview** (full-width, condicional): só aparece quando `/api/v1/hosts` retorna `count > 0`. Grid de cards com QPS/CHR/alerts por host, badge org_name se aplicável. Summary "N/total OK". Refresh 30s.
+
 ### Multi-tenant (continuação)
 - **v2.98**: estende multi-tenant pra `client_policies`. V28 ALTER TABLE `client_policies` ADD COLUMN `org_id`. `client_policies_repo.list_all()` e `summary()` aceitam `viewer_org_id` (segue mesma semântica de hosts/alerts/audit: NULL viewer = vê tudo, org viewer = NULL globais + própria org). `repo.create()` aceita `org_id` opcional. Router `/api/v1/policies` propaga `viewer_org_id` em **todos** os endpoints (list/get/create/update/delete + child ranges/blocks/allows). Helper `_ensure_tenant_access()` retorna 404 mascarado pra requests fora da org do viewer. POST aceita `org_id` no body; user org-scoped só cria pra própria org (403). UI: `client_policies.php` mostra badge pink `org_name` ou cinza `global` no header do card; modal "Nova Política" ganha select de Org (lazy load via `/api/v1/organizations/`).
 - **Skip blocklist_exceptions**: schema tem `domain` como PK que conflitaria com (domain, org_id) composto. Tornar tenant requer rework não-trivial. Documentado como TODO em V28.sql.

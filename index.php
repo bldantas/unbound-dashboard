@@ -373,8 +373,55 @@ $currentPage = 'index.php';
                 </div>
             </div>
 
+            <!-- LIVE STREAM MINI + GEO DISTRIBUTION -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                <div id="widgetLiveStream" class="lg:col-span-8 glass-panel border-l-4 border-emerald-500/40 flex flex-col stagger-item stagger-7" style="min-height: 220px;">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                            <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                            Live stream
+                            <span id="lsStatus" class="ml-1 text-[10px] normal-case tracking-normal font-bold text-slate-500">conectando…</span>
+                        </h3>
+                        <a href="live_stream.php" class="text-[10px] text-slate-500 hover:text-emerald-500 font-black uppercase tracking-widest">Tela cheia ›</a>
+                    </div>
+                    <div class="overflow-hidden text-[11px] font-mono flex-1">
+                        <table class="w-full">
+                            <tbody id="lsBody">
+                                <tr><td class="py-4 text-center text-slate-500 italic">Aguardando queries…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="widgetGeo" class="lg:col-span-4 glass-panel border-l-4 border-rose-500/40 flex flex-col stagger-item stagger-8" style="min-height: 220px;">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                            <svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Top países (24h)
+                        </h3>
+                        <a href="threats.php" class="text-[10px] text-slate-500 hover:text-rose-500 font-black uppercase tracking-widest">Detalhes ›</a>
+                    </div>
+                    <ul id="geoList" class="space-y-1.5 text-xs flex-1">
+                        <li class="text-slate-500 italic">Carregando…</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- MULTI-HOST OVERVIEW (só renderiza quando há hosts) -->
+            <div id="widgetMultiHost" class="glass-panel border-l-4 border-cyan-500/40 stagger-item stagger-8 hidden">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                        <svg class="w-4 h-4 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12H3l9-9 9 9h-2M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7M9 21V9h6v12"></path></svg>
+                        Hosts gerenciados
+                        <span id="mhSummary" class="ml-1 text-[10px] normal-case tracking-normal font-bold text-slate-500">—</span>
+                    </h3>
+                    <a href="hosts.php" class="text-[10px] text-slate-500 hover:text-cyan-500 font-black uppercase tracking-widest">Gerenciar ›</a>
+                </div>
+                <div id="mhRow" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"></div>
+            </div>
+
             <!-- TOP 5 + RECENT ACTIVITY (tabs) -->
-            <div id="widgetTopRecent" class="glass-panel border-slate-200 dark:border-white/5 stagger-item stagger-7">
+            <div id="widgetTopRecent" class="glass-panel border-slate-200 dark:border-white/5 stagger-item stagger-9">
                 <div class="flex items-center justify-between border-b border-slate-900/10 dark:border-white/5 pb-3 mb-4">
                     <div class="flex items-center gap-1">
                         <button type="button" data-trtab="domains" class="tr-tab text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all">
@@ -1112,11 +1159,167 @@ $currentPage = 'index.php';
             activate('domains');
         })();
 
+        // --- Live stream mini (WebSocket) ---
+        (function () {
+            const body = document.getElementById('lsBody');
+            const statusEl = document.getElementById('lsStatus');
+            if (!body || !__JWT) return;
+            const MAX_ROWS = 6;
+            let ws = null;
+            let reconnectDelay = 2000;
+            let firstMsg = true;
+
+            function escHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+            function setStatus(text, color) {
+                statusEl.textContent = text;
+                statusEl.className = 'ml-1 text-[10px] normal-case tracking-normal font-bold ' + (color || 'text-slate-500');
+            }
+            function actionBadge(a) {
+                if (a === 'blocked')  return '<span class="text-[9px] font-black text-red-500">BLOCK</span>';
+                if (a === 'resolved') return '<span class="text-[9px] font-black text-emerald-500">OK</span>';
+                if (a === 'cached')   return '<span class="text-[9px] font-black text-blue-500">CACHE</span>';
+                if (a === 'nxdomain' || a === 'nxdomain_upstream') return '<span class="text-[9px] font-black text-amber-500">NX</span>';
+                return '<span class="text-[9px] font-black text-slate-500">' + escHtml(a) + '</span>';
+            }
+            function appendQuery(ev) {
+                if (firstMsg) { body.innerHTML = ''; firstMsg = false; }
+                const d = new Date(ev.timestamp * 1000);
+                const t = d.toLocaleTimeString('pt-BR', { hour12: false });
+                const tr = document.createElement('tr');
+                tr.innerHTML =
+                    '<td class="py-1 pr-2 text-slate-500 text-[10px] w-16">' + t + '</td>'
+                  + '<td class="py-1 pr-2 text-blue-500 dark:text-blue-400 w-28 truncate">' + escHtml(ev.client_ip) + '</td>'
+                  + '<td class="py-1 pr-2 text-slate-900 dark:text-white truncate font-bold">' + escHtml(ev.domain) + '</td>'
+                  + '<td class="py-1 text-right">' + actionBadge(ev.action) + '</td>';
+                tr.style.background = 'rgba(16,185,129,0.08)';
+                setTimeout(() => { tr.style.transition = 'background 600ms'; tr.style.background = ''; }, 100);
+                body.insertBefore(tr, body.firstChild);
+                while (body.children.length > MAX_ROWS) body.removeChild(body.lastChild);
+            }
+            function connect() {
+                setStatus('conectando…', 'text-amber-500');
+                const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                try {
+                    ws = new WebSocket(proto + '//' + window.location.host + '/api/v1/ws/queries?token=' + encodeURIComponent(__JWT));
+                } catch (_) {
+                    setStatus('erro', 'text-red-500');
+                    return;
+                }
+                ws.onopen = () => { setStatus('● ao vivo', 'text-emerald-500'); reconnectDelay = 2000; };
+                ws.onclose = () => {
+                    setStatus('reconectando…', 'text-red-500');
+                    setTimeout(connect, reconnectDelay);
+                    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+                };
+                ws.onerror = () => { /* close handles */ };
+                ws.onmessage = (msg) => {
+                    try {
+                        const data = JSON.parse(msg.data);
+                        if (data.type === 'query') appendQuery(data);
+                    } catch (_) { /* ignore */ }
+                };
+            }
+            connect();
+        })();
+
+        // --- Geo distribution mini ---
+        async function refreshGeoWidget() {
+            const ul = document.getElementById('geoList');
+            if (!ul) return;
+            try {
+                const r = await fetch('/api/v1/geoip/top-countries?hours=24&limit=5', { headers: __H });
+                if (!r.ok) {
+                    ul.innerHTML = '<li class="text-slate-500 italic">GeoIP indisponível.</li>';
+                    return;
+                }
+                const d = await r.json();
+                const items = d.countries || [];
+                if (!items.length) {
+                    ul.innerHTML = '<li class="text-slate-500 italic">Sem bloqueios nas últimas 24h.</li>';
+                    return;
+                }
+                ul.innerHTML = items.slice(0, 5).map((it, i) => {
+                    const cc = String(it.country_code || '??').toUpperCase().slice(0, 2);
+                    const name = it.country_name || cc;
+                    const n = Number(it.hits || 0);
+                    return '<li class="flex items-center justify-between gap-2 p-2 bg-slate-900/5 dark:bg-white/5 rounded-lg">'
+                        + '<span class="flex items-center gap-2 min-w-0 flex-1">'
+                        + '<span class="w-5 h-5 rounded bg-rose-500/15 text-rose-600 dark:text-rose-400 flex items-center justify-center text-[9px] font-black flex-shrink-0">' + (i + 1) + '</span>'
+                        + '<span class="font-mono text-[10px] text-slate-500 w-7 flex-shrink-0">' + cc + '</span>'
+                        + '<span class="truncate text-slate-700 dark:text-slate-300">' + escapeHtmlSafe(name) + '</span>'
+                        + '</span>'
+                        + '<span class="font-black tabular-nums text-[11px] text-slate-900 dark:text-white">' + n.toLocaleString('pt-BR') + '</span>'
+                        + '</li>';
+                }).join('');
+            } catch (_) {
+                ul.innerHTML = '<li class="text-slate-500 italic">Erro ao carregar.</li>';
+            }
+        }
+
+        // --- Multi-host overview ---
+        async function refreshMultiHostWidget() {
+            try {
+                const r = await fetch('/api/v1/hosts', { headers: __H });
+                if (!r.ok) return;
+                const d = await r.json();
+                const hosts = d.hosts || [];
+                const wrap = document.getElementById('widgetMultiHost');
+                if (!wrap) return;
+                if (!hosts.length) {
+                    wrap.classList.add('hidden');
+                    return;
+                }
+                wrap.classList.remove('hidden');
+                const okN = hosts.filter(h => h.last_status === 'ok').length;
+                const badN = hosts.length - okN;
+                const sum = document.getElementById('mhSummary');
+                if (sum) {
+                    sum.textContent = `${okN}/${hosts.length} OK`;
+                    sum.className = 'ml-1 text-[10px] normal-case tracking-normal font-bold ' +
+                        (badN === 0 ? 'text-emerald-500' : 'text-amber-500');
+                }
+                const row = document.getElementById('mhRow');
+                if (!row) return;
+                const STATUS_CSS = {
+                    ok:          { dot: 'bg-emerald-500', wrap: 'border-emerald-500/30' },
+                    auth_failed: { dot: 'bg-amber-500',   wrap: 'border-amber-500/30' },
+                    error:       { dot: 'bg-amber-500',   wrap: 'border-amber-500/30' },
+                    unreachable: { dot: 'bg-red-500',     wrap: 'border-red-500/30' },
+                    null:        { dot: 'bg-slate-400',   wrap: 'border-slate-400/30' },
+                };
+                row.innerHTML = hosts.slice(0, 12).map(h => {
+                    const c = STATUS_CSS[h.last_status] || STATUS_CSS.null;
+                    const p = h.last_status_payload || {};
+                    const qps = (p.qps !== undefined && p.qps !== null) ? Number(p.qps).toFixed(1) : '—';
+                    const hr = (p.hit_ratio_24h !== undefined && p.hit_ratio_24h !== null) ? Number(p.hit_ratio_24h).toFixed(0) + '%' : '—';
+                    const alerts = p.alerts_active ?? 0;
+                    return `<div class="bg-slate-900/5 dark:bg-white/5 rounded-2xl p-3 border ${c.wrap}">`
+                        + `<div class="flex items-center gap-2 mb-2"><span class="w-1.5 h-1.5 rounded-full ${c.dot}"></span>`
+                        + `<span class="text-[11px] font-bold text-slate-900 dark:text-white truncate flex-1">${escapeHtmlSafe(h.label)}</span>`
+                        + (h.org_name ? `<span class="text-[8px] font-black uppercase tracking-widest px-1 rounded bg-pink-500/10 text-pink-600 dark:text-pink-400">${escapeHtmlSafe(h.org_name)}</span>` : '')
+                        + `</div>`
+                        + `<div class="grid grid-cols-3 gap-1 text-[10px] text-slate-500">`
+                        + `<div><span class="block opacity-70">QPS</span><span class="font-mono font-black text-slate-700 dark:text-slate-300">${qps}</span></div>`
+                        + `<div><span class="block opacity-70">CHR</span><span class="font-mono font-black text-slate-700 dark:text-slate-300">${hr}</span></div>`
+                        + `<div><span class="block opacity-70">Alerts</span><span class="font-mono font-black ${alerts > 0 ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'}">${alerts}</span></div>`
+                        + `</div></div>`;
+                }).join('');
+            } catch (_) { /* silencioso */ }
+        }
+
         refreshAlertsWidget();
         refreshStorageWidget();
         refreshWorkersWidget();
-        // Refresh slower (30s) — alerts/storage/workers não mudam tão rápido quanto QPS
-        setInterval(() => { refreshAlertsWidget(); refreshStorageWidget(); refreshWorkersWidget(); }, 30000);
+        refreshGeoWidget();
+        refreshMultiHostWidget();
+        // Refresh slower (30s) — alerts/storage/workers/geo/multihost não mudam tão rápido quanto QPS
+        setInterval(() => {
+            refreshAlertsWidget();
+            refreshStorageWidget();
+            refreshWorkersWidget();
+            refreshMultiHostWidget();
+        }, 30000);
+        setInterval(refreshGeoWidget, 60000);
         // Top/Recent: refresh a cada 60s (24h window — não muda rápido)
         setInterval(() => {
             const tabs = document.querySelectorAll('.tr-tab.is-active');
