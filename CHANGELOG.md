@@ -9,6 +9,12 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Security + perf
+- **v2.101**: três tarefas curtas:
+  - **SECRETS_MASTER_KEY** configurada (Fernet 32-byte) em `/etc/unbound-dashboard/api-v1.env`. Warnings `cipher_service.no_master_key` e `secrets_store.master_key_missing` no startup desaparecem. OIDC `client_secret` e tokens HA gravados a partir daqui ficam cifrados em DB. **Secrets pré-existentes seguem plaintext até serem re-salvos** via UI.
+  - **OIDC PKCE (RFC 7636)**: implementado fluxo S256. `_pkce_pair()` gera `code_verifier` (43-char base64url) + `code_challenge` (SHA256 base64url-no-padding). `build_auth_url` envia `code_challenge` + `code_challenge_method=S256` ao IdP e persiste o verifier junto do state. `handle_callback` extrai o verifier do state e inclui no POST do token exchange. Compat: IdPs sem suporte ignoram os params extras; IdPs que exigem (Entra ID moderno) passam. Sem flag de toggle — sempre ativo.
+  - **Backup multi-S3 com cache de tarball**: `backup_destinations_service.upload_to_all()` agora compila o archive **1×** via `create_archive()` e passa o path pré-construído pra cada destination (`upload_backup(..., prebuilt_archive=..., cleanup=False)`). Cleanup central no `finally` após todos terminarem. `upload_backup` ganhou os params keyword `prebuilt_archive` e `cleanup` (backward-compat — default mantém comportamento single-dest). Para N destinos com DuckDB grande: era N builds (CPU+I/O), agora é 1.
+
 ### i18n JS (varredura)
 - **v2.100**: migração focada dos toasts JS repetidos pro `window.t()`. Estratégia: só strings **cross-cutting** (que aparecem em 2+ páginas) viram chaves em `js.*`. Mensagens específicas de página (ex: "Disparar upload pro S3?", "Aprovar request #N?") seguem hardcoded — são inseparáveis do contexto da ação e migrar cria mais churn de keys que benefício.
   - Novas chaves em `js.*`: `saved_apply_hint`, `save_failed`, `removed`, `added`, `applied`, `sync_done`, `sync_failed`.

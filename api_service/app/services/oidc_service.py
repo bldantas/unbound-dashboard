@@ -19,6 +19,8 @@ estiver configurada — fallback plaintext sem ela.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import secrets
 import time
@@ -29,6 +31,18 @@ import httpx
 import structlog
 from jose import jwt as jose_jwt
 from jose.exceptions import JWTError
+
+
+def _pkce_pair() -> tuple[str, str]:
+    """Gera (code_verifier, code_challenge) RFC 7636 S256.
+
+    verifier: 43-char base64url-safe (256 bits de entropia).
+    challenge: BASE64URL(SHA256(verifier)) sem padding.
+    """
+    verifier = secrets.token_urlsafe(32)  # 256 bits → ~43 chars base64url
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return verifier, challenge
 
 from app.repositories.duckdb import user_repo
 from app.repositories.duckdb.connection import db_execute, db_fetchone
@@ -248,12 +262,17 @@ async def build_auth_url(base_callback_url: str) -> dict:
 
     state = secrets.token_urlsafe(24)
     nonce = secrets.token_urlsafe(24)
+    code_verifier, code_challenge = _pkce_pair()
 
-    # Guarda state+nonce com TTL via settings table (chave temporária)
+    # Guarda state+nonce+verifier com TTL via settings table (chave temporária)
     from app.repositories.duckdb import settings_repo
     await settings_repo.bulk_upsert([
         {"setting_key": f"_oidc_state_{state}",
-         "setting_value": json.dumps({"nonce": nonce, "expires": int(time.time() + 600)})}
+         "setting_value": json.dumps({
+             "nonce": nonce,
+             "code_verifier": code_verifier,
+             "expires": int(time.time() + 600),
+         })}
     ])
 
     params = {
@@ -263,6 +282,11 @@ async def build_auth_url(base_callback_url: str) -> dict:
         "scope": cfg["scopes"],
         "state": state,
         "nonce": nonce,
+        # PKCE (RFC 7636) — exigido por Entra ID moderno e fortemente
+        # recomendado pelos demais IdPs. Compat: IdPs que não suportam
+        # PKCE ignoram esses params em vez de rejeitar a request.
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
     }
     import urllib.parse
     return {
@@ -290,6 +314,7 @@ async def handle_callback(code: str, state: str, redirect_uri: str) -> dict:
     if state_data.get("expires", 0) < int(time.time()):
         raise ValueError("state expirado")
     nonce = state_data.get("nonce")
+    code_verifier = state_data.get("code_verifier")
 
     # Cleanup state após validar (one-shot)
     try:
@@ -303,7 +328,8 @@ async def handle_callback(code: str, state: str, redirect_uri: str) -> dict:
     if not token_endpoint:
         raise ValueError("issuer não expõe token_endpoint")
 
-    # Exchange code → tokens
+    # Exchange code → tokens. Envia code_verifier (PKCE) se foi gerado no
+    # auth — IdPs sem PKCE ignoram, IdPs com PKCE exigem.
     data = {
         "grant_type": "authorization_code",
         "code": code,
@@ -311,6 +337,8 @@ async def handle_callback(code: str, state: str, redirect_uri: str) -> dict:
         "client_id": cfg["client_id"],
         "client_secret": cfg["client_secret"],
     }
+    if code_verifier:
+        data["code_verifier"] = code_verifier
     async with httpx.AsyncClient(timeout=15.0) as client:
         r = await client.post(token_endpoint, data=data)
         if r.status_code != 200:

@@ -12,6 +12,7 @@ nunca retorna o secret_key bruto.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 from datetime import datetime
 from pathlib import Path
@@ -179,11 +180,19 @@ def _dest_to_cfg(dest: dict) -> dict:
 
 
 async def upload_to_all() -> dict:
-    """Sobe pra todos destinations enabled. Reusa upload_backup do svc legacy.
+    """Sobe pra todos destinations enabled, reusando UM tarball compartilhado.
 
-    Não otimiza pra arquivo único — cada chamada gera tarball próprio.
-    TODO se virar gargalo: cachear o tarball entre chamadas.
+    Compila o archive uma vez via `backup_offsite_service.create_archive()`
+    e passa o path pré-construído pra cada destination (via parâmetro
+    `prebuilt_archive` em `upload_backup`). O cleanup é centralizado aqui
+    no final pra evitar que um destination apague o arquivo enquanto
+    outros ainda estão fazendo upload.
+
+    Resultado: 1x build (gargalo CPU+I/O) vs N builds anteriormente.
+    Útil pra DuckDBs grandes onde a parte do tarball domina o tempo total.
     """
+    from pathlib import Path as _Path
+
     from app.services import backup_offsite_service as legacy_svc
 
     rows = await db_fetchall(
@@ -194,49 +203,82 @@ async def upload_to_all() -> dict:
         return {"results": [], "count": 0}
 
     loop = asyncio.get_running_loop()
-    results: list[dict] = []
-    for row in rows:
-        secret = cipher_service.decrypt(row.get("secret_key") or "")
-        dest_with_secret = {**dict(row), "secret_key": secret}
-        cfg = _dest_to_cfg(dest_with_secret)
-        try:
-            result = await loop.run_in_executor(None, legacy_svc.upload_backup, cfg)
-        except Exception as exc:  # noqa: BLE001
-            result = {"success": False, "error": f"{type(exc).__name__}: {exc}"}
 
-        # Persiste status na row
-        await db_execute(
-            """
-            UPDATE backup_destinations
-            SET last_upload_at = NOW(),
-                last_status = ?,
-                last_error = ?,
-                last_size_bytes = ?,
-                last_key = ?,
-                updated_at = NOW()
-            WHERE id = ?
-            """,
-            [
-                "ok" if result.get("success") else "error",
-                (result.get("error") or "")[:1000] or None,
-                int(result.get("size_bytes") or 0) if result.get("size_bytes") else None,
-                str(result.get("key") or "")[:500] or None,
-                int(row["id"]),
-            ],
+    # Build do tarball 1x (sync, em executor pra não bloquear o event loop)
+    try:
+        archive_path, archive_size = await loop.run_in_executor(
+            None, legacy_svc.create_archive
         )
-        results.append({
-            "id": int(row["id"]),
-            "label": row["label"],
-            "success": bool(result.get("success")),
-            "error": result.get("error"),
-            "size_bytes": result.get("size_bytes"),
-            "key": result.get("key"),
-        })
-        log.info(
-            "backup_destinations.upload_done",
-            id=int(row["id"]), label=row["label"], ok=result.get("success"),
-        )
-    return {"results": results, "count": len(results)}
+    except Exception as exc:  # noqa: BLE001
+        log.error("backup_destinations.archive_failed", error=str(exc))
+        return {"results": [], "count": 0, "error": f"build archive: {exc}"}
+
+    log.info(
+        "backup_destinations.archive_built",
+        size_bytes=archive_size, destinations=len(rows),
+    )
+
+    results: list[dict] = []
+    try:
+        for row in rows:
+            secret = cipher_service.decrypt(row.get("secret_key") or "")
+            dest_with_secret = {**dict(row), "secret_key": secret}
+            cfg = _dest_to_cfg(dest_with_secret)
+            try:
+                # Passa o archive pré-construído; cleanup=False mantém o
+                # arquivo vivo entre destinos. Cleanup central no finally.
+                result = await loop.run_in_executor(
+                    None,
+                    functools.partial(
+                        legacy_svc.upload_backup,
+                        cfg,
+                        prebuilt_archive=(archive_path, archive_size),
+                        cleanup=False,
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001
+                result = {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+
+            # Persiste status na row
+            await db_execute(
+                """
+                UPDATE backup_destinations
+                SET last_upload_at = NOW(),
+                    last_status = ?,
+                    last_error = ?,
+                    last_size_bytes = ?,
+                    last_key = ?,
+                    updated_at = NOW()
+                WHERE id = ?
+                """,
+                [
+                    "ok" if result.get("success") else "error",
+                    (result.get("error") or "")[:1000] or None,
+                    int(result.get("size_bytes") or 0) if result.get("size_bytes") else None,
+                    str(result.get("key") or "")[:500] or None,
+                    int(row["id"]),
+                ],
+            )
+            results.append({
+                "id": int(row["id"]),
+                "label": row["label"],
+                "success": bool(result.get("success")),
+                "error": result.get("error"),
+                "size_bytes": result.get("size_bytes"),
+                "key": result.get("key"),
+            })
+            log.info(
+                "backup_destinations.upload_done",
+                id=int(row["id"]), label=row["label"], ok=result.get("success"),
+            )
+    finally:
+        # Cleanup central — só depois que TODOS os destinations terminaram
+        try:
+            _Path(archive_path).unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+    return {"results": results, "count": len(results), "archive_size_bytes": archive_size}
 
 
 async def test_destination(dest_id: int) -> dict:

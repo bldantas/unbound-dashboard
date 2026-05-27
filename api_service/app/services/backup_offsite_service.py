@@ -349,16 +349,33 @@ def restore_test(cfg: dict[str, str], key: str | None = None) -> dict:
             pass
 
 
-def upload_backup(cfg: dict[str, str]) -> dict:
-    """Cria archive + faz upload + aplica retenção. Sync (chamado via run_in_executor)."""
+def upload_backup(
+    cfg: dict[str, str],
+    *,
+    prebuilt_archive: tuple[str, int] | None = None,
+    cleanup: bool = True,
+) -> dict:
+    """Cria archive + faz upload + aplica retenção. Sync (run_in_executor).
+
+    Args:
+        cfg: config S3 (bucket, endpoint, prefix, retention_count, etc).
+        prebuilt_archive: (path, size) de um tarball já criado por um caller
+            externo. Se passado, pula `_create_archive()` — útil pra
+            multi-destination (compila 1x e envia pra N buckets).
+        cleanup: se True (default), apaga o arquivo local no final. Caller
+            de multi-destination passa False e limpa depois do loop.
+    """
     bucket = cfg.get("backup_s3_bucket", "").strip()
     if not bucket:
         return {"success": False, "error": "bucket vazio"}
 
-    try:
-        archive_path, size = _create_archive()
-    except Exception as e:  # noqa: BLE001
-        return {"success": False, "error": f"falha ao gerar archive: {e}"}
+    if prebuilt_archive is not None:
+        archive_path, size = prebuilt_archive
+    else:
+        try:
+            archive_path, size = _create_archive()
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": f"falha ao gerar archive: {e}"}
 
     try:
         prefix = _normalize_prefix(cfg.get("backup_s3_prefix", ""))
@@ -384,8 +401,16 @@ def upload_backup(cfg: dict[str, str]) -> dict:
     except Exception as e:  # noqa: BLE001
         return {"success": False, "error": f"{type(e).__name__}: {e}"}
     finally:
-        # Limpa archive local — fica no S3
-        try:
-            Path(archive_path).unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
+        # Limpa archive local — fica no S3. Se caller controlou archive,
+        # respeita a decisão dele.
+        if cleanup:
+            try:
+                Path(archive_path).unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def create_archive() -> tuple[str, int]:
+    """API pública pra construir o tarball — usado por multi-destination
+    pra cachear o arquivo entre uploads."""
+    return _create_archive()
