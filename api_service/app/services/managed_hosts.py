@@ -38,17 +38,39 @@ class DuplicateHost(ManagedHostError):
     """base_url já cadastrada."""
 
 
-async def list_all() -> list[dict[str, Any]]:
-    """Lista todos os hosts gerenciados com último status."""
-    rows = await db_fetchall(
-        """
-        SELECT id, label, base_url, notes, added_by, added_at,
-               last_polled_at, last_status_at, last_status,
-               last_status_payload, last_error
-        FROM managed_hosts
-        ORDER BY label ASC
-        """
-    )
+async def list_all(viewer_org_id: int | None = None) -> list[dict[str, Any]]:
+    """Lista hosts gerenciados com último status.
+
+    Se `viewer_org_id` for None (caller é admin global / system) → vê todos.
+    Se for um int → filtra por `org_id IS NULL` (hosts globais) ou
+    `org_id = viewer_org_id` (hosts da org do caller).
+    """
+    if viewer_org_id is None:
+        rows = await db_fetchall(
+            """
+            SELECT mh.id, mh.label, mh.base_url, mh.notes, mh.added_by, mh.added_at,
+                   mh.last_polled_at, mh.last_status_at, mh.last_status,
+                   mh.last_status_payload, mh.last_error, mh.org_id,
+                   o.name AS org_name, o.slug AS org_slug
+            FROM managed_hosts mh
+            LEFT JOIN organizations o ON o.id = mh.org_id
+            ORDER BY mh.label ASC
+            """
+        )
+    else:
+        rows = await db_fetchall(
+            """
+            SELECT mh.id, mh.label, mh.base_url, mh.notes, mh.added_by, mh.added_at,
+                   mh.last_polled_at, mh.last_status_at, mh.last_status,
+                   mh.last_status_payload, mh.last_error, mh.org_id,
+                   o.name AS org_name, o.slug AS org_slug
+            FROM managed_hosts mh
+            LEFT JOIN organizations o ON o.id = mh.org_id
+            WHERE mh.org_id IS NULL OR mh.org_id = ?
+            ORDER BY mh.label ASC
+            """,
+            [int(viewer_org_id)],
+        )
     out = []
     for r in rows:
         payload = None
@@ -69,6 +91,9 @@ async def list_all() -> list[dict[str, Any]]:
             "last_status": r.get("last_status"),
             "last_status_payload": payload,
             "last_error": r.get("last_error"),
+            "org_id": int(r["org_id"]) if r.get("org_id") is not None else None,
+            "org_name": r.get("org_name"),
+            "org_slug": r.get("org_slug"),
         })
     return out
 
@@ -88,6 +113,7 @@ async def create(
     api_token: str,
     notes: str | None,
     added_by: int | None,
+    org_id: int | None = None,
 ) -> int:
     """Adiciona host. Levanta DuplicateHost se base_url já existe."""
     base_url = base_url.rstrip("/")
@@ -100,10 +126,11 @@ async def create(
 
     await db_execute(
         """
-        INSERT INTO managed_hosts (label, base_url, api_token, notes, added_by)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO managed_hosts (label, base_url, api_token, notes, added_by, org_id)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        [label[:100], base_url[:255], api_token[:255], (notes or "")[:500], added_by],
+        [label[:100], base_url[:255], api_token[:255], (notes or "")[:500], added_by,
+         int(org_id) if org_id else None],
     )
     row = await db_fetchone(
         "SELECT id FROM managed_hosts WHERE base_url = ?",
@@ -138,6 +165,24 @@ async def update(
         return True  # nada pra mudar
     args.append(host_id)
     await db_execute(f"UPDATE managed_hosts SET {', '.join(sets)} WHERE id = ?", args)
+    return True
+
+
+async def set_org(host_id: int, org_id: int | None) -> bool:
+    """Atribui (ou remove) a org de um host. None = global."""
+    existing = await db_fetchone("SELECT id FROM managed_hosts WHERE id = ?", [host_id])
+    if not existing:
+        return False
+    if org_id is not None:
+        org_row = await db_fetchone(
+            "SELECT id FROM organizations WHERE id = ?", [int(org_id)]
+        )
+        if not org_row:
+            return False
+    await db_execute(
+        "UPDATE managed_hosts SET org_id = ? WHERE id = ?",
+        [int(org_id) if org_id else None, int(host_id)],
+    )
     return True
 
 

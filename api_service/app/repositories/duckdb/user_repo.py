@@ -78,11 +78,12 @@ async def list_all() -> list[dict]:
     """Lista de users sem password_hash. Espelho de Auth::getAllUsers()."""
     return await db_fetchall(
         """
-        SELECT id, username, email, role, is_active,
-               failed_logins, locked_until, created_at, last_login_at,
-               totp_enabled
-        FROM users
-        ORDER BY id ASC
+        SELECT u.id, u.username, u.email, u.role, u.is_active,
+               u.failed_logins, u.locked_until, u.created_at, u.last_login_at,
+               u.totp_enabled, u.org_id, o.name AS org_name, o.slug AS org_slug
+        FROM users u
+        LEFT JOIN organizations o ON o.id = u.org_id
+        ORDER BY u.id ASC
         """
     )
 

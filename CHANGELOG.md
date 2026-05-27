@@ -9,6 +9,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Multi-tenant
+- **v2.89**: multi-tenant UI — listings filtradas por org. V25 ALTER TABLE `managed_hosts` ADD `org_id`. Service `managed_hosts.list_all(viewer_org_id)`: user com `org_id=NULL` (system admin) vê tudo; user com `org_id=N` vê só hosts `NULL` (globais) + da própria org. Router resolve `viewer_org_id` do DB a cada request. POST `/hosts` aceita `org_id`; user org-scoped só cria pra própria org (403 caso contrário). Novo endpoint `PUT /hosts/{id}/org` (admin global only). UI: badge "org name" ou "global" no card; `/users` tab em config.php ganha coluna **Organização** com dropdown (chama `POST /organizations/assign-user`). hosts.php form ganha select de Org (CRUD + edit).
+
 ### SSO
 - **v2.88**: SSO group/role mapping — V24 ALTER TABLE `oidc_config` (`group_claim`, `group_mappings` JSON, `sync_role_on_login`). Callback OIDC extrai o claim configurado (suporta dot-path tipo `realm_access.roles` do Keycloak), intersecta com o JSON `{idp_group: local_role}` (admin/readonly_admin/operator/viewer) e usa a primeira role mapeada — fallback para `default_role` no auto-create. `sync_role_on_login=true` re-aplica a cada login pra users existentes (default OFF). UI nova em `/sso.php` (claim + textarea JSON + checkbox sync) com validação client-side. Audit log: `oidc.role_synced` quando role muda por sync.
 

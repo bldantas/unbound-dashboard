@@ -25,9 +25,30 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.deps import require_capability
+from app.repositories.duckdb.connection import db_fetchone
 from app.services import managed_hosts
 
 router = APIRouter(prefix="/api/v1/hosts", tags=["hosts"])
+
+
+async def _viewer_org_id(payload: dict) -> int | None:
+    """Resolve a org_id do caller. API tokens são tratados como globais (None).
+
+    Admin com `org_id = NULL` no DB = system admin → vê tudo (retorna None).
+    User com `org_id = N` vê hosts globais (NULL) + da própria org.
+    """
+    if payload.get("auth_kind") == "api_token":
+        return None
+    try:
+        user_id = int(payload.get("sub", 0))
+    except (TypeError, ValueError):
+        return None
+    if user_id < 1:
+        return None
+    row = await db_fetchone("SELECT org_id FROM users WHERE id = ?", [user_id])
+    if not row or row.get("org_id") is None:
+        return None
+    return int(row["org_id"])
 
 _ALLOWED_RESTART_SERVICES = {"api", "unbound"}
 
@@ -40,9 +61,10 @@ def _scrub(h: dict) -> dict:
 
 
 @router.get("")
-async def list_hosts(_: Annotated[dict, Depends(require_capability("config.write"))]) -> dict:
-    items = await managed_hosts.list_all()
-    return {"hosts": items, "count": len(items)}
+async def list_hosts(payload: Annotated[dict, Depends(require_capability("config.write"))]) -> dict:
+    viewer_org = await _viewer_org_id(payload)
+    items = await managed_hosts.list_all(viewer_org_id=viewer_org)
+    return {"hosts": items, "count": len(items), "viewer_org_id": viewer_org}
 
 
 class HostCreate(BaseModel):
@@ -50,6 +72,7 @@ class HostCreate(BaseModel):
     base_url: str = Field(min_length=8, max_length=255, description="https://host:port (sem /api/...)")
     api_token: str = Field(min_length=20, max_length=255, description="Token gerado em Settings → API Tokens do agent")
     notes: str | None = Field(default=None, max_length=500)
+    org_id: int | None = Field(default=None, description="Org dona do host. None = global (visível a todos os admins).")
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -66,6 +89,17 @@ async def create_host(
         user_id = int(payload.get("sub", 0))
     except (TypeError, ValueError):
         user_id = None
+    # Quem está numa org só pode criar host pra própria org (ou global se não escolheu)
+    viewer_org = await _viewer_org_id(payload)
+    target_org = body.org_id
+    if viewer_org is not None:
+        if target_org is None:
+            target_org = viewer_org  # default pra própria org
+        elif target_org != viewer_org:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Não é permitido criar host em outra organização",
+            )
     try:
         new_id = await managed_hosts.create(
             label=body.label,
@@ -73,13 +107,39 @@ async def create_host(
             api_token=body.api_token,
             notes=body.notes,
             added_by=user_id,
+            org_id=target_org,
         )
     except managed_hosts.DuplicateHost as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from None
-    return {"id": new_id, "label": body.label}
+    return {"id": new_id, "label": body.label, "org_id": target_org}
+
+
+class HostSetOrg(BaseModel):
+    org_id: int | None = Field(default=None)
+
+
+@router.put("/{host_id}/org")
+async def set_host_org(
+    host_id: int,
+    body: HostSetOrg,
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Admin global pode mover qualquer host. User org-scoped só remaneja
+    hosts da própria org (e só pra própria org ou pra global=None se quiser
+    publicar — mas evitamos publicar). Aqui simplificado: só admin global."""
+    viewer_org = await _viewer_org_id(payload)
+    if viewer_org is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas admin global pode reatribuir org de hosts",
+        )
+    ok = await managed_hosts.set_org(host_id, body.org_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host ou org não encontrados")
+    return {"ok": True, "host_id": host_id, "org_id": body.org_id}
 
 
 class HostUpdate(BaseModel):

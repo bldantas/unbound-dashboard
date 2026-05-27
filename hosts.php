@@ -220,6 +220,13 @@ $currentPage = 'hosts.php';
                     <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Notas (opcional)</label>
                     <textarea id="host-form-notes" maxlength="500" rows="2" class="glass-input w-full text-xs" placeholder="ex: recursor primary, edge SP1"></textarea>
                 </div>
+                <div>
+                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Organização</label>
+                    <select id="host-form-org" class="glass-input w-full text-xs">
+                        <option value="">— Global (visível a todos) —</option>
+                    </select>
+                    <p class="text-[10px] text-slate-500 mt-1">Users com org só veem hosts globais ou da própria org. Admin global vê tudo.</p>
+                </div>
             </div>
 
             <div class="flex justify-end gap-2 mt-6">
@@ -250,11 +257,36 @@ $currentPage = 'hosts.php';
                 fToken:      document.getElementById('host-form-token'),
                 fTokenHint:  document.getElementById('host-form-token-hint'),
                 fNotes:      document.getElementById('host-form-notes'),
+                fOrg:        document.getElementById('host-form-org'),
                 fCancel:     document.getElementById('host-form-cancel'),
                 fSubmit:     document.getElementById('host-form-submit'),
             };
 
             let editingId = null;  // null=create, int=edit
+            let orgsCache = null;  // [] de {id, name}; carregado on-demand
+
+            async function loadOrgs() {
+                if (orgsCache !== null) return orgsCache;
+                try {
+                    const r = await fetch('/api/v1/organizations/', { headers: HEADERS });
+                    if (!r.ok) { orgsCache = []; return orgsCache; }
+                    const d = await r.json();
+                    orgsCache = d.items || [];
+                } catch (_) { orgsCache = []; }
+                return orgsCache;
+            }
+            async function populateOrgSelect(selectedId) {
+                const orgs = await loadOrgs();
+                const sel = el.fOrg;
+                sel.innerHTML = '<option value="">— Global (visível a todos) —</option>';
+                orgs.forEach(o => {
+                    const opt = document.createElement('option');
+                    opt.value = String(o.id);
+                    opt.textContent = o.name;
+                    if (selectedId && Number(selectedId) === Number(o.id)) opt.selected = true;
+                    sel.appendChild(opt);
+                });
+            }
 
             // customConfirm / customAlert vêm de includes/custom_modals.php (window.*)
 
@@ -339,11 +371,14 @@ $currentPage = 'hosts.php';
                     const duckdbOk = p.duckdb_ok === true;
                     const duckdbLabel = (p.duckdb_ok === true) ? 'OK' : (p.duckdb_ok === false ? 'FAIL' : '—');
                     const authKind = p.auth_kind || '—';
+                    const orgBadge = h.org_name
+                        ? `<span class="inline-block ml-2 px-1.5 py-0.5 rounded-md bg-pink-500/10 border border-pink-500/30 text-pink-600 dark:text-pink-400 text-[9px] uppercase font-black tracking-widest" title="Org dona deste host">${escapeHtml(h.org_name)}</span>`
+                        : `<span class="inline-block ml-2 px-1.5 py-0.5 rounded-md bg-slate-500/10 border border-slate-500/30 text-slate-500 text-[9px] uppercase font-black tracking-widest" title="Host global — visível a todos os admins">global</span>`;
                     return `
                         <div class="glass-panel">
                             <div class="flex items-start justify-between gap-3 mb-3">
                                 <div class="min-w-0">
-                                    <h3 class="text-base font-black text-slate-900 dark:text-white truncate">${escapeHtml(h.label)}</h3>
+                                    <h3 class="text-base font-black text-slate-900 dark:text-white truncate">${escapeHtml(h.label)}${orgBadge}</h3>
                                     <a href="${escapeAttr(h.base_url)}" target="_blank" rel="noopener" class="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 hover:underline truncate block">${escapeHtml(h.base_url)}</a>
                                 </div>
                                 <span class="shrink-0 inline-block px-2 py-1 rounded-md border text-[10px] font-black uppercase tracking-widest ${badge.color}">${badge.label}</span>
@@ -467,6 +502,8 @@ $currentPage = 'hosts.php';
                 el.fToken.value = '';
                 el.fTokenHint.textContent = 'Gere em Configurações → API Tokens no agent. Mostrado UMA vez lá.';
                 el.fNotes.value = '';
+                el.fOrg.disabled = false;
+                populateOrgSelect(null);
                 el.fSubmit.textContent = 'Salvar';
                 el.fSubmit.disabled = true;
                 el.modal.classList.remove('hidden');
@@ -491,6 +528,9 @@ $currentPage = 'hosts.php';
                     el.fToken.value = '';
                     el.fTokenHint.textContent = 'Deixe vazio pra preservar o atual. Cole um novo só se for trocar.';
                     el.fNotes.value = h.notes || '';
+                    // Org pode ser reatribuído via PUT /hosts/{id}/org após salvar
+                    await populateOrgSelect(h.org_id || null);
+                    el.fOrg.disabled = false;
                     el.fSubmit.textContent = 'Atualizar';
                     el.modal.classList.remove('hidden');
                     document.body.style.overflow = 'hidden';
@@ -521,6 +561,7 @@ $currentPage = 'hosts.php';
                 el.fCancel.disabled = true;
                 try {
                     let resp;
+                    const orgVal = el.fOrg.value === '' ? null : parseInt(el.fOrg.value);
                     if (editingId === null) {
                         // CREATE
                         const body = {
@@ -528,6 +569,7 @@ $currentPage = 'hosts.php';
                             base_url: el.fUrl.value.trim(),
                             api_token: el.fToken.value.trim(),
                             notes: el.fNotes.value.trim() || null,
+                            org_id: orgVal,
                         };
                         resp = await fetch('/api/v1/hosts', { method: 'POST', headers: HEADERS, body: JSON.stringify(body) });
                     } else {
@@ -539,6 +581,14 @@ $currentPage = 'hosts.php';
                         const newTok = el.fToken.value.trim();
                         if (newTok) body.api_token = newTok;
                         resp = await fetch(`/api/v1/hosts/${editingId}`, { method: 'PUT', headers: HEADERS, body: JSON.stringify(body) });
+                        // Org: PUT separado, só se mudou (best-effort, ignora 403 de user org-scoped)
+                        if (resp.ok || resp.status === 204) {
+                            try {
+                                await fetch(`/api/v1/hosts/${editingId}/org`, {
+                                    method: 'PUT', headers: HEADERS, body: JSON.stringify({ org_id: orgVal }),
+                                });
+                            } catch (_) { /* ignora */ }
+                        }
                     }
                     if (!resp.ok && resp.status !== 201 && resp.status !== 204) {
                         const data = await resp.json().catch(() => ({}));

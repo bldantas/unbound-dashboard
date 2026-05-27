@@ -397,6 +397,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $res = \App\Auth::updateRole((int)$_POST['user_id'], $_POST['new_role_value'] ?? '');
         $message = $res['message'];
         $messageType = $res['success'] ? 'success' : 'error';
+    } elseif ($action === 'update_org' && $isAdmin) {
+        $userId = (int)($_POST['user_id'] ?? 0);
+        $orgRaw = $_POST['new_org_value'] ?? '';
+        $orgId  = $orgRaw === '' ? null : (int)$orgRaw;
+        $jwt = $_SESSION['api_jwt'] ?? '';
+        if ($userId < 1 || $jwt === '') {
+            $message = 'Dados inválidos.';
+            $messageType = 'error';
+        } else {
+            $resp = \App\ApiClient::post('/api/v1/organizations/assign-user', $jwt, [
+                'user_id' => $userId,
+                'org_id'  => $orgId,
+            ]);
+            if ($resp['ok']) {
+                $message = $orgId ? 'Usuário atribuído à organização.' : 'Usuário desvinculado de organização.';
+                $messageType = 'success';
+            } else {
+                $message = 'Erro ao atribuir org: ' . ($resp['data']['detail'] ?? 'desconhecido');
+                $messageType = 'error';
+            }
+        }
     } elseif ($action === 'update_email' && $isAdmin) {
         $newEmail = trim($_POST['new_email_value'] ?? '');
         $username = $_POST['target_username'] ?? '';
@@ -455,6 +476,13 @@ $lastNetplanBackup = $networkBackend === 'netplan' ? $networkManager->getLastNet
 
 // Gestão de Usuários (admin-only) — fonte de dados pra aba 'usuarios'.
 $allUsers = $isAdmin ? \App\Auth::getAllUsers() : [];
+$allOrgs = [];
+if ($isAdmin && !empty($_SESSION['api_jwt'])) {
+    $orgsResp = \App\ApiClient::get('/api/v1/organizations/', $_SESSION['api_jwt']);
+    if ($orgsResp['ok'] && isset($orgsResp['data']['items']) && is_array($orgsResp['data']['items'])) {
+        $allOrgs = $orgsResp['data']['items'];
+    }
+}
 $currentUserId = (int) ($_SESSION['user_id'] ?? 0);
 
 // Helpers de formatação usados na tabela de usuários
@@ -2110,6 +2138,7 @@ function field($key, $label, $desc = '', $def = '')
                                         <th class="text-left py-3 px-2">Usuário</th>
                                         <th class="text-left py-3 px-2">Email</th>
                                         <th class="text-left py-3 px-2">Role</th>
+                                        <th class="text-left py-3 px-2">Organização</th>
                                         <th class="text-left py-3 px-2">Status</th>
                                         <th class="text-left py-3 px-2">Último Login</th>
                                         <th class="text-left py-3 px-2">Criado</th>
@@ -2167,6 +2196,26 @@ function field($key, $label, $desc = '', $def = '')
                                                             <?php foreach (\App\Auth::rolesCatalog() as $rk => $rmeta): ?>
                                                                 <option value="<?= htmlspecialchars($rk) ?>" <?= ($u['role'] ?? '') === $rk ? 'selected' : '' ?> title="<?= htmlspecialchars($rmeta['desc']) ?>">
                                                                     <?= strtoupper(htmlspecialchars($rmeta['label'])) ?>
+                                                                </option>
+                                                            <?php endforeach; ?>
+                                                        </select>
+                                                    </form>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td class="py-3 px-2">
+                                                <?php if (empty($allOrgs)): ?>
+                                                    <span class="text-[10px] text-slate-500 italic">—</span>
+                                                <?php else: ?>
+                                                    <form method="POST" class="flex items-center gap-1">
+                                                        <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                                        <input type="hidden" name="tab" value="usuarios">
+                                                        <input type="hidden" name="action" value="update_org">
+                                                        <input type="hidden" name="user_id" value="<?= (int)$u['id'] ?>">
+                                                        <select name="new_org_value" onchange="this.form.submit()" class="glass-input !py-1 !px-2 text-xs" title="Atribuir org (vazio = global/system)">
+                                                            <option value="">— Global —</option>
+                                                            <?php foreach ($allOrgs as $org): ?>
+                                                                <option value="<?= (int)$org['id'] ?>" <?= ((int)($u['org_id'] ?? 0)) === (int)$org['id'] ? 'selected' : '' ?>>
+                                                                    <?= htmlspecialchars($org['name']) ?>
                                                                 </option>
                                                             <?php endforeach; ?>
                                                         </select>
