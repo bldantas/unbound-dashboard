@@ -8,7 +8,7 @@ $currentPage = 'analytics.php';
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Analítico - Unbound DNS</title>
+    <title><?= t('analytics.title') ?> - Unbound DNS</title>
     <meta name="description" content="Análise profunda de queries DNS: métricas, distribuições, top domínios e clientes, com janela ajustável.">
     <?php include 'includes/head.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -19,7 +19,7 @@ $currentPage = 'analytics.php';
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Analítico";
+        $pageTitle = t('analytics.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">
@@ -66,18 +66,18 @@ $currentPage = 'analytics.php';
 
             <!-- Timeseries -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
-                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2">Queries ao longo do tempo</h3>
+                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2"><?= t('analytics.section_queries_time') ?></h3>
                 <div style="height:280px"><canvas id="timeseriesChart"></canvas></div>
             </div>
 
             <!-- Donuts: actions + query types -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div class="glass-panel border-slate-200 dark:border-white/5">
-                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2">Distribuição por ação</h3>
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2"><?= t('analytics.section_dist_action') ?></h3>
                     <div style="height:240px"><canvas id="actionsChart"></canvas></div>
                 </div>
                 <div class="glass-panel border-slate-200 dark:border-white/5">
-                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2">Distribuição por tipo</h3>
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2"><?= t('analytics.section_dist_type') ?></h3>
                     <div style="height:240px"><canvas id="typesChart"></canvas></div>
                 </div>
             </div>
@@ -86,7 +86,7 @@ $currentPage = 'analytics.php';
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <div class="glass-table-container border-slate-200 dark:border-white/5">
                     <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
-                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Top 20 Domínios</h3>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('analytics.section_top_domains') ?></h3>
                         <select id="topDomainsAction" class="text-[10px] font-black uppercase tracking-widest bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1 cursor-pointer">
                             <option value="">Todas as ações</option>
                             <option value="blocked">Só bloqueadas</option>
@@ -101,7 +101,7 @@ $currentPage = 'analytics.php';
                 </div>
                 <div class="glass-table-container border-slate-200 dark:border-white/5">
                     <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Top 20 Clientes</h3>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('analytics.section_top_clients') ?></h3>
                     </div>
                     <table class="glass-table">
                         <thead><tr><th class="w-10">#</th><th>IP</th><th class="w-20 text-right">Total</th><th class="w-16 text-right">Bloq%</th><th class="w-20 text-right">Domínios</th></tr></thead>
@@ -115,7 +115,7 @@ $currentPage = 'analytics.php';
             <div id="retentionPanel" class="glass-panel mt-6 border-slate-200 dark:border-white/5">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
                     <div>
-                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Retenção de Query Logs</h3>
+                        <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('analytics.section_retention') ?></h3>
                         <p class="text-[10px] text-slate-500 mt-1">Pruner roda 1x/h. Mín 7 dias.</p>
                     </div>
                     <label class="flex items-center gap-2 cursor-pointer">

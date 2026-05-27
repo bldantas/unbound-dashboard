@@ -8,7 +8,7 @@ $currentPage = 'query_search.php';
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Busca em Queries - Unbound DNS</title>
+    <title><?= t('query_search.title') ?> - Unbound DNS</title>
     <meta name="description" content="Busca avançada em query_logs com filtros combinados (cliente, domínio, tipo, ação) e export CSV.">
     <?php include 'includes/head.php'; ?>
 </head>
@@ -18,7 +18,7 @@ $currentPage = 'query_search.php';
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Busca em Queries";
+        $pageTitle = t('query_search.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">

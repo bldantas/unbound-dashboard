@@ -8,7 +8,7 @@ $currentPage = 'anomalies.php';
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>Detector de Anomalias - Unbound DNS</title>
+    <title><?= t('anomalies.title') ?> - Unbound DNS</title>
     <meta name="description" content="Detector heurístico (DGA, NXDOMAIN spike, novo cliente, DNS tunneling, beaconing, suspicious TLDs) + whitelist por cliente/domínio.">
     <?php include 'includes/head.php'; ?>
 </head>
@@ -18,7 +18,7 @@ $currentPage = 'anomalies.php';
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Detector de Anomalias";
+        $pageTitle = t('anomalies.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">
@@ -60,7 +60,7 @@ $currentPage = 'anomalies.php';
             <!-- Thresholds -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Limiares</h3>
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('anomalies.section_thresholds') ?></h3>
                     <?php if (\App\Auth::isAdmin()): ?>
                         <button id="btnSaveSettings" class="glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black">Salvar</button>
                     <?php endif; ?>

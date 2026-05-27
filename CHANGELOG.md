@@ -10,6 +10,7 @@ seção por versão) por histórico — consolidação retroativa só pra
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
 ### UX & UI (continuação)
+- **v2.86**: i18n incremental — `analytics.php`, `anomalies.php`, `query_search.php`, `config.php` migradas. config.php inclui 16 tab labels (Configurações Unbound, DoT/DoH, etc). 5 novas seções nos `lang/*.php` (~30 chaves). Total: **19 páginas** com `t()`.
 - **v2.85**: i18n incremental — `dns_security.php`, `geo_blocking.php`, `observability.php`, `external_health.php` migradas (titles + section headers). 4 novas seções nos `lang/*.php` (~24 chaves). Total: **15 páginas** com `t()`.
 - **v2.84**: i18n incremental — `backup_offsite.php`, `approvals.php`, `hosts.php`, `cluster.php` migradas (titles + section headers). 4 novas seções nos `lang/*.php` (~21 chaves). Total: **11 páginas** com `t()` (sidebar + audit/sso/performance + 4 da v2.83 + 4 desta).
 - **v2.83**: i18n incremental — `index.php`, `alerts.php`, `threats.php`, `blocklists.php` migradas (titles + section headers + cards). 4 novas seções no `lang/pt-BR.php` e `lang/en.php` (~30 chaves). Tabs/labels JS dinâmicos seguem hardcoded (próximas iterações).

@@ -556,7 +556,7 @@ function field($key, $label, $desc = '', $def = '')
 <html lang="pt-BR">
 
 <head>
-    <title>Configurações - Unbound DNS</title>
+    <title><?= t('config.title') ?> - Unbound DNS</title>
     <?php include 'includes/head.php'; ?>
     <style>
         .tab-content { display: none; }
@@ -665,7 +665,7 @@ function field($key, $label, $desc = '', $def = '')
     <?php include 'includes/sidebar.php'; ?>
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php 
-        $pageTitle = "Configurações do Sistema";
+        $pageTitle = t('config.title');
         include 'includes/topbar.php'; 
         ?>
         <div class="page-container">
@@ -673,8 +673,8 @@ function field($key, $label, $desc = '', $def = '')
                 <aside class="w-full lg:w-72 flex-shrink-0">
                     <nav class="glass-panel !p-2 rounded-3xl border border-slate-200 dark:border-white/5 space-y-1">
                         <?php $tabs = $isAdmin
-                            ? ['geral' => 'Configurações Unbound', 'tls' => 'Criptografia DoT/DoH', 'local_dns' => 'Registros Locais', 'source_balance' => 'Múltiplos Processos', 'forwarders' => 'DNS Forwarders', 'rpz' => 'Lista de Bloqueios', 'acl' => 'Controle de Acesso', 'config_rede' => 'Configurações de Rede', 'ntp' => 'Tempo & NTP', 'email' => 'Email / SMTP', 'webhooks' => 'Webhooks de Alertas', 'updates' => 'Sistema / Atualizações', 'auditoria' => 'Auditoria', 'api_tokens' => 'API Tokens', 'usuarios' => 'Gestão de Usuários', 'perfil' => 'Meu Perfil']
-                            : ['perfil' => 'Meu Perfil'];
+                            ? ['geral' => t('config.tab_geral'), 'tls' => t('config.tab_tls'), 'local_dns' => t('config.tab_local_dns'), 'source_balance' => t('config.tab_source_balance'), 'forwarders' => t('config.tab_forwarders'), 'rpz' => t('config.tab_rpz'), 'acl' => t('config.tab_acl'), 'config_rede' => t('config.tab_config_rede'), 'ntp' => t('config.tab_ntp'), 'email' => t('config.tab_email'), 'webhooks' => t('config.tab_webhooks'), 'updates' => t('config.tab_updates'), 'auditoria' => t('config.tab_auditoria'), 'api_tokens' => t('config.tab_api_tokens'), 'usuarios' => t('config.tab_usuarios'), 'perfil' => t('config.tab_perfil')]
+                            : ['perfil' => t('config.tab_perfil')];
                         $activeTab = in_array($requestedTab, array_keys($tabs)) ? $requestedTab : array_key_first($tabs);
                         foreach ($tabs as $id => $label): ?>
                             <button onclick="switchTab('<?= $id ?>')" id="vtab-<?= $id ?>" class="v-tab <?= $id === $activeTab ? 'active' : '' ?> w-full text-left px-6 py-4 text-[11px] font-black uppercase tracking-widest transition-all"><?= $label ?></button>
