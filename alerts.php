@@ -1,5 +1,6 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 require_once 'src/AlertManager.php';
 
 \App\Auth::check();
@@ -185,9 +186,9 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
                         <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
                         </svg>
-                        Saúde do Servidor & Alertas
+                        <?= t('alerts.title') ?>
                     </h1>
-                    <p class="page-subtitle">Monitoramento em tempo real de hardware, segurança e conectividade.</p>
+                    <p class="page-subtitle"><?= t('alerts.subtitle') ?></p>
                 </div>
                 <?php if (\App\Auth::can('alerts.resolve')): ?>
                 <button type="button" id="btnEditThresholds"
@@ -200,7 +201,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
             </header>
 
             <!-- Seção de Hardware -->
-            <h2 class="text-xs font-black uppercase tracking-widest text-slate-500 mb-4 px-2">Recursos de Hardware & Sistema</h2>
+            <h2 class="text-xs font-black uppercase tracking-widest text-slate-500 mb-4 px-2"><?= t('alerts.section_hardware') ?></h2>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <!-- CPU -->
                 <div class="metric-card border-slate-200 dark:border-white/5">
@@ -210,7 +211,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
                             </svg></div>
                         <span id="alertsCpuLoadBadge" class="text-xs font-black text-slate-500 dark:text-slate-400 bg-slate-900/5 dark:bg-slate-800/50 px-3 py-1 rounded-full">Load: --</span>
                     </div>
-                    <h3 class="text-slate-900 dark:text-white font-bold mb-1">Processador</h3>
+                    <h3 class="text-slate-900 dark:text-white font-bold mb-1"><?= t('alerts.card_cpu') ?></h3>
 
                     <p class="text-xs text-slate-400 mb-3">Load Average (1/5/15)</p>
                     <div class="flex justify-between items-end">
@@ -228,7 +229,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
                             </svg></div>
                         <span id="alertsMemPercent" class="text-xs font-black text-slate-500 dark:text-slate-400 bg-slate-900/5 dark:bg-slate-800/50 px-3 py-1 rounded-full">--% Usado</span>
                     </div>
-                    <h3 class="text-slate-900 dark:text-white font-bold mb-1">Memória RAM</h3>
+                    <h3 class="text-slate-900 dark:text-white font-bold mb-1"><?= t('alerts.card_mem') ?></h3>
 
                     <p id="alertsMemSummary" class="text-xs text-slate-400 mb-3">-- GB de -- GB</p>
                     <div class="progress-bar">
@@ -245,7 +246,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
                             </svg></div>
                         <span id="alertsDiskPercent" class="text-xs font-black text-slate-500 dark:text-slate-400 bg-slate-900/5 dark:bg-slate-800/50 px-3 py-1 rounded-full">--% Disco</span>
                     </div>
-                    <h3 class="text-slate-900 dark:text-white font-bold mb-1">Armazenamento</h3>
+                    <h3 class="text-slate-900 dark:text-white font-bold mb-1"><?= t('alerts.card_storage') ?></h3>
 
                     <p id="alertsDiskSummary" class="text-xs text-slate-400 mb-3">Livre: -- GB</p>
                     <div class="progress-bar">
@@ -262,7 +263,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
                             </svg></div>
                         <span class="text-xs font-black text-slate-500 dark:text-slate-400 bg-slate-900/5 dark:bg-slate-800/50 px-3 py-1 rounded-full">Rede Saúde</span>
                     </div>
-                    <h3 class="text-slate-900 dark:text-white font-bold mb-1">Interfaces</h3>
+                    <h3 class="text-slate-900 dark:text-white font-bold mb-1"><?= t('alerts.card_network') ?></h3>
 
                     <p id="alertsNetSummary" class="text-xs text-slate-400 mb-3">Pkt Drops: -- | Eth Errors: --</p>
                     <div class="flex justify-between items-end">
@@ -274,7 +275,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
             </div>
 
             <!-- Seção de Segurança e Aplicações -->
-            <h2 class="text-xs font-black uppercase tracking-widest text-slate-500 mb-4 px-2">Segurança & Conectividade</h2>
+            <h2 class="text-xs font-black uppercase tracking-widest text-slate-500 mb-4 px-2"><?= t('alerts.section_security') ?></h2>
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
 
                 <!-- Sec Card -->
@@ -285,7 +286,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
 
                     <div class="flex-1">
                         <div class="flex justify-between">
-                            <h3 class="text-slate-900 dark:text-white font-bold text-lg">Tentativas de Autenticação</h3>
+                            <h3 class="text-slate-900 dark:text-white font-bold text-lg"><?= t('alerts.card_auth') ?></h3>
                             <span class="text-[10px] font-black bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-2 pt-1 border border-slate-300 dark:border-white/5 rounded">SSH LOGINS</span>
                         </div>
                         <p class="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-3">Falhas detectadas no auth.log hoje (Acessos suspeitos).</p>
@@ -302,7 +303,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
                         </svg></div>
                     <div class="flex-1">
                         <div class="flex justify-between">
-                            <h3 class="text-slate-900 dark:text-white font-bold text-lg">Serviços e Conexões</h3>
+                            <h3 class="text-slate-900 dark:text-white font-bold text-lg"><?= t('alerts.card_services') ?></h3>
                             <span class="text-[10px] font-black bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-2 pt-1 border border-slate-300 dark:border-white/5 rounded">API + DUCKDB</span>
                         </div>
                         <p class="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-3">FastAPI: <span id="alertsApiStatus" class="text-slate-900 dark:text-white font-bold">--</span> | DuckDB: <span id="alertsDbSize" class="text-slate-900 dark:text-white font-bold">--</span></p>
@@ -557,7 +558,7 @@ $countsByType = array_filter($countsByType, fn($c) => $c['total'] > 0);
     <div id="modalThresholds" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
          onclick="if (event.target === this) this.classList.add('hidden')">
         <div class="glass-panel max-w-lg w-full">
-            <h3 class="text-sm font-black uppercase tracking-widest mb-2 text-slate-900 dark:text-white">Editar Limiares de Alerta</h3>
+            <h3 class="text-sm font-black uppercase tracking-widest mb-2 text-slate-900 dark:text-white"><?= t('alerts.section_thresholds') ?></h3>
             <p class="text-[11px] text-slate-500 mb-4">
                 Valores acima do limiar disparam alertas. As alterações são aplicadas no próximo ciclo do
                 <code class="text-[10px]">alert_checker</code> (até 60s). Campos vazios mantêm o valor atual.

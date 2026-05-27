@@ -1,5 +1,6 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 require_once 'src/StatsManager.php';
 
 use App\Auth;
@@ -93,7 +94,7 @@ $currentPage = 'index.php';
     
     <main class="flex-1 overflow-y-auto w-full bg-slate-50 dark:bg-slate-950 transition-colors duration-300 dot-matrix-bg">
         <?php 
-        $pageTitle = "Painel Geral";
+        $pageTitle = t('index.title');
         include 'includes/topbar.php'; 
         ?>
 
@@ -264,7 +265,7 @@ $currentPage = 'index.php';
                 <div class="lg:col-span-8 glass-panel !p-0 overflow-hidden flex flex-col h-full border-slate-900/10 dark:border-white/5 stagger-item stagger-5">
                     <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
                         <div>
-                            <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest">Desempenho de Resolução</h3>
+                            <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest"><?= t('index.section_performance') ?></h3>
                             <p class="text-[10px] text-slate-500 font-bold uppercase mt-1">Histórico de Fluxo (Hits x Misses)</p>
                         </div>
 
@@ -281,7 +282,7 @@ $currentPage = 'index.php';
                 <!-- DISTRIBUICAO DE TIPOS -->
                 <div class="lg:col-span-4 glass-panel !p-0 overflow-hidden flex flex-col h-full border-slate-900/10 dark:border-white/5 stagger-item stagger-6">
                     <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                        <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest">Distribuição RR</h3>
+                        <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest"><?= t('index.section_distribution') ?></h3>
                         <p class="text-[10px] text-slate-500 font-bold uppercase mt-1">Tipos de Registros DNS</p>
                     </div>
 
@@ -297,7 +298,7 @@ $currentPage = 'index.php';
                 <div class="glass-panel glow-red border-l-4 border-red-500/40 flex flex-col h-full border-slate-900/10 dark:border-white/5 stagger-item stagger-7">
                     <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest mb-6 flex items-center gap-2">
                         <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                        Segurança & Filtros
+                        <?= t('index.section_security') ?>
                     </h3>
 
                     <div class="space-y-4 flex-1">
@@ -321,7 +322,7 @@ $currentPage = 'index.php';
                 <div class="glass-panel flex flex-col h-full border-slate-900/10 dark:border-white/5 stagger-item stagger-8">
                     <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest mb-6 flex items-center gap-2">
                         <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
-                        Cache Interno
+                        <?= t('index.section_cache') ?>
                     </h3>
 
                     <div class="space-y-6 flex-1">
@@ -352,7 +353,7 @@ $currentPage = 'index.php';
                 <div class="glass-panel glow-orange group cursor-pointer hover:bg-orange-500/10 transition-all border border-slate-900/10 dark:border-transparent hover:border-orange-500/20 flex flex-col h-full stagger-item stagger-9">
                      <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest mb-4 flex items-center gap-2">
                         <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                        Anomalias de Rede
+                        <?= t('index.section_anomalies') ?>
                      </h3>
 
                     <div class="flex-1 flex flex-col justify-center space-y-4">

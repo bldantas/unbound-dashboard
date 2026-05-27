@@ -10,6 +10,7 @@ seção por versão) por histórico — consolidação retroativa só pra
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
 ### UX & UI (continuação)
+- **v2.83**: i18n incremental — `index.php`, `alerts.php`, `threats.php`, `blocklists.php` migradas (titles + section headers + cards). 4 novas seções no `lang/pt-BR.php` e `lang/en.php` (~30 chaves). Tabs/labels JS dinâmicos seguem hardcoded (próximas iterações).
 - **v2.77**: i18n incremental — `audit.php`, `sso.php`, `performance.php` migradas (titles + subtitles + tabs). Outras páginas progressivas.
 - **v2.76**: i18n base — helper `t()` (PHP), arquivos `lang/pt-BR.php` e `lang/en.php`, toggle PT/EN no topbar (cookie 1 ano + session), `set_locale.php` endpoint. Detect: session → cookie → Accept-Language → default pt-BR. Sidebar 100% migrada; outras páginas migram progressivamente. Keys ausentes mostram a própria key (debug-friendly).
 

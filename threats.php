@@ -1,5 +1,6 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 
 use App\Auth;
 
@@ -68,7 +69,7 @@ $currentPage = 'threats.php';
     
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php 
-        $pageTitle = "Segurança & Ameaças";
+        $pageTitle = t('threats.title');
         include 'includes/topbar.php'; 
         ?>
         <div class="page-container">
@@ -95,7 +96,7 @@ $currentPage = 'threats.php';
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
                 <!-- Top Blocked Domains -->
                 <div class="glass-panel flex flex-col border-slate-200 dark:border-white/5">
-                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6 border-b border-slate-900/10 dark:border-white/5 pb-2">Top Domínios Bloqueados (Judicial)</h3>
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6 border-b border-slate-900/10 dark:border-white/5 pb-2"><?= t('threats.section_top_blocked') ?></h3>
 
                     <div id="threatsTopDomains" class="flex-1 space-y-3">
                         <p class="text-slate-500 text-xs italic">Carregando top domínios...</p>
@@ -104,7 +105,7 @@ $currentPage = 'threats.php';
 
                 <!-- Top Blocked Clients -->
                 <div class="glass-panel flex flex-col border-slate-200 dark:border-white/5">
-                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6 border-b border-slate-900/10 dark:border-white/5 pb-2">Clientes Mais Afetados</h3>
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6 border-b border-slate-900/10 dark:border-white/5 pb-2"><?= t('threats.section_top_clients') ?></h3>
 
                     <div id="threatsTopClients" class="flex-1 space-y-3">
                         <p class="text-slate-500 text-xs italic">Carregando top clientes...</p>
@@ -114,7 +115,7 @@ $currentPage = 'threats.php';
 
             <!-- Top ASNs (provedores/redes) -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
-                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2">Top ASNs (origem dos bloqueios, 24h)</h3>
+                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2"><?= t('threats.section_top_asns') ?></h3>
                 <div id="threatsTopAsns" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                     <p class="text-slate-500 text-xs italic col-span-full">Carregando ASNs...</p>
                 </div>
@@ -123,7 +124,7 @@ $currentPage = 'threats.php';
             <!-- Distribuição Global (mapa + top países) -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-8">
                 <div class="flex items-center justify-between flex-wrap gap-2 mb-4 border-b border-slate-900/10 dark:border-white/5 pb-2">
-                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Distribuição Global (24h)</h3>
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('threats.section_global') ?></h3>
                     <div class="flex items-center gap-2">
                         <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Ação</label>
                         <select id="geoActionSelect" class="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500/40">
@@ -181,7 +182,7 @@ $currentPage = 'threats.php';
 
             <div class="glass-table-container border-slate-200 dark:border-white/5">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Logs de Bloqueio em Tempo Real</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('threats.section_live_blocks') ?></h3>
                     <form method="GET" class="flex items-center gap-2" data-loader="off">
                         <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Exibir:</label>
                         <select id="threatsLimit" name="limit" class="bg-slate-200 dark:bg-slate-900 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white text-[10px] font-black uppercase rounded-lg px-3 py-1 outline-none focus:ring-1 focus:ring-red-500">

@@ -1,5 +1,6 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 use App\Auth;
 Auth::check();
 
@@ -18,7 +19,7 @@ $currentPage = 'blocklists.php';
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Blocklists";
+        $pageTitle = t('blocklists.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">
@@ -60,7 +61,7 @@ $currentPage = 'blocklists.php';
                 <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                     <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
                         <div>
-                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Fontes Disponíveis</h3>
+                            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('blocklists.section_sources') ?></h3>
                             <p class="text-[11px] text-slate-500 mt-1">Indexar popula o catálogo (busca/analytics). Bloquear injeta como NXDOMAIN no Unbound.</p>
                         </div>
                         <?php if (\App\Auth::can('blocklist.write')): ?>
@@ -97,8 +98,8 @@ $currentPage = 'blocklists.php';
                 <div class="glass-panel border-l-4 border-blue-500 border-slate-200 dark:border-white/5" id="applyBanner" style="display:none">
                     <div class="flex items-start justify-between gap-3 flex-wrap">
                         <div class="min-w-0">
-                            <p class="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">Mudança pendente</p>
-                            <p class="text-sm font-bold text-slate-900 dark:text-white">Você alterou flags de bloqueio mas o Unbound ainda usa a configuração antiga.</p>
+                            <p class="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1"><?= t('blocklists.pending_change_title') ?></p>
+                            <p class="text-sm font-bold text-slate-900 dark:text-white"><?= t('blocklists.pending_change_desc') ?></p>
                             <p class="text-[11px] text-slate-500 mt-1">Clique em <b>Aplicar &amp; Recarregar Unbound</b> pra regerar o arquivo de bloqueio e mandar o Unbound recarregar.</p>
                         </div>
                         <?php if (\App\Auth::can('blocklist.write')): ?>
@@ -159,7 +160,7 @@ $currentPage = 'blocklists.php';
             <!-- ====================== TAB: EXCEÇÕES ====================== -->
             <section data-panel="exceptions" class="tab-panel" style="display:none">
                 <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
-                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3">Adicionar Exceção</h3>
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3"><?= t('blocklists.section_add_exception') ?></h3>
                     <p class="text-[11px] text-slate-500 mb-4">
                         Domínios na allowlist <b>sempre resolvem normalmente</b>, mesmo que apareçam em alguma blocklist.
                         Use pra liberar serviços legítimos que alguma fonte bloqueia por engano (ex: <code>googletagmanager.com</code>).
@@ -183,7 +184,7 @@ $currentPage = 'blocklists.php';
                 <!-- Bulk operations (D.2) -->
                 <?php if (\App\Auth::can('blocklist.write')): ?>
                 <div class="glass-panel border-slate-200 dark:border-white/5 mb-4">
-                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3">Bulk / CSV</h3>
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3"><?= t('blocklists.section_bulk') ?></h3>
                     <p class="text-[11px] text-slate-500 mb-4">
                         Importa lista de domínios (CSV ou texto, 1 por linha). Exporta toda a allowlist em CSV.
                     </p>
@@ -204,7 +205,7 @@ $currentPage = 'blocklists.php';
 
                 <div class="glass-panel border-slate-200 dark:border-white/5">
                     <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Exceções Ativas (<span id="exCount">0</span>)</h3>
+                        <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('blocklists.section_active_exceptions') ?> (<span id="exCount">0</span>)</h3>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="glass-table w-full">
