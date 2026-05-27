@@ -9,6 +9,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### UX
+- **v2.101.3**: botão de pausar no widget Live Stream mini do dashboard. Estado persiste entre reloads via `localStorage['ls_mini_paused']`. Quando pausado: WS continua conectado mas mensagens são ignoradas no client; status badge mostra "⏸ pausado" e botão vira "▶ Retomar" (amber). Útil pra ler uma query específica no feed sem ela rolar pra fora. Mesmo padrão da página `/live_stream.php` (que já tinha pausa, mas em formato checkbox).
+
 ### Hotfix
 - **v2.101.2**: drop-in pro Unbound do sistema — redireciona stderr → logfile pra LogWatcher receber as query logs. Em Debian/Ubuntu modernos, `unbound -d` (foreground) manda stderr pro journal do systemd e ignora `logfile:` no `unbound.conf`. Resultado: arquivo de log fica zerado, LogWatcher faz tail de vazio, Live Stream e tabela `query_logs` ficam sem dados. Fix: drop-in `[Service] StandardError=append:/var/log/unbound/unbound.log` em `/etc/systemd/system/unbound.service.d/logfile.conf`. Distribuído como `api_service/deployments/systemd/unbound.service.d/logfile.conf`. Aplicado automaticamente por `tools/install.sh` (instalação nova) e `tools/update.sh` (update). Descoberto em test server pós-v2.101.1: queries chegavam normalmente no Unbound mas o LogWatcher do dashboard ficava vazio.
 - **v2.101.1**: `tools/update.sh` agora **falha hard** quando `uv` não está disponível ou `uv sync` retorna erro. Antes era só `warn` silencioso — o update prosseguia e o serviço caía no startup com `ModuleNotFoundError` (descoberto via boto3 ausente após v2.101.0). Para pular intencionalmente, exporte `SKIP_VENV_SYNC=true` (NÃO recomendado).

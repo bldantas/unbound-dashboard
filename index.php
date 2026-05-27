@@ -382,7 +382,10 @@ $currentPage = 'index.php';
                             Live stream
                             <span id="lsStatus" class="ml-1 text-[10px] normal-case tracking-normal font-bold text-slate-500">conectando…</span>
                         </h3>
-                        <a href="live_stream.php" class="text-[10px] text-slate-500 hover:text-emerald-500 font-black uppercase tracking-widest">Tela cheia ›</a>
+                        <div class="flex items-center gap-2">
+                            <button type="button" id="lsPauseBtn" class="text-[10px] text-slate-500 hover:text-emerald-500 font-black uppercase tracking-widest px-2 py-0.5 rounded border border-slate-200 dark:border-white/10" title="Pausar/retomar o stream">⏸ Pausar</button>
+                            <a href="live_stream.php" class="text-[10px] text-slate-500 hover:text-emerald-500 font-black uppercase tracking-widest">Tela cheia ›</a>
+                        </div>
                     </div>
                     <div class="overflow-hidden text-[11px] font-mono flex-1">
                         <table class="w-full">
@@ -1163,17 +1166,42 @@ $currentPage = 'index.php';
         (function () {
             const body = document.getElementById('lsBody');
             const statusEl = document.getElementById('lsStatus');
+            const pauseBtn = document.getElementById('lsPauseBtn');
             if (!body || !__JWT) return;
             const MAX_ROWS = 6;
             let ws = null;
             let reconnectDelay = 2000;
             let firstMsg = true;
+            // Pause persiste entre reloads via localStorage — sessão do user.
+            let paused = (localStorage.getItem('ls_mini_paused') === '1');
 
             function escHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
             function setStatus(text, color) {
                 statusEl.textContent = text;
                 statusEl.className = 'ml-1 text-[10px] normal-case tracking-normal font-bold ' + (color || 'text-slate-500');
             }
+            function applyPauseUI() {
+                if (!pauseBtn) return;
+                if (paused) {
+                    pauseBtn.textContent = '▶ Retomar';
+                    pauseBtn.classList.add('!text-amber-500', '!border-amber-500/40');
+                    setStatus('⏸ pausado', 'text-amber-500');
+                } else {
+                    pauseBtn.textContent = '⏸ Pausar';
+                    pauseBtn.classList.remove('!text-amber-500', '!border-amber-500/40');
+                    // status do WS volta a refletir o estado atual da conexão
+                    if (ws && ws.readyState === 1) setStatus('● ao vivo', 'text-emerald-500');
+                }
+            }
+            applyPauseUI();
+            if (pauseBtn) {
+                pauseBtn.addEventListener('click', () => {
+                    paused = !paused;
+                    localStorage.setItem('ls_mini_paused', paused ? '1' : '0');
+                    applyPauseUI();
+                });
+            }
+
             function actionBadge(a) {
                 if (a === 'blocked')  return '<span class="text-[9px] font-black text-red-500">BLOCK</span>';
                 if (a === 'resolved') return '<span class="text-[9px] font-black text-emerald-500">OK</span>';
@@ -1197,7 +1225,7 @@ $currentPage = 'index.php';
                 while (body.children.length > MAX_ROWS) body.removeChild(body.lastChild);
             }
             function connect() {
-                setStatus('conectando…', 'text-amber-500');
+                if (!paused) setStatus('conectando…', 'text-amber-500');
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 try {
                     ws = new WebSocket(proto + '//' + window.location.host + '/api/v1/ws/queries?token=' + encodeURIComponent(__JWT));
@@ -1205,14 +1233,18 @@ $currentPage = 'index.php';
                     setStatus('erro', 'text-red-500');
                     return;
                 }
-                ws.onopen = () => { setStatus('● ao vivo', 'text-emerald-500'); reconnectDelay = 2000; };
+                ws.onopen = () => {
+                    reconnectDelay = 2000;
+                    if (!paused) setStatus('● ao vivo', 'text-emerald-500');
+                };
                 ws.onclose = () => {
-                    setStatus('reconectando…', 'text-red-500');
+                    if (!paused) setStatus('reconectando…', 'text-red-500');
                     setTimeout(connect, reconnectDelay);
                     reconnectDelay = Math.min(reconnectDelay * 2, 30000);
                 };
                 ws.onerror = () => { /* close handles */ };
                 ws.onmessage = (msg) => {
+                    if (paused) return;  // ignora mensagens enquanto pausado (WS segue conectado)
                     try {
                         const data = JSON.parse(msg.data);
                         if (data.type === 'query') appendQuery(data);
