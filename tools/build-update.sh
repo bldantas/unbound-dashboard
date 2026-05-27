@@ -142,6 +142,15 @@ copy_system() {
     local src_unit="$DASHBOARD_DIR/api_service/deployments/systemd/unbound-dashboard-api.service"
     [ -f "$src_unit" ] && cp "$src_unit" "$BUILD_DIR/system/systemd/"
 
+    # Drop-in pro Unbound do sistema (redireciona stderr→logfile)
+    # Necessário pra LogWatcher receber as query logs em Debian/Ubuntu
+    # modernos onde `unbound -d` manda stderr pro journal por default.
+    local src_dropin_dir="$DASHBOARD_DIR/api_service/deployments/systemd/unbound.service.d"
+    if [ -d "$src_dropin_dir" ]; then
+        mkdir -p "$BUILD_DIR/system/systemd/unbound.service.d"
+        cp -r "$src_dropin_dir/." "$BUILD_DIR/system/systemd/unbound.service.d/"
+    fi
+
     # Apache conf-available
     local src_conf="$DASHBOARD_DIR/api_service/deployments/apache/unbound-dashboard-api.conf"
     [ -f "$src_conf" ] && cp "$src_conf" "$BUILD_DIR/system/apache/"

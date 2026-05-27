@@ -307,6 +307,29 @@ apply_system() {
         fi
     fi
 
+    # --- Drop-in pro Unbound do sistema (stderr → logfile)
+    # Sem isso, em Debian/Ubuntu modernos o LogWatcher fica sem queries
+    # porque `unbound -d` joga stderr no journal e ignora logfile:.
+    if [ -d "$sys/systemd/unbound.service.d" ]; then
+        if [ "$DRY_RUN" = "true" ]; then
+            info "[DRY-RUN] /etc/systemd/system/unbound.service.d/ drop-in"
+        else
+            mkdir -p /etc/systemd/system/unbound.service.d
+            cp "$sys/systemd/unbound.service.d/"*.conf /etc/systemd/system/unbound.service.d/
+            systemctl daemon-reload
+            # Garante que o arquivo de log existe + permissão (systemd vai
+            # appendar como root, mas o dir/arquivo precisa ser writable)
+            mkdir -p /var/log/unbound
+            touch /var/log/unbound/unbound.log
+            chown unbound:unbound /var/log/unbound/unbound.log 2>/dev/null || true
+            # Restart (não reload) — drop-in muda StandardError, precisa re-exec
+            if systemctl is-active --quiet unbound; then
+                systemctl restart unbound || warn "Falha ao reiniciar unbound após drop-in"
+            fi
+            log "Unbound drop-in instalado (stderr→logfile pra LogWatcher)"
+        fi
+    fi
+
     # --- Apache conf-available
     if [ -f "$sys/apache/unbound-dashboard-api.conf" ]; then
         if [ "$DRY_RUN" = "true" ]; then

@@ -366,6 +366,23 @@ else
     err "Systemd unit ausente em $SYSTEM_SRC/systemd/"
 fi
 
+# Drop-in pro Unbound do sistema — redireciona stderr→logfile pra LogWatcher.
+# Em Debian/Ubuntu modernos, unbound -d (foreground) joga stderr no journal e
+# ignora `logfile:`. Sem este drop-in o Live Stream e query_logs ficam vazios.
+if [ -d "$SYSTEM_SRC/systemd/unbound.service.d" ]; then
+    mkdir -p /etc/systemd/system/unbound.service.d
+    cp "$SYSTEM_SRC/systemd/unbound.service.d/"*.conf /etc/systemd/system/unbound.service.d/
+    systemctl daemon-reload
+    mkdir -p /var/log/unbound
+    touch /var/log/unbound/unbound.log
+    chown unbound:unbound /var/log/unbound/unbound.log 2>/dev/null || true
+    # Restart só se o unbound já estiver rodando (instalação fresh ainda não subiu)
+    if systemctl is-active --quiet unbound; then
+        systemctl restart unbound || warn "Falha ao reiniciar unbound após drop-in"
+    fi
+    log "Unbound drop-in instalado (stderr→logfile pra LogWatcher)"
+fi
+
 # Apache conf-available + a2enconf
 if [ -f "$SYSTEM_SRC/apache/unbound-dashboard-api.conf" ]; then
     cp "$SYSTEM_SRC/apache/unbound-dashboard-api.conf" /etc/apache2/conf-available/
