@@ -1,5 +1,6 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 use App\Auth;
 Auth::check();
 if (!Auth::isAdmin()) {
@@ -22,7 +23,7 @@ $currentPage = 'backup_offsite.php';
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Backup Offsite";
+        $pageTitle = t('backup.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">
@@ -72,7 +73,7 @@ $currentPage = 'backup_offsite.php';
             <!-- Form -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Configuração S3</h3>
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('backup.section_config') ?></h3>
                     <div class="flex gap-2">
                         <button id="btnTest" class="glass-btn text-[10px] uppercase font-black flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -140,7 +141,7 @@ $currentPage = 'backup_offsite.php';
             <div class="glass-table-container border-slate-200 dark:border-white/5">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between flex-wrap gap-2">
                     <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">
-                        Backups no bucket (<span id="historyCount" class="text-purple-500">—</span>)
+                        <?= t('backup.section_history') ?> (<span id="historyCount" class="text-purple-500">—</span>)
                     </h3>
                     <button id="btnRefreshHistory" class="glass-btn text-[10px] uppercase font-black">Atualizar lista</button>
                 </div>
@@ -158,7 +159,7 @@ $currentPage = 'backup_offsite.php';
             <div class="glass-panel border-blue-200 dark:border-blue-500/30 bg-blue-50/30 dark:bg-blue-500/5 mb-6">
                 <div class="px-6 py-4 border-b border-blue-200 dark:border-blue-500/30 flex items-center justify-between">
                     <div>
-                        <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Múltiplos Destinos S3 <span id="destBadge" class="ml-2 text-[10px] text-slate-500"></span></h3>
+                        <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('backup.section_destinations') ?> <span id="destBadge" class="ml-2 text-[10px] text-slate-500"></span></h3>
                         <p class="text-[10px] text-slate-500 mt-1">Backup redundante em N provedores em paralelo (AWS + B2 + Wasabi…). Quando ≥1 destino está ativo, o worker passa a usar este modo no lugar do single-bucket acima. <code>secret_key</code> é cifrado via <code>cipher_service</code>.</p>
                     </div>
                     <div class="flex gap-2">
@@ -174,7 +175,7 @@ $currentPage = 'backup_offsite.php';
             <!-- Auto restore-test (RestoreTestRunner) -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Auto Restore-Test</h3>
+                    <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('backup.section_restore_test') ?></h3>
                     <p class="text-[10px] text-slate-500 mt-1">Worker <code>RestoreTestRunner</code> baixa um backup do S3 e valida integridade do DuckDB. Tempo típico 5-30s dependendo do tamanho.</p>
                 </div>
                 <div class="p-6 flex flex-wrap items-end gap-4 text-xs">

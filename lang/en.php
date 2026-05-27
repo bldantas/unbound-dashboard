@@ -158,4 +158,32 @@ return [
         'pending_change_title'     => 'Pending change',
         'pending_change_desc'      => 'You changed blocking flags but Unbound still uses the old config.',
     ],
+    'backup' => [
+        'title'                    => 'Offsite Backup',
+        'subtitle'                 => 'Automatic encrypted upload of DuckDB to S3-compatible (AWS/B2/R2/MinIO) + restore-test and multiple destinations.',
+        'section_config'           => 'S3 Configuration',
+        'section_history'          => 'Upload history',
+        'section_destinations'     => 'Multiple S3 destinations',
+        'section_restore_test'     => 'Auto Restore-Test',
+    ],
+    'approvals' => [
+        'title'                    => 'Approvals',
+        'subtitle'                 => 'Optional workflow: sensitive actions stay pending until another admin approves. Requester cannot approve their own request.',
+        'section_config'           => 'Configuration',
+        'section_requests'         => 'Requests',
+    ],
+    'hosts' => [
+        'title'                    => 'Managed Hosts',
+        'subtitle'                 => 'Multi-host master — inventory of agents polled via API token.',
+        'section_detail'           => 'Host details',
+        'section_batch_result'     => 'Result',
+        'section_add_host'         => 'Add host',
+    ],
+    'cluster' => [
+        'title'                    => 'HA Cluster',
+        'subtitle'                 => 'Observability of cluster peers + manual failover assist. Does not touch network/DNS — only tracks state.',
+        'section_peers'            => 'Peers',
+        'section_add_peer'         => 'Add Peer',
+        'section_failover'         => 'Manual Failover',
+    ],
 ];

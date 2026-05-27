@@ -1,5 +1,6 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 use App\Auth;
 Auth::check();
 
@@ -19,7 +20,7 @@ $isAdmin = Auth::isAdmin();
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Cluster HA";
+        $pageTitle = t('cluster.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">
@@ -27,9 +28,9 @@ $isAdmin = Auth::isAdmin();
             <header class="page-header mb-6">
                 <h1 class="page-title flex items-center gap-3">
                     <svg class="w-8 h-8 text-fuchsia-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
-                    Cluster HA
+                    <?= t('cluster.title') ?>
                 </h1>
-                <p class="page-subtitle">Observabilidade de peers do cluster + manual failover assist. Não toca em rede/DNS — só registra estado.</p>
+                <p class="page-subtitle"><?= t('cluster.subtitle') ?></p>
             </header>
 
             <!-- KPIs -->
@@ -55,7 +56,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Tabela peers -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6 overflow-hidden">
                 <div class="px-6 py-3 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Peers</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('cluster.section_peers') ?></h3>
                     <button type="button" id="btnRefresh" class="glass-btn text-[10px] uppercase font-black">↻ Atualizar</button>
                 </div>
                 <div class="overflow-x-auto">
@@ -83,7 +84,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Adicionar peer -->
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Adicionar Peer</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('cluster.section_add_peer') ?></h3>
                     <p class="text-[10px] text-slate-500 mt-1">Token gerado é exibido uma única vez após criar. Salve em local seguro.</p>
                 </div>
                 <div class="p-6 flex flex-wrap items-end gap-3">
@@ -117,7 +118,7 @@ $isAdmin = Auth::isAdmin();
             <!-- Manual failover -->
             <div class="glass-panel border-rose-200 dark:border-rose-500/30 mb-6 bg-rose-50/30 dark:bg-rose-500/5">
                 <div class="px-6 py-4 border-b border-rose-200 dark:border-rose-500/30">
-                    <h3 class="text-xs font-black text-rose-700 dark:text-rose-300 uppercase tracking-widest">Manual Failover</h3>
+                    <h3 class="text-xs font-black text-rose-700 dark:text-rose-300 uppercase tracking-widest"><?= t('cluster.section_failover') ?></h3>
                     <p class="text-[10px] text-slate-500 mt-1">Promove secondary → primary no registro do cluster. <strong>Não muda rede/DNS</strong> — você cuida do cutover real (A record, IP virtual, keepalived).</p>
                 </div>
                 <div class="p-6 flex flex-wrap items-end gap-3">

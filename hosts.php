@@ -1,5 +1,6 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 
 use App\Auth;
 
@@ -24,7 +25,7 @@ $currentPage = 'hosts.php';
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Hosts Gerenciados";
+        $pageTitle = t('hosts.title');
         include 'includes/topbar.php';
         ?>
 
@@ -33,9 +34,9 @@ $currentPage = 'hosts.php';
                 <div>
                     <h1 class="page-title flex items-center gap-3">
                         <svg class="w-8 h-8 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 00-.12-1.03l-2.268-9.64a3.375 3.375 0 00-3.285-2.602H7.923a3.375 3.375 0 00-3.285 2.602l-2.268 9.64a4.5 4.5 0 00-.12 1.03v.228m19.5 0a3 3 0 01-3 3H5.25a3 3 0 01-3-3m19.5 0a3 3 0 00-3-3H5.25a3 3 0 00-3 3m16.5 0h.008v.008h-.008v-.008zm-3 0h.008v.008h-.008v-.008z"/></svg>
-                        Hosts Gerenciados
+                        <?= t('hosts.title') ?>
                     </h1>
-                    <p class="page-subtitle">Master multi-host — inventário de agents pollados via API token.</p>
+                    <p class="page-subtitle"><?= t('hosts.subtitle') ?></p>
                 </div>
                 <div class="flex items-center gap-2">
                     <button type="button" id="hosts-refresh-btn" class="glass-btn text-[10px] uppercase font-black flex items-center gap-2" title="Recarregar lista">
@@ -105,7 +106,7 @@ $currentPage = 'hosts.php';
         <div class="glass-panel max-w-3xl w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div class="flex items-start justify-between gap-4 mb-4">
                 <div class="min-w-0">
-                    <h3 id="host-detail-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Detalhes do host</h3>
+                    <h3 id="host-detail-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('hosts.section_detail') ?></h3>
                     <p class="text-[11px] text-slate-500 mt-1" id="host-detail-subtitle">…</p>
                 </div>
                 <button type="button" id="host-detail-close" class="glass-btn text-[10px] uppercase font-black">Fechar</button>
@@ -187,7 +188,7 @@ $currentPage = 'hosts.php';
     <!-- Modal: resultado de batch op -->
     <div id="batch-result-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
         <div class="glass-panel max-w-2xl w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl max-h-[80vh] overflow-y-auto">
-            <h3 id="batch-result-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3">Resultado</h3>
+            <h3 id="batch-result-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-3"><?= t('hosts.section_batch_result') ?></h3>
             <div id="batch-result-list" class="space-y-2 text-[11px]"></div>
             <div class="flex justify-end mt-4">
                 <button type="button" id="batch-result-close" class="glass-btn text-[10px] uppercase font-black">Fechar</button>
@@ -198,7 +199,7 @@ $currentPage = 'hosts.php';
     <!-- Modal: adicionar/editar host -->
     <div id="host-form-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
         <div class="glass-panel max-w-lg w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl">
-            <h3 id="host-form-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4">Adicionar host</h3>
+            <h3 id="host-form-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-4"><?= t('hosts.section_add_host') ?></h3>
 
             <div class="space-y-4">
                 <div>

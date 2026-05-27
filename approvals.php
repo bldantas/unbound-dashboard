@@ -1,5 +1,6 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 use App\Auth;
 Auth::check();
 
@@ -20,7 +21,7 @@ $currentUserId = (int)($_SESSION['user_id'] ?? 0);
 
     <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
         <?php
-        $pageTitle = "Aprovações";
+        $pageTitle = t('approvals.title');
         include 'includes/topbar.php';
         ?>
         <div class="page-container">
@@ -28,15 +29,15 @@ $currentUserId = (int)($_SESSION['user_id'] ?? 0);
             <header class="page-header mb-6">
                 <h1 class="page-title flex items-center gap-3">
                     <svg class="w-8 h-8 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    Aprovações (2nd-Approver)
+                    <?= t('approvals.title') ?> (2nd-Approver)
                 </h1>
-                <p class="page-subtitle">Workflow opcional: ações sensíveis ficam pendentes até outro admin aprovar. Requester não pode aprovar o próprio pedido.</p>
+                <p class="page-subtitle"><?= t('approvals.subtitle') ?></p>
             </header>
 
             <?php if ($isAdmin): ?>
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Configuração</h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('approvals.section_config') ?></h3>
                     <p class="text-[10px] text-slate-500 mt-1">Toggle global + CSV de actions que exigem aprovação (ex: <code>dns_security.apply,doh_inbound.gen_cert,ha.failover</code>). NÃO há wire automático nesta versão — operador habilita e re-executa manualmente após aprovação.</p>
                 </div>
                 <div class="p-6 space-y-3 text-xs">
@@ -61,7 +62,7 @@ $currentUserId = (int)($_SESSION['user_id'] ?? 0);
 
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6 overflow-hidden">
                 <div class="px-6 py-3 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5 flex items-center justify-between">
-                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Requests <span id="pendingCount" class="text-amber-500"></span></h3>
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('approvals.section_requests') ?> <span id="pendingCount" class="text-amber-500"></span></h3>
                     <div class="flex gap-2">
                         <button type="button" data-tab="pending" class="tab-btn active glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Pending</button>
                         <button type="button" data-tab="all" class="tab-btn glass-btn text-[10px] uppercase font-black">Histórico</button>
