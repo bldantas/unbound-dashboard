@@ -9,6 +9,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Notifications
+- **v2.90**: Notifications center — per-user prefs + daily digest por email. V26 `user_notification_prefs` (severity_min, categories JSON, digest_enabled, digest_hour, last_digest_sent_at). Endpoints `GET/PUT /api/v1/notifications/prefs` (sempre o user do JWT, não admin-only). Worker novo **DigestSender** (hourly): para cada user `digest_enabled` cuja `digest_hour` bate com a hora atual UTC e que ainda não recebeu hoje, agrega notificações das últimas 24h respeitando `severity_min` + filtro de `categories` (prefixos: `alert`, `anomaly_`), envia 1 email via SMTP. UI nova em `/notifications.php` (painel "Minhas Preferências" com selects + checkbox + hora). Audit: `last_digest_sent_at` atualizado a cada envio bem-sucedido.
+
 ### Multi-tenant
 - **v2.89**: multi-tenant UI — listings filtradas por org. V25 ALTER TABLE `managed_hosts` ADD `org_id`. Service `managed_hosts.list_all(viewer_org_id)`: user com `org_id=NULL` (system admin) vê tudo; user com `org_id=N` vê só hosts `NULL` (globais) + da própria org. Router resolve `viewer_org_id` do DB a cada request. POST `/hosts` aceita `org_id`; user org-scoped só cria pra própria org (403 caso contrário). Novo endpoint `PUT /hosts/{id}/org` (admin global only). UI: badge "org name" ou "global" no card; `/users` tab em config.php ganha coluna **Organização** com dropdown (chama `POST /organizations/assign-user`). hosts.php form ganha select de Org (CRUD + edit).
 

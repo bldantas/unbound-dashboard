@@ -123,6 +123,44 @@ $isAdmin = Auth::isAdmin();
                 </div>
             </div>
 
+            <!-- Per-user prefs -->
+            <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
+                <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Minhas Preferências</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Filtros aplicados no digest diário por email. Sem efeito no feed UI — pra esse a página inteira sempre mostra todos os eventos.</p>
+                </div>
+                <div class="p-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <label class="flex flex-col">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Severidade mínima</span>
+                        <select id="prefSeverity" class="glass-input">
+                            <option value="critical">Critical</option>
+                            <option value="warning" selected>Warning</option>
+                            <option value="info">Info (tudo)</option>
+                        </select>
+                    </label>
+                    <label class="flex flex-col">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Categorias (CSV)</span>
+                        <input type="text" id="prefCategories" placeholder="alert,anomaly_" class="glass-input font-mono text-xs">
+                        <span class="text-[10px] text-slate-500 mt-1">Vazio = todas. Prefixos: <code>alert</code>, <code>anomaly_</code>.</span>
+                    </label>
+                    <label class="flex flex-col">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Digest diário</span>
+                        <label class="flex items-center gap-2 cursor-pointer mt-1">
+                            <input type="checkbox" id="prefDigestEnabled" class="w-4 h-4">
+                            <span class="text-xs">Receber por email</span>
+                        </label>
+                    </label>
+                    <label class="flex flex-col">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Hora do envio (UTC)</span>
+                        <input type="number" id="prefDigestHour" min="0" max="23" class="glass-input w-24 font-mono">
+                    </label>
+                </div>
+                <div class="px-6 pb-4 flex items-center justify-between gap-3">
+                    <span id="prefStatus" class="text-[10px] text-slate-500 italic">—</span>
+                    <button type="button" id="btnSavePrefs" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Salvar Preferências</button>
+                </div>
+            </div>
+
             <!-- Retention -->
             <?php if ($isAdmin): ?>
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
@@ -295,6 +333,42 @@ $isAdmin = Auth::isAdmin();
         });
         loadRetention();
     }
+
+    // Per-user prefs
+    async function loadPrefs() {
+        try {
+            const r = await fetch('/api/v1/notifications/prefs', { headers: H });
+            if (!r.ok) return;
+            const d = await r.json();
+            $('prefSeverity').value = d.severity_min || 'warning';
+            $('prefCategories').value = Array.isArray(d.categories) ? d.categories.join(',') : '';
+            $('prefDigestEnabled').checked = !!d.digest_enabled;
+            $('prefDigestHour').value = (d.digest_hour ?? 8);
+            if (d.last_digest_sent_at) {
+                $('prefStatus').textContent = `Último digest: ${new Date(d.last_digest_sent_at).toLocaleString('pt-BR')}`;
+            } else {
+                $('prefStatus').textContent = 'Nenhum digest enviado ainda.';
+            }
+        } catch (_) { /* ignora */ }
+    }
+    $('btnSavePrefs').addEventListener('click', async () => {
+        const cats = ($('prefCategories').value || '').split(',').map(s => s.trim()).filter(Boolean);
+        const body = {
+            severity_min: $('prefSeverity').value,
+            categories: cats,
+            digest_enabled: $('prefDigestEnabled').checked,
+            digest_hour: parseInt($('prefDigestHour').value || '8', 10),
+        };
+        const r = await fetch('/api/v1/notifications/prefs', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) {
+            (window.customAlert || alert)('Preferências salvas.');
+            loadPrefs();
+        } else {
+            (window.customAlert || alert)(`Erro: ${d.detail || r.statusText}`);
+        }
+    });
+    loadPrefs();
 
     // WebSocket real-time
     let ws = null;

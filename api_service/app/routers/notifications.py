@@ -14,8 +14,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
-from app.core.deps import require_capability
+from app.core.deps import require_auth, require_capability
 from app.repositories.duckdb import alert_repo, settings_repo
+from app.services import notification_prefs_service
 
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
@@ -130,3 +131,39 @@ async def prune_now(
     days = await settings_repo.get_int("notifications_retention_days", 30)
     n = await alert_repo.prune_old(days)
     return {"pruned": n, "days": days}
+
+
+# ---------------------------------------------------------------------------
+# Per-user notification preferences (V26)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_user_id(payload: dict) -> int:
+    if payload.get("auth_kind") == "api_token":
+        raise HTTPException(status_code=403, detail="prefs não disponíveis via API token")
+    try:
+        return int(payload.get("sub", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="sub inválido no payload")
+
+
+@router.get("/prefs")
+async def get_my_prefs(payload: Annotated[dict, Depends(require_auth)]) -> dict:
+    user_id = _resolve_user_id(payload)
+    if user_id < 1:
+        raise HTTPException(status_code=400, detail="user_id inválido")
+    return await notification_prefs_service.get(user_id)
+
+
+@router.put("/prefs")
+async def update_my_prefs(
+    body: dict,
+    payload: Annotated[dict, Depends(require_auth)],
+) -> dict:
+    user_id = _resolve_user_id(payload)
+    if user_id < 1:
+        raise HTTPException(status_code=400, detail="user_id inválido")
+    try:
+        return await notification_prefs_service.update(user_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

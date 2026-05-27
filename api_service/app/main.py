@@ -66,6 +66,7 @@ from app.workers import (
     BaselineLearner,
     ExternalHealthPruner,
     BlocklistSyncer,
+    DigestSender,
     GeoBlockUpdater,
     HAPeerMonitor,
     HostPoller,
@@ -164,6 +165,8 @@ async def lifespan(app: FastAPI):
     app.state.baseline_learner = baseline_learner
     geo_block_updater = GeoBlockUpdater()
     app.state.geo_block_updater = geo_block_updater
+    digest_sender = DigestSender()
+    app.state.digest_sender = digest_sender
     _background_tasks.extend(
         [
             asyncio.create_task(_supervised("log_watcher", log_watcher), name="log_watcher"),
@@ -219,6 +222,9 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(
                 _supervised("geo_block_updater", geo_block_updater), name="geo_block_updater"
             ),
+            asyncio.create_task(
+                _supervised("digest_sender", digest_sender), name="digest_sender"
+            ),
         ]
     )
     log.info("workers iniciados, API pronta")
@@ -245,6 +251,7 @@ async def lifespan(app: FastAPI):
     await restore_test_runner.stop()
     await baseline_learner.stop()
     await geo_block_updater.stop()
+    await digest_sender.stop()
     for task in _background_tasks:
         task.cancel()
     await asyncio.gather(*_background_tasks, return_exceptions=True)
