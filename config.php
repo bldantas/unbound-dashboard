@@ -1,5 +1,6 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 require_once 'src/UnboundConfigManager.php';
 require_once 'src/NetworkManager.php';
 require_once 'src/SourceBalanceManager.php';

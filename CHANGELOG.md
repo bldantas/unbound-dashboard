@@ -9,6 +9,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Hotfix
+- **v2.90.1**: fix — adiciona `require_once 'src/I18n.php'` em 14 páginas migradas nesta sessão (dns_security, geo_blocking, observability, external_health, analytics, anomalies, query_search, config, diagnostics, health, live_stream, exports, history, notifications). Sem o require o `t()` ficava indefinido e a página estourava Fatal error.
+
 ### Notifications
 - **v2.90**: Notifications center — per-user prefs + daily digest por email. V26 `user_notification_prefs` (severity_min, categories JSON, digest_enabled, digest_hour, last_digest_sent_at). Endpoints `GET/PUT /api/v1/notifications/prefs` (sempre o user do JWT, não admin-only). Worker novo **DigestSender** (hourly): para cada user `digest_enabled` cuja `digest_hour` bate com a hora atual UTC e que ainda não recebeu hoje, agrega notificações das últimas 24h respeitando `severity_min` + filtro de `categories` (prefixos: `alert`, `anomaly_`), envia 1 email via SMTP. UI nova em `/notifications.php` (painel "Minhas Preferências" com selects + checkbox + hora). Audit: `last_digest_sent_at` atualizado a cada envio bem-sucedido.
 

@@ -1,5 +1,6 @@
 <?php
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 
 \App\Auth::check();
 if (!\App\Auth::can('blocklist.read')) {

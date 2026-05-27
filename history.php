@@ -1,6 +1,7 @@
 <?php
 date_default_timezone_set('America/Sao_Paulo');
 require_once 'src/Auth.php';
+require_once 'src/I18n.php';
 require_once 'src/ShellHelper.php';
 require_once __DIR__ . '/src/ApiClient.php';
 
