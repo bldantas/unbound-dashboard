@@ -9,6 +9,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Multi-tenant
+- **v2.92**: estende multi-tenant pra `alerts` + `admin_audit`. V27 ALTER TABLE adiciona `org_id` em alerts e `actor_org_id` em admin_audit. Helper compartilhado `resolve_viewer_org_id(payload)` em `app/core/deps.py` (refatorado de hosts.py). `alert_repo.list_history()` e `list_filtered()` aceitam `viewer_org_id`; `admin_audit_service.list_filtered/export_csv/export_pdf` idem. `admin_audit.log()` resolve `actor_org_id` automaticamente do user no momento do log (snapshot). Endpoints atualizados: `/alerts/list`, `/notifications/feed`, `/notifications/list`, `/audit/admin/list`, `/audit/admin/export-csv`, `/audit/admin/export-pdf`. Mesma semântica de hosts: NULL = global (visível a todos), N = org N (visível a system admin + members da org N).
+
 ### i18n
 - **v2.91**: i18n JS layer — `window.t(key, vars)` helper injetado em `includes/head.php` (serializa o dict da locale atual via `\App\I18n::all()`). Mesmo lookup dot-path + `{var}` interpolation do `t()` PHP. Nova seção `js.*` em `lang/{pt-BR,en}.php` com strings comuns de toast/alert (saved/error_generic/error_with/loading/confirm_delete/required_field/invalid_json/no_results/request_failed/unauthorized/copied). Migrações exemplo em `sso.php` (botão Salvar) e `notifications.php` (Preferências + Retention). Outras migrações JS seguem progressivamente — só `<script>` que vive em página com `require_once 'src/I18n.php'` ganha o helper automaticamente.
 

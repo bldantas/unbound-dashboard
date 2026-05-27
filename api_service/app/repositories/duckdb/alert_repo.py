@@ -5,21 +5,36 @@ from __future__ import annotations
 from app.repositories.duckdb.connection import db_execute, db_fetchall, db_fetchone
 
 
-async def list_history(limit: int = 100) -> list[dict]:
+async def list_history(limit: int = 100, viewer_org_id: int | None = None) -> list[dict]:
     """
     Lista alerts ordenados por started_at DESC + duration em segundos.
     Espelho de AlertManager::getHistory() (PHP).
+
+    `viewer_org_id`: ver doc em `list_filtered`. None = vê tudo.
     """
+    if viewer_org_id is None:
+        return await db_fetchall(
+            """
+            SELECT id, type, severity, message, started_at, resolved_at, is_dismissed, org_id,
+                   EXTRACT(EPOCH FROM (COALESCE(resolved_at, NOW()) - started_at))::BIGINT
+                       AS duration_secs
+            FROM alerts
+            ORDER BY started_at DESC
+            LIMIT ?
+            """,
+            [limit],
+        )
     return await db_fetchall(
         """
-        SELECT id, type, severity, message, started_at, resolved_at, is_dismissed,
+        SELECT id, type, severity, message, started_at, resolved_at, is_dismissed, org_id,
                EXTRACT(EPOCH FROM (COALESCE(resolved_at, NOW()) - started_at))::BIGINT
                    AS duration_secs
         FROM alerts
+        WHERE org_id IS NULL OR org_id = ?
         ORDER BY started_at DESC
         LIMIT ?
         """,
-        [limit],
+        [int(viewer_org_id), limit],
     )
 
 
@@ -90,10 +105,15 @@ async def list_filtered(
     dismissed: bool | None = None,
     limit: int = 100,
     offset: int = 0,
+    viewer_org_id: int | None = None,
 ) -> dict:
     """Feed completo com filtros opcionais — usado pela página /notifications.php.
 
     Retorna `{items, total}` pra paginação.
+
+    `viewer_org_id`:
+    - None → admin global, vê todos os alertas.
+    - int  → vê alertas globais (org_id IS NULL) + da própria org.
     """
     where = ["1=1"]
     params: list = []
@@ -111,6 +131,9 @@ async def list_filtered(
         where.append("is_dismissed = true")
     elif dismissed is False:
         where.append("is_dismissed = false")
+    if viewer_org_id is not None:
+        where.append("(org_id IS NULL OR org_id = ?)")
+        params.append(int(viewer_org_id))
     where_sql = " AND ".join(where)
 
     total_row = await db_fetchone(f"SELECT COUNT(*) AS n FROM alerts WHERE {where_sql}", params)
@@ -118,7 +141,7 @@ async def list_filtered(
 
     rows = await db_fetchall(
         f"""
-        SELECT id, type, severity, message, started_at, resolved_at, is_dismissed,
+        SELECT id, type, severity, message, started_at, resolved_at, is_dismissed, org_id,
                EXTRACT(EPOCH FROM (COALESCE(resolved_at, NOW()) - started_at))::BIGINT AS duration_secs
         FROM alerts
         WHERE {where_sql}

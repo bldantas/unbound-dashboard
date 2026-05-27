@@ -14,7 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
-from app.core.deps import require_auth, require_capability
+from app.core.deps import require_auth, require_capability, resolve_viewer_org_id
 from app.repositories.duckdb import alert_repo, settings_repo
 from app.services import notification_prefs_service
 
@@ -43,12 +43,14 @@ def _format_row(r: dict) -> dict:
 
 @router.get("/feed")
 async def feed(
-    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+    payload: Annotated[dict, Depends(require_capability("dashboard.read"))],
     limit: int = Query(30, ge=1, le=200),
 ) -> dict:
     """Bell payload — só ativos + não-dismissed, mais recente primeiro."""
+    viewer_org = await resolve_viewer_org_id(payload)
     out = await alert_repo.list_filtered(
-        resolved=False, dismissed=False, limit=limit, offset=0
+        resolved=False, dismissed=False, limit=limit, offset=0,
+        viewer_org_id=viewer_org,
     )
     items = [_format_row(r) for r in out["items"]]
     return {"items": items, "count": len(items)}
@@ -56,7 +58,7 @@ async def feed(
 
 @router.get("/list")
 async def list_full(
-    _: Annotated[dict, Depends(require_capability("dashboard.read"))],
+    payload: Annotated[dict, Depends(require_capability("dashboard.read"))],
     severity: str | None = Query(None, pattern="^(critical|warning|info)$"),
     type_prefix: str | None = Query(None, max_length=100),
     resolved: bool | None = Query(None),
@@ -65,6 +67,7 @@ async def list_full(
     offset: int = Query(0, ge=0),
 ) -> dict:
     """Feed completo pra página dedicada — com filtros e paginação."""
+    viewer_org = await resolve_viewer_org_id(payload)
     out = await alert_repo.list_filtered(
         severity=severity,
         type_prefix=type_prefix,
@@ -72,6 +75,7 @@ async def list_full(
         dismissed=dismissed,
         limit=limit,
         offset=offset,
+        viewer_org_id=viewer_org,
     )
     return {
         "items": [_format_row(r) for r in out["items"]],

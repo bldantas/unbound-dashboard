@@ -113,6 +113,28 @@ async def require_auth(
     return payload
 
 
+async def resolve_viewer_org_id(payload: dict) -> int | None:
+    """Resolve a org_id do caller pra filtros multi-tenant.
+
+    - API token → None (sempre global, age como system admin).
+    - User com `org_id` NULL no DB → None (system admin, vê tudo).
+    - User com `org_id = N` → N (vê globais + da própria org).
+    """
+    if payload.get("auth_kind") == "api_token":
+        return None
+    try:
+        user_id = int(payload.get("sub", 0))
+    except (TypeError, ValueError):
+        return None
+    if user_id < 1:
+        return None
+    from app.repositories.duckdb.connection import db_fetchone
+    row = await db_fetchone("SELECT org_id FROM users WHERE id = ?", [user_id])
+    if not row or row.get("org_id") is None:
+        return None
+    return int(row["org_id"])
+
+
 async def require_admin(payload: Annotated[dict, Depends(require_auth)]) -> dict:
     """Exige role = 'admin' no payload do JWT."""
     if payload.get("role") != "admin":

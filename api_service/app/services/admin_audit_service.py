@@ -38,14 +38,27 @@ async def log(
     target_id: str | None = None,
     details: dict[str, Any] | None = None,
 ) -> None:
-    """Append-only. Falha silenciosa (warning no log estruturado)."""
+    """Append-only. Falha silenciosa (warning no log estruturado).
+
+    Resolve `actor_org_id` automaticamente a partir do `actor_id` (snapshot
+    no momento do log — se o user mudar de org depois, a auditoria reflete
+    o estado de quem fez a ação naquela hora).
+    """
+    actor_org_id = None
+    if actor_id is not None:
+        try:
+            row = await db_fetchone("SELECT org_id FROM users WHERE id = ?", [int(actor_id)])
+            if row and row.get("org_id") is not None:
+                actor_org_id = int(row["org_id"])
+        except Exception:  # noqa: BLE001
+            pass  # melhor logar sem org_id do que perder a entrada
     try:
         await db_execute(
             """
             INSERT INTO admin_audit
                 (actor_id, actor_username, actor_ip, action, category,
-                 target_type, target_id, details)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 target_type, target_id, details, actor_org_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 actor_id,
@@ -56,6 +69,7 @@ async def log(
                 target_type[:40] if target_type else None,
                 target_id[:80] if target_id else None,
                 json.dumps(details) if details is not None else None,
+                actor_org_id,
             ],
         )
     except Exception as exc:  # noqa: BLE001
@@ -81,6 +95,7 @@ def _row_to_dict(r: dict) -> dict[str, Any]:
         "target_type": r.get("target_type"),
         "target_id": r.get("target_id"),
         "details": details,
+        "actor_org_id": int(r["actor_org_id"]) if r.get("actor_org_id") is not None else None,
     }
 
 
@@ -93,7 +108,15 @@ async def list_filtered(
     to_ts: int | None = None,
     limit: int = 100,
     offset: int = 0,
+    viewer_org_id: int | None = None,
 ) -> dict:
+    """Lista entradas com filtros opcionais + paginação.
+
+    `viewer_org_id`:
+    - None → admin global, vê tudo.
+    - int  → vê entradas globais (actor_org_id IS NULL, ações de system) +
+             ações de users da própria org.
+    """
     where = ["1=1"]
     params: list = []
     if category:
@@ -111,6 +134,9 @@ async def list_filtered(
     if to_ts is not None:
         where.append("created_at <= to_timestamp(?)")
         params.append(int(to_ts))
+    if viewer_org_id is not None:
+        where.append("(actor_org_id IS NULL OR actor_org_id = ?)")
+        params.append(int(viewer_org_id))
     where_sql = " AND ".join(where)
 
     total_row = await db_fetchone(
@@ -121,7 +147,7 @@ async def list_filtered(
     rows = await db_fetchall(
         f"""
         SELECT id, created_at, actor_id, actor_username, actor_ip,
-               action, category, target_type, target_id, details
+               action, category, target_type, target_id, details, actor_org_id
         FROM admin_audit
         WHERE {where_sql}
         ORDER BY created_at DESC

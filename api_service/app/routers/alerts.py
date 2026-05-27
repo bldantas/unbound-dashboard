@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
-from app.core.deps import require_admin, require_auth, require_capability
+from app.core.deps import require_admin, require_auth, require_capability, resolve_viewer_org_id
 from app.repositories.duckdb import alert_repo, settings_repo
 from app.workers.alert_checker import THRESHOLD_DEFAULTS
 
@@ -48,8 +48,9 @@ def _format_alert_row(row: dict) -> dict:
 
 
 @router.get("/list")
-async def list_alerts(_: Annotated[dict, Depends(require_capability("alerts.read"))]) -> dict:
-    history = await alert_repo.list_history(limit=100)
+async def list_alerts(payload: Annotated[dict, Depends(require_capability("alerts.read"))]) -> dict:
+    viewer_org = await resolve_viewer_org_id(payload)
+    history = await alert_repo.list_history(limit=100, viewer_org_id=viewer_org)
     active = await alert_repo.count_active()
     return {
         "alerts": [_format_alert_row(r) for r in history],

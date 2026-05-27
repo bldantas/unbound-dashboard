@@ -13,7 +13,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, Response
 
-from app.core.deps import require_capability
+from app.core.deps import require_capability, resolve_viewer_org_id
 from app.repositories.duckdb import settings_repo
 from app.services import admin_audit_service, audit_service, pdf_report_service
 
@@ -49,9 +49,11 @@ async def list_admin_audit(
     offset: int = Query(0, ge=0),
 ) -> dict:
     """Lista filtrada do admin_audit."""
+    viewer_org = await resolve_viewer_org_id(user)
     return await admin_audit_service.list_filtered(
         category=category, actor_id=actor_id, action_prefix=action_prefix,
         from_ts=from_ts, to_ts=to_ts, limit=limit, offset=offset,
+        viewer_org_id=viewer_org,
     )
 
 
@@ -66,9 +68,11 @@ async def export_admin_audit_csv(
     to_ts: int | None = Query(None, ge=0),
 ) -> PlainTextResponse:
     """Export CSV (cap 10k linhas). Loga o próprio export no audit."""
+    viewer_org = await resolve_viewer_org_id(user)
     csv_str = await admin_audit_service.export_csv(
         category=category, actor_id=actor_id, action_prefix=action_prefix,
         from_ts=from_ts, to_ts=to_ts,
+        viewer_org_id=viewer_org,
     )
     await admin_audit_service.log(
         actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
@@ -99,9 +103,11 @@ async def export_admin_audit_pdf(
     to_ts: int | None = Query(None, ge=0),
 ) -> Response:
     """Export PDF (cap 2000 linhas — pra mais use CSV). Loga em audit."""
+    viewer_org = await resolve_viewer_org_id(user)
     out = await admin_audit_service.list_filtered(
         category=category, actor_id=actor_id, action_prefix=action_prefix,
         from_ts=from_ts, to_ts=to_ts, limit=2000, offset=0,
+        viewer_org_id=viewer_org,
     )
     pdf_bytes = pdf_report_service.admin_audit_pdf(
         out["items"],

@@ -24,31 +24,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.core.deps import require_capability
-from app.repositories.duckdb.connection import db_fetchone
+from app.core.deps import require_capability, resolve_viewer_org_id
 from app.services import managed_hosts
 
 router = APIRouter(prefix="/api/v1/hosts", tags=["hosts"])
 
 
+# alias local pra reduzir verbosidade — wraps a função compartilhada
 async def _viewer_org_id(payload: dict) -> int | None:
-    """Resolve a org_id do caller. API tokens são tratados como globais (None).
-
-    Admin com `org_id = NULL` no DB = system admin → vê tudo (retorna None).
-    User com `org_id = N` vê hosts globais (NULL) + da própria org.
-    """
-    if payload.get("auth_kind") == "api_token":
-        return None
-    try:
-        user_id = int(payload.get("sub", 0))
-    except (TypeError, ValueError):
-        return None
-    if user_id < 1:
-        return None
-    row = await db_fetchone("SELECT org_id FROM users WHERE id = ?", [user_id])
-    if not row or row.get("org_id") is None:
-        return None
-    return int(row["org_id"])
+    return await resolve_viewer_org_id(payload)
 
 _ALLOWED_RESTART_SERVICES = {"api", "unbound"}
 
