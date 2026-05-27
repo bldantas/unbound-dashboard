@@ -9,6 +9,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### i18n
+- **v2.91**: i18n JS layer — `window.t(key, vars)` helper injetado em `includes/head.php` (serializa o dict da locale atual via `\App\I18n::all()`). Mesmo lookup dot-path + `{var}` interpolation do `t()` PHP. Nova seção `js.*` em `lang/{pt-BR,en}.php` com strings comuns de toast/alert (saved/error_generic/error_with/loading/confirm_delete/required_field/invalid_json/no_results/request_failed/unauthorized/copied). Migrações exemplo em `sso.php` (botão Salvar) e `notifications.php` (Preferências + Retention). Outras migrações JS seguem progressivamente — só `<script>` que vive em página com `require_once 'src/I18n.php'` ganha o helper automaticamente.
+
 ### Hotfix
 - **v2.90.1**: fix — adiciona `require_once 'src/I18n.php'` em 14 páginas migradas nesta sessão (dns_security, geo_blocking, observability, external_health, analytics, anomalies, query_search, config, diagnostics, health, live_stream, exports, history, notifications). Sem o require o `t()` ficava indefinido e a página estourava Fatal error.
 

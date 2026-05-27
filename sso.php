@@ -360,7 +360,7 @@ $currentPage = 'sso.php';
             method: 'PUT', headers: HJ, body: JSON.stringify(body),
         });
         const d = await r.json().catch(() => ({}));
-        (window.customAlert || alert)(r.ok ? 'Salvo.' : `Erro: ${d.detail || r.statusText}`);
+        (window.customAlert || alert)(r.ok ? t('js.saved') : t('js.error_with', {detail: d.detail || r.statusText}));
         if (r.ok) {
             $('sClientSecret').value = '';
             load();

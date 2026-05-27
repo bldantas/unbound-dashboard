@@ -322,7 +322,7 @@ $isAdmin = Auth::isAdmin();
         $('btnRetSave')?.addEventListener('click', async () => {
             const days = parseInt($('retDays').value || '30', 10);
             const r = await fetch('/api/v1/notifications/retention/settings', { method: 'PUT', headers: HJ, body: JSON.stringify({ days }) });
-            (window.customAlert || alert)(r.ok ? 'Salvo.' : 'Erro.');
+            (window.customAlert || alert)(r.ok ? t('js.saved') : t('js.error_generic'));
         });
         $('btnRetPrune')?.addEventListener('click', async () => {
             const ok = await (window.customConfirm ? customConfirm('Rodar prune agora? Notificações antigas (resolvidas/lidas) serão apagadas.') : Promise.resolve(confirm('Confirma?')));
@@ -363,10 +363,10 @@ $isAdmin = Auth::isAdmin();
         const r = await fetch('/api/v1/notifications/prefs', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
         const d = await r.json().catch(() => ({}));
         if (r.ok) {
-            (window.customAlert || alert)('Preferências salvas.');
+            (window.customAlert || alert)(t('js.saved'));
             loadPrefs();
         } else {
-            (window.customAlert || alert)(`Erro: ${d.detail || r.statusText}`);
+            (window.customAlert || alert)(t('js.error_with', {detail: d.detail || r.statusText}));
         }
     });
     loadPrefs();

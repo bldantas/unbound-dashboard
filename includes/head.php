@@ -8,6 +8,25 @@
 if (!empty($_SESSION['logged_in']) && !empty($_SESSION['api_jwt'])) {
     echo '<meta name="api-jwt" content="' . htmlspecialchars((string) $_SESSION['api_jwt'], ENT_QUOTES, 'UTF-8') . '">' . "\n";
 }
+
+// i18n: serializa o dict da locale atual num global JS pra window.t() resolver
+// no client. Páginas que carregam I18n via require_once ganham o helper.
+if (class_exists('\\App\\I18n')) {
+    $__i18nPayload = json_encode([
+        'locale'  => \App\I18n::current(),
+        'strings' => \App\I18n::all(),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    echo "<script>window.__i18n = {$__i18nPayload};"
+        . "window.t = function(key, vars){"
+        . "var parts = String(key).split('.'), v = (window.__i18n && window.__i18n.strings) || {};"
+        . "for (var i=0;i<parts.length;i++){"
+        . "if (v && typeof v === 'object' && parts[i] in v) v = v[parts[i]]; else { v = null; break; }"
+        . "}"
+        . "if (typeof v !== 'string') return key;"
+        . "if (vars) Object.keys(vars).forEach(function(k){ v = v.split('{'+k+'}').join(String(vars[k])); });"
+        . "return v;"
+        . "};</script>\n";
+}
 ?>
 <link rel="stylesheet" href="src/dashboard.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">

@@ -111,6 +111,15 @@ class I18n
     {
         return self::SUPPORTED;
     }
+
+    /** Retorna o dict completo da locale atual — pra serializar pro JS. */
+    public static function all(): array
+    {
+        if (self::$cache === null) {
+            self::$cache = self::load(self::current());
+        }
+        return self::$cache;
+    }
 }
 
 }  // end namespace App
