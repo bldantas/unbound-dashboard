@@ -264,7 +264,7 @@ $isAdmin = Auth::isAdmin();
         btnEhSave.addEventListener('click', async () => {
             const days = parseInt($('ehRetDays').value || '90', 10);
             const r = await fetch('/api/v1/external-health/retention/settings', { method: 'PUT', headers: {...H, 'Content-Type':'application/json'}, body: JSON.stringify({days}) });
-            (window.customAlert || alert)(r.ok ? 'Salvo.' : 'Erro.');
+            (window.customAlert || alert)(r.ok ? t('js.saved') : t('js.error_generic'));
             loadRetention();
         });
         loadRetention();

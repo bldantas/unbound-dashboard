@@ -306,7 +306,7 @@ $isAdmin = Auth::isAdmin();
             if (!ok) return;
             const r = await fetch('/api/v1/notifications/dismiss-all', { method: 'POST', headers: H });
             const d = await r.json().catch(() => ({}));
-            (window.customAlert || alert)(r.ok ? `${d.dismissed} marcadas como lidas.` : 'Erro.');
+            (window.customAlert || alert)(r.ok ? `${d.dismissed} marcadas como lidas.` : t('js.error_generic'));
             loadList();
         });
     }
@@ -329,7 +329,7 @@ $isAdmin = Auth::isAdmin();
             if (!ok) return;
             const r = await fetch('/api/v1/notifications/prune-now', { method: 'POST', headers: H });
             const d = await r.json().catch(() => ({}));
-            (window.customAlert || alert)(r.ok ? `${d.pruned} apagadas (retenção: ${d.days} dias).` : 'Erro.');
+            (window.customAlert || alert)(r.ok ? `${d.pruned} apagadas (retenção: ${d.days} dias).` : t('js.error_generic'));
             loadList();
         });
         loadRetention();

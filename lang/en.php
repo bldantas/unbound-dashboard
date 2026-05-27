@@ -85,6 +85,13 @@ return [
         'request_failed'    => 'Request failed (HTTP {status}).',
         'unauthorized'      => 'Session expired. Please log in again.',
         'copied'            => 'Copied!',
+        'saved_apply_hint'  => 'Saved. Click Apply to reload Unbound.',
+        'save_failed'       => 'Save failed.',
+        'removed'           => 'Removed.',
+        'added'             => 'Added.',
+        'applied'           => 'Applied.',
+        'sync_done'         => 'Sync complete.',
+        'sync_failed'       => 'Sync failed.',
     ],
     'common' => [
         'save'              => 'Save',

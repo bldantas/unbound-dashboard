@@ -119,7 +119,7 @@ $currentPage = 'orgs.php';
 
     async function toggle(id, makeActive) {
         const r = await fetch(`/api/v1/organizations/${id}`, { method: 'PUT', headers: HJ, body: JSON.stringify({is_active: makeActive}) });
-        (window.customAlert || alert)(r.ok ? (makeActive ? 'Ativada.' : 'Desativada.') : 'Erro.');
+        (window.customAlert || alert)(r.ok ? (makeActive ? 'Ativada.' : 'Desativada.') : t('js.error_generic'));
         load();
     }
 

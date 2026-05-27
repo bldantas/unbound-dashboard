@@ -257,7 +257,7 @@ $isAdmin = Auth::isAdmin();
             BOOL_MAP.forEach(([el, key]) => { body[key] = $(el)?.checked ? '1' : '0'; });
             INT_MAP.forEach(([el, key]) => { body[key] = String(Math.max(0, parseInt($(el)?.value || '0', 10))); });
             const r = await fetch('/api/v1/dns-security/performance/settings', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
-            (window.customAlert || alert)(r.ok ? 'Salvo. Clique em Aplicar pra recarregar Unbound.' : 'Erro ao salvar.');
+            (window.customAlert || alert)(r.ok ? t('js.saved_apply_hint') : t('js.save_failed'));
         });
         $('btnApply')?.addEventListener('click', async () => {
             const ok = await (window.customConfirm ? customConfirm('Aplicar tuning de performance + restart Unbound? ~2s de interrupção.') : Promise.resolve(confirm('Confirma?')));

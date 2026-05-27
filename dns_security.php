@@ -476,7 +476,7 @@ $isAdmin = Auth::isAdmin();
                 dns_ratelimit_domain_factor:  String(Math.max(0, parseInt($('rlDomFactor').value || '10', 10))),
             };
             const r = await fetch('/api/v1/dns-security/ratelimit/settings', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
-            (window.customAlert || alert)(r.ok ? 'Salvo. Clique em Aplicar pra recarregar o Unbound.' : 'Erro ao salvar.');
+            (window.customAlert || alert)(r.ok ? t('js.saved_apply_hint') : t('js.save_failed'));
         });
 
         $('btnRlApply')?.addEventListener('click', async () => {
@@ -506,7 +506,7 @@ $isAdmin = Auth::isAdmin();
             const r = await fetch('/api/v1/dns-security/privacy/settings', {
                 method: 'PUT', headers: HJ, body: JSON.stringify({ dns_qname_min_mode: mode }),
             });
-            (window.customAlert || alert)(r.ok ? 'Salvo. Clique em Aplicar pra recarregar o Unbound.' : 'Erro.');
+            (window.customAlert || alert)(r.ok ? t('js.saved_apply_hint') : t('js.error_generic'));
         });
 
         $('btnQnApply')?.addEventListener('click', async () => {
@@ -551,7 +551,7 @@ $isAdmin = Auth::isAdmin();
             const body = {};
             HD_KEYS.forEach(([el, key]) => { body[key] = $(el)?.checked ? '1' : '0'; });
             const r = await fetch('/api/v1/dns-security/hardening/settings', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
-            (window.customAlert || alert)(r.ok ? 'Salvo. Clique em Aplicar pra recarregar o Unbound.' : 'Erro ao salvar.');
+            (window.customAlert || alert)(r.ok ? t('js.saved_apply_hint') : t('js.save_failed'));
         });
 
         $('btnHdApply')?.addEventListener('click', async () => {

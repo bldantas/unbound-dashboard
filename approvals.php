@@ -234,7 +234,7 @@ $currentUserId = (int)($_SESSION['user_id'] ?? 0);
                 ttl_hours: parseInt($('cTtl').value || '24', 10),
             };
             const r = await fetch('/api/v1/approvals/config', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
-            (window.customAlert || alert)(r.ok ? 'Salvo.' : 'Erro.');
+            (window.customAlert || alert)(r.ok ? t('js.saved') : t('js.error_generic'));
         });
     }
 

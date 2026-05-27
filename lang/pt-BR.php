@@ -108,6 +108,13 @@ return [
         'request_failed'    => 'Falha na requisição (HTTP {status}).',
         'unauthorized'      => 'Sessão expirou. Faça login novamente.',
         'copied'            => 'Copiado!',
+        'saved_apply_hint'  => 'Salvo. Clique em Aplicar pra recarregar o Unbound.',
+        'save_failed'       => 'Erro ao salvar.',
+        'removed'           => 'Removido.',
+        'added'             => 'Adicionado.',
+        'applied'           => 'Aplicado.',
+        'sync_done'         => 'Sincronização concluída.',
+        'sync_failed'       => 'Falha na sincronização.',
     ],
     'audit' => [
         'title'             => 'Auditoria & Compliance',

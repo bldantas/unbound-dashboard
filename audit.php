@@ -278,7 +278,7 @@ $isAdmin = Auth::isAdmin();
     async function downloadAdmin(endpoint, ext) {
         const url = endpoint + '?' + buildAdminQuery({limit: '10000', offset: '0'}).toString();
         const r = await fetch(url, { headers: H });
-        if (!r.ok) { (window.customAlert || alert)('Erro ' + r.status); return; }
+        if (!r.ok) { (window.customAlert || alert)(t('js.request_failed', {status: r.status})); return; }
         const blob = await r.blob();
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -298,14 +298,14 @@ $isAdmin = Auth::isAdmin();
         $('aBtnRetSave').addEventListener('click', async () => {
             const days = parseInt($('aRetDays').value || '365', 10);
             const r = await fetch('/api/v1/audit/admin/retention/settings', { method: 'PUT', headers: HJ, body: JSON.stringify({days}) });
-            (window.customAlert || alert)(r.ok ? 'Salvo.' : 'Erro.');
+            (window.customAlert || alert)(r.ok ? t('js.saved') : t('js.error_generic'));
         });
         $('aBtnRetPrune').addEventListener('click', async () => {
             const ok = await (window.customConfirm ? customConfirm('Rodar prune agora? Entries antigas serão apagadas.') : Promise.resolve(confirm('Confirma?')));
             if (!ok) return;
             const r = await fetch('/api/v1/audit/admin/prune-now', { method: 'POST', headers: H });
             const d = await r.json().catch(() => ({}));
-            (window.customAlert || alert)(r.ok ? `${d.pruned} apagadas (retenção: ${d.days}d).` : 'Erro.');
+            (window.customAlert || alert)(r.ok ? `${d.pruned} apagadas (retenção: ${d.days}d).` : t('js.error_generic'));
             loadAdmin();
         });
     }
@@ -321,7 +321,7 @@ $isAdmin = Auth::isAdmin();
     $('btnLgpdRun').addEventListener('click', async () => {
         const q = lgpdQuery(); if (!q) return;
         const r = await fetch('/api/v1/compliance/lgpd-report?' + q.qs, { headers: H });
-        if (!r.ok) { (window.customAlert || alert)('Erro ' + r.status); return; }
+        if (!r.ok) { (window.customAlert || alert)(t('js.request_failed', {status: r.status})); return; }
         const d = await r.json();
         $('lgpdResult').classList.remove('hidden');
         $('lgpdResultTitle').textContent = `Queries de ${d.client_ip} nas últimas ${d.hours}h`;
@@ -331,7 +331,7 @@ $isAdmin = Auth::isAdmin();
     async function downloadLgpd(endpoint, ext) {
         const q = lgpdQuery(); if (!q) return;
         const r = await fetch(endpoint + '?' + q.qs, { headers: H });
-        if (!r.ok) { (window.customAlert || alert)('Erro ' + r.status); return; }
+        if (!r.ok) { (window.customAlert || alert)(t('js.request_failed', {status: r.status})); return; }
         const blob = await r.blob();
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);

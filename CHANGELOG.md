@@ -9,6 +9,12 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### i18n JS (varredura)
+- **v2.100**: migração focada dos toasts JS repetidos pro `window.t()`. Estratégia: só strings **cross-cutting** (que aparecem em 2+ páginas) viram chaves em `js.*`. Mensagens específicas de página (ex: "Disparar upload pro S3?", "Aprovar request #N?") seguem hardcoded — são inseparáveis do contexto da ação e migrar cria mais churn de keys que benefício.
+  - Novas chaves em `js.*`: `saved_apply_hint`, `save_failed`, `removed`, `added`, `applied`, `sync_done`, `sync_failed`.
+  - Migrações em audit.php, approvals.php, external_health.php, dns_security.php (3x), performance.php, notifications.php (2x), orgs.php (`Erro.` → `t('js.error_generic')`).
+  - `'Erro ' + r.status` → `t('js.request_failed', {status})` (3 ocorrências em audit.php).
+
 ### Dashboard widgets (rodada 2)
 - **v2.99**: 3 widgets novos no `/index.php`, antes do "Top 5 + Recent activity":
   - **Live stream mini** (col-span-8): tabela compacta de 6 queries via WebSocket `/api/v1/ws/queries`. Mesmo WS de `/live_stream.php`. Reconnect exponencial 2s→30s. Status badge "● ao vivo" / "reconectando…".
