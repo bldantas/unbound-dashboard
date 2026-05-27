@@ -9,6 +9,10 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Multi-tenant (continuação)
+- **v2.98**: estende multi-tenant pra `client_policies`. V28 ALTER TABLE `client_policies` ADD COLUMN `org_id`. `client_policies_repo.list_all()` e `summary()` aceitam `viewer_org_id` (segue mesma semântica de hosts/alerts/audit: NULL viewer = vê tudo, org viewer = NULL globais + própria org). `repo.create()` aceita `org_id` opcional. Router `/api/v1/policies` propaga `viewer_org_id` em **todos** os endpoints (list/get/create/update/delete + child ranges/blocks/allows). Helper `_ensure_tenant_access()` retorna 404 mascarado pra requests fora da org do viewer. POST aceita `org_id` no body; user org-scoped só cria pra própria org (403). UI: `client_policies.php` mostra badge pink `org_name` ou cinza `global` no header do card; modal "Nova Política" ganha select de Org (lazy load via `/api/v1/organizations/`).
+- **Skip blocklist_exceptions**: schema tem `domain` como PK que conflitaria com (domain, org_id) composto. Tornar tenant requer rework não-trivial. Documentado como TODO em V28.sql.
+
 ### Polish + fix
 - **v2.97**: limpeza pós-v2.96:
   - **/api/v1/observability/workers** agora enumera os **19 workers** (era 10) — incluindo NotificationPruner, AuditPruner, ExternalHealthPruner, PrometheusExporter, HAPeerMonitor, RestoreTestRunner, BaselineLearner, GeoBlockUpdater, DigestSender. Cada um com `tick_seconds`, descrição, `last_run` (best-effort de settings) e `extra` quando aplicável. Reflete corretamente o widget Workers do dashboard.

@@ -96,6 +96,13 @@ $currentPage = 'client_policies.php';
                 <input type="text" id="newDescription" maxlength="200" placeholder="Bloqueia redes sociais e jogos +18"
                        class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40">
             </div>
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Organização</label>
+                <select id="newOrg" class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+                    <option value="">— Global (visível a todos os admins) —</option>
+                </select>
+                <p class="text-[10px] text-slate-500 mt-1">Users org-scoped só veem policies globais ou da própria org.</p>
+            </div>
             <div class="flex justify-end gap-2 pt-2">
                 <button type="button" id="cancelNewPolicy" class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
                 <button type="submit" class="glass-btn !bg-blue-600 !text-white text-[10px] uppercase font-black">Criar</button>
@@ -173,12 +180,15 @@ $currentPage = 'client_policies.php';
         <div class="glass-panel border-slate-200 dark:border-white/5 ${p.enabled ? '' : 'opacity-60'}" data-slug="${p.slug}">
             <div class="flex items-start justify-between gap-3 flex-wrap mb-3">
                 <div>
-                    <div class="flex items-center gap-2 mb-1">
+                    <div class="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 class="text-base font-black text-slate-900 dark:text-white">${escapeHtml(p.name)}</h3>
                         <span class="text-[10px] font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">${escapeHtml(p.slug)}</span>
                         <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${p.enabled ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-slate-500/15 text-slate-500 border border-slate-500/30'}">
                             ${p.enabled ? 'Ativa' : 'Pausada'}
                         </span>
+                        ${p.org_name
+                            ? `<span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-pink-500/10 border border-pink-500/30 text-pink-600 dark:text-pink-400" title="Org dona desta policy">${escapeHtml(p.org_name)}</span>`
+                            : `<span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-slate-500/10 border border-slate-500/30 text-slate-500" title="Policy global — visível a todos os admins">global</span>`}
                     </div>
                     ${p.description ? `<p class="text-[11px] text-slate-500">${escapeHtml(p.description)}</p>` : ''}
                 </div>
@@ -353,13 +363,42 @@ $currentPage = 'client_policies.php';
     const btnCancel = document.getElementById('cancelNewPolicy');
     if (btnNew) btnNew.addEventListener('click', () => { modal.classList.remove('hidden'); modal.classList.add('flex'); });
     btnCancel.addEventListener('click', () => { modal.classList.add('hidden'); modal.classList.remove('flex'); });
+    // Carrega lista de orgs uma vez pra dropdown (lazy)
+    let orgsCache = null;
+    async function loadOrgsForSelect() {
+        if (orgsCache !== null) return orgsCache;
+        try {
+            const r = await fetch('/api/v1/organizations/', { headers: H });
+            if (!r.ok) { orgsCache = []; return orgsCache; }
+            const d = await r.json();
+            orgsCache = d.items || [];
+        } catch (_) { orgsCache = []; }
+        return orgsCache;
+    }
+    async function populateOrgSelect() {
+        const orgs = await loadOrgsForSelect();
+        const sel = document.getElementById('newOrg');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— Global (visível a todos os admins) —</option>';
+        orgs.forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = String(o.id);
+            opt.textContent = o.name;
+            sel.appendChild(opt);
+        });
+    }
+    if (btnNew) btnNew.addEventListener('click', () => { populateOrgSelect(); });
+
     document.getElementById('formNewPolicy').addEventListener('submit', async (e) => {
         e.preventDefault();
         const slug = document.getElementById('newSlug').value.trim().toLowerCase();
         const name = document.getElementById('newName').value.trim();
         const description = document.getElementById('newDescription').value.trim();
+        const orgVal = document.getElementById('newOrg').value;
+        const body = { slug, name, description };
+        if (orgVal) body.org_id = parseInt(orgVal, 10);
         try {
-            const res = await fetch('/api/v1/policies', { method: 'POST', headers: HJ, body: JSON.stringify({ slug, name, description }) });
+            const res = await fetch('/api/v1/policies', { method: 'POST', headers: HJ, body: JSON.stringify(body) });
             const data = await res.json();
             if (res.ok && data.policy) {
                 modal.classList.add('hidden'); modal.classList.remove('flex');

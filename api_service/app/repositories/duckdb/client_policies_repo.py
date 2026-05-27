@@ -34,13 +34,31 @@ def validate_cidr(s: str) -> bool:
 # ============================================================
 
 
-async def list_all() -> list[dict]:
+async def list_all(viewer_org_id: int | None = None) -> list[dict]:
+    """Lista policies. `viewer_org_id`:
+    - None → admin global, vê todas.
+    - int  → vê globais (org_id IS NULL) + da própria org.
+    """
+    if viewer_org_id is None:
+        return await db_fetchall(
+            """
+            SELECT p.id, p.slug, p.name, p.description, p.enabled, p.sort_order,
+                   p.created_at, p.org_id, o.name AS org_name, o.slug AS org_slug
+            FROM client_policies p
+            LEFT JOIN organizations o ON o.id = p.org_id
+            ORDER BY p.sort_order, p.name
+            """
+        )
     return await db_fetchall(
         """
-        SELECT id, slug, name, description, enabled, sort_order, created_at
-        FROM client_policies
-        ORDER BY sort_order, name
-        """
+        SELECT p.id, p.slug, p.name, p.description, p.enabled, p.sort_order,
+               p.created_at, p.org_id, o.name AS org_name, o.slug AS org_slug
+        FROM client_policies p
+        LEFT JOIN organizations o ON o.id = p.org_id
+        WHERE p.org_id IS NULL OR p.org_id = ?
+        ORDER BY p.sort_order, p.name
+        """,
+        [int(viewer_org_id)],
     )
 
 
@@ -58,13 +76,16 @@ async def get_by_id(policy_id: int) -> dict | None:
     )
 
 
-async def create(slug: str, name: str, description: str | None) -> dict:
-    """Cria policy. Retorna a linha completa. ON CONFLICT no slug → erro do duckdb."""
+async def create(slug: str, name: str, description: str | None, org_id: int | None = None) -> dict:
+    """Cria policy. Retorna a linha completa. ON CONFLICT no slug → erro do duckdb.
+
+    `org_id`: None = global; int = pertence à org especificada.
+    """
     await db_execute(
         """
-        INSERT INTO client_policies (slug, name, description) VALUES (?, ?, ?)
+        INSERT INTO client_policies (slug, name, description, org_id) VALUES (?, ?, ?, ?)
         """,
-        [slug, name, description],
+        [slug, name, description, int(org_id) if org_id else None],
     )
     row = await get(slug)
     assert row is not None  # acabamos de inserir
@@ -253,18 +274,39 @@ async def remove_allow(policy_id: int, domain: str) -> bool:
 # ============================================================
 
 
-async def summary() -> list[dict]:
-    """Lista de policies com count de ranges/blocks/allows. Pra UI de listagem."""
+async def summary(viewer_org_id: int | None = None) -> list[dict]:
+    """Lista de policies com count de ranges/blocks/allows. Pra UI de listagem.
+
+    `viewer_org_id`: None = admin global; int = filtra por própria org + globais.
+    """
+    if viewer_org_id is None:
+        return await db_fetchall(
+            """
+            SELECT
+                p.id, p.slug, p.name, p.description, p.enabled, p.sort_order, p.created_at,
+                p.org_id, o.name AS org_name, o.slug AS org_slug,
+                COALESCE((SELECT COUNT(*) FROM client_policy_ranges  WHERE policy_id = p.id), 0) AS ranges_count,
+                COALESCE((SELECT COUNT(*) FROM client_policy_blocks  WHERE policy_id = p.id), 0) AS blocks_count,
+                COALESCE((SELECT COUNT(*) FROM client_policy_allows  WHERE policy_id = p.id), 0) AS allows_count
+            FROM client_policies p
+            LEFT JOIN organizations o ON o.id = p.org_id
+            ORDER BY p.sort_order, p.name
+            """
+        )
     return await db_fetchall(
         """
         SELECT
             p.id, p.slug, p.name, p.description, p.enabled, p.sort_order, p.created_at,
+            p.org_id, o.name AS org_name, o.slug AS org_slug,
             COALESCE((SELECT COUNT(*) FROM client_policy_ranges  WHERE policy_id = p.id), 0) AS ranges_count,
             COALESCE((SELECT COUNT(*) FROM client_policy_blocks  WHERE policy_id = p.id), 0) AS blocks_count,
             COALESCE((SELECT COUNT(*) FROM client_policy_allows  WHERE policy_id = p.id), 0) AS allows_count
         FROM client_policies p
+        LEFT JOIN organizations o ON o.id = p.org_id
+        WHERE p.org_id IS NULL OR p.org_id = ?
         ORDER BY p.sort_order, p.name
-        """
+        """,
+        [int(viewer_org_id)],
     )
 
 
