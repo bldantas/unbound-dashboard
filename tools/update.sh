@@ -253,13 +253,25 @@ apply_apiservice() {
         uv_bin="$(command -v uv || echo /usr/local/bin/uv)"
         [ -x "$uv_bin" ] || uv_bin="/root/.local/bin/uv"
         if [ ! -x "$uv_bin" ]; then
-            warn "uv não disponível — pulei uv sync; instale com: curl -fsSL https://astral.sh/uv/install.sh | sh"
-        else
-            (cd "$APISERVICE_DIR" && "$uv_bin" sync --no-dev --quiet) || warn "uv sync falhou — venv pode estar inconsistente"
-            # Garante owner correto se uv criou .venv do zero (rodando como root)
-            chown -R www-data:www-data "$APISERVICE_DIR/.venv" 2>/dev/null || true
-            log "venv sincronizado (owner: www-data)"
+            # ANTES era só warn e seguia — mas o resultado é que .venv fica
+            # defasado, módulos novos do pyproject não instalam, e o serviço
+            # falha no startup com ModuleNotFoundError. Falhar aqui força o
+            # operador a instalar uv antes de prosseguir.
+            error "uv não disponível — não dá pra sincronizar dependências do api_service"
+            error "Instale uv: curl -fsSL https://astral.sh/uv/install.sh | sh"
+            error "Ou pule este passo (NÃO RECOMENDADO): SKIP_VENV_SYNC=true bash update.sh ..."
+            exit 1
         fi
+        # uv sync com falha hard — se quebrar, abortar o update inteiro pra
+        # não deixar arquivos novos rodando contra .venv velha.
+        if ! (cd "$APISERVICE_DIR" && "$uv_bin" sync --no-dev --quiet); then
+            error "uv sync falhou — venv ficou inconsistente. Update abortado."
+            error "Rode manualmente: cd $APISERVICE_DIR && $uv_bin sync --no-dev"
+            exit 1
+        fi
+        # Garante owner correto se uv criou .venv do zero (rodando como root)
+        chown -R www-data:www-data "$APISERVICE_DIR/.venv" 2>/dev/null || true
+        log "venv sincronizado (owner: www-data)"
     fi
 }
 

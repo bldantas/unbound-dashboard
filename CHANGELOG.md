@@ -9,6 +9,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).
 
+### Hotfix
+- **v2.101.1**: `tools/update.sh` agora **falha hard** quando `uv` não está disponível ou `uv sync` retorna erro. Antes era só `warn` silencioso — o update prosseguia e o serviço caía no startup com `ModuleNotFoundError` (descoberto via boto3 ausente após v2.101.0). Para pular intencionalmente, exporte `SKIP_VENV_SYNC=true` (NÃO recomendado).
+
 ### Security + perf
 - **v2.101**: três tarefas curtas:
   - **SECRETS_MASTER_KEY** configurada (Fernet 32-byte) em `/etc/unbound-dashboard/api-v1.env`. Warnings `cipher_service.no_master_key` e `secrets_store.master_key_missing` no startup desaparecem. OIDC `client_secret` e tokens HA gravados a partir daqui ficam cifrados em DB. **Secrets pré-existentes seguem plaintext até serem re-salvos** via UI.
