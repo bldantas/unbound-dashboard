@@ -29,6 +29,7 @@ from app.routers import (
     auth,
     backup_offsite,
     blocklist,
+    cluster,
     compliance,
     dns_security,
     doh_inbound,
@@ -294,6 +295,7 @@ app.include_router(audit.router)
 app.include_router(auth.router)
 app.include_router(backup_offsite.router)
 app.include_router(blocklist.router)
+app.include_router(cluster.router)
 app.include_router(compliance.router)
 app.include_router(dns_security.router)
 app.include_router(doh_inbound.router)

@@ -76,12 +76,28 @@ async def list_peers() -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
-async def create_peer(label: str, api_url: str, role: str, priority: int = 100, keep_raw: bool = False) -> dict:
-    """Gera token raw + salva hash. Retorna o raw 1x.
+async def create_peer(
+    label: str,
+    api_url: str,
+    role: str,
+    priority: int = 100,
+    keep_raw: bool = False,
+    existing_token: str | None = None,
+) -> dict:
+    """Gera (ou aceita) token + salva hash. Retorna o raw 1x.
 
-    Se `keep_raw=True`, também guarda o raw cifrado (cipher_service) em
-    `api_token_raw_encrypted` — usado pelo HAPeerMonitor pra healthcheck
-    autenticado contra `/api/v1/health` do peer.
+    Modelo "shared secret por link": o token é o mesmo em ambos os lados do
+    par A↔B. Quem cria primeiro deixa `existing_token=None` (gera); quem
+    cria o lado espelho cola o token via `existing_token=<T>`.
+
+    Se `keep_raw=True` (ou se `existing_token` foi fornecido — implícito),
+    o raw é cifrado via cipher_service e guardado em
+    `api_token_raw_encrypted` pra que o HAPeerMonitor possa mandar como
+    X-Api-Token no probe `/api/v1/cluster/peer-ping`.
+
+    Sem `keep_raw` e sem `existing_token`: só hash é guardado; o operador
+    precisa anotar o raw retornado (no campo `api_token`) pra usar no
+    espelho. Probe será anônimo (vai falhar em /peer-ping).
     """
     from app.services import cipher_service
 
@@ -92,7 +108,17 @@ async def create_peer(label: str, api_url: str, role: str, priority: int = 100, 
     if not label or not api_url:
         raise ValueError("label e api_url obrigatórios")
 
-    raw_token = secrets.token_urlsafe(32)
+    existing_token = (existing_token or "").strip() or None
+    if existing_token:
+        if len(existing_token) < 16:
+            raise ValueError("existing_token muito curto (mín 16 chars)")
+        raw_token = existing_token
+        # Sempre cifra raw quando o operador cola um token (precisa pra
+        # outbound probe; sem isso o token vira write-only)
+        keep_raw = True
+    else:
+        raw_token = secrets.token_urlsafe(32)
+
     token_hash = bcrypt.hashpw(raw_token.encode(), bcrypt.gensalt()).decode()
     encrypted = cipher_service.encrypt(raw_token) if keep_raw else None
 
@@ -105,8 +131,9 @@ async def create_peer(label: str, api_url: str, role: str, priority: int = 100, 
     )
     row = await db_fetchone("SELECT * FROM ha_peers WHERE label = ?", [label])
     out = _row_to_dict(row)
-    out["api_token"] = raw_token  # 1x — UI exibe pra copiar
+    out["api_token"] = raw_token  # 1x — UI exibe pra copiar (ou repete o existing)
     out["keep_raw"] = bool(keep_raw)
+    out["reused_token"] = existing_token is not None
     return out
 
 
@@ -147,11 +174,21 @@ async def delete_peer(peer_id: int) -> bool:
 # ---------- Healthcheck ----------
 
 async def check_peer(peer_id: int) -> dict:
-    """GET <api_url>/api/v1/health. Atualiza last_check_*.
+    """Faz GET <api_url>/api/v1/cluster/peer-ping (autenticado) ou /healthz
+    (anônimo) como fallback. Atualiza last_check_*.
 
-    Se o peer foi criado com `keep_raw=True`, decifra o token e manda
-    via X-Api-Token (auth real). Senão, faz check anônimo — provável
-    `unauthorized` se /health for protegido.
+    Se o peer tem token raw cifrado guardado (`keep_raw=True` na criação),
+    decifra e manda via X-Api-Token contra `/peer-ping`. Caso contrário,
+    cai pra `/healthz` (público, sempre 200 se o peer estiver vivo) —
+    útil pra ver apenas se está respondendo, sem garantia de auth.
+
+    Status possíveis:
+    - `ok`: 200 no endpoint escolhido (autenticado se token presente)
+    - `unauthorized`: token configurado mas peer rejeitou (401/403)
+    - `not_found`: 404 (endpoint do dashboard ausente — peer rodando versão antiga?)
+    - `error`: outras respostas HTTP (5xx etc)
+    - `timeout`: sem resposta dentro de `_HEALTH_TIMEOUT`
+    - `down`: connection refused / DNS / TLS / etc
     """
     from app.services import cipher_service
 
@@ -162,34 +199,55 @@ async def check_peer(peer_id: int) -> dict:
     api_url = row["api_url"]
     encrypted_token = row.get("api_token_raw_encrypted")
     headers: dict[str, str] = {}
+    raw_token = None
     if encrypted_token:
-        token = cipher_service.decrypt(encrypted_token)
-        if token:
-            headers["X-Api-Token"] = token
-            headers["Authorization"] = f"Bearer {token}"
+        raw_token = cipher_service.decrypt(encrypted_token)
+        if raw_token:
+            headers["X-Api-Token"] = raw_token
+            headers["Authorization"] = f"Bearer {raw_token}"
+
+    probe_path = "/api/v1/cluster/peer-ping" if raw_token else "/api/v1/healthz"
 
     started = time.time()
     status = "down"
-    payload = None
+    payload: dict | None = None
     latency_ms = None
+    error_msg: str | None = None
 
     try:
         async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT, verify=False) as client:
-            r = await client.get(f"{api_url}/api/v1/health", headers=headers)
+            r = await client.get(f"{api_url}{probe_path}", headers=headers)
             latency_ms = int((time.time() - started) * 1000)
             if r.status_code == 200:
                 status = "ok"
-                payload = r.json() if r.headers.get("content-type", "").startswith("application/json") else None
+                if r.headers.get("content-type", "").startswith("application/json"):
+                    try:
+                        payload = r.json()
+                    except Exception:  # noqa: BLE001
+                        payload = None
             elif r.status_code in (401, 403):
                 status = "unauthorized"
+                error_msg = "Peer rejeitou X-Api-Token (não cadastrado no espelho?)"
+            elif r.status_code == 404:
+                status = "not_found"
+                error_msg = f"Peer respondeu 404 em {probe_path} — versão sem o endpoint? (precisa v2.103+)"
             else:
                 status = "error"
+                error_msg = f"HTTP {r.status_code}"
     except httpx.TimeoutException:
         status = "timeout"
         latency_ms = int(_HEALTH_TIMEOUT * 1000)
+        error_msg = f"Sem resposta em {_HEALTH_TIMEOUT}s"
     except Exception as exc:  # noqa: BLE001
         log.warning("ha.check_peer.failed", peer_id=peer_id, error=str(exc))
         status = "down"
+        error_msg = str(exc)[:200]
+
+    payload_to_store = dict(payload) if payload else {}
+    if error_msg:
+        payload_to_store["error"] = error_msg
+    payload_to_store["probe_path"] = probe_path
+    payload_to_store["authenticated"] = bool(raw_token)
 
     await db_execute(
         """
@@ -201,9 +259,15 @@ async def check_peer(peer_id: int) -> dict:
             updated_at = NOW()
         WHERE id = ?
         """,
-        [status, latency_ms, json.dumps(payload) if payload else None, int(peer_id)],
+        [status, latency_ms, json.dumps(payload_to_store), int(peer_id)],
     )
-    return {"ok": True, "status": status, "latency_ms": latency_ms, "payload": payload}
+    return {
+        "ok": True,
+        "status": status,
+        "latency_ms": latency_ms,
+        "payload": payload_to_store,
+        "error": error_msg,
+    }
 
 
 async def check_all_enabled() -> list[dict]:

@@ -7,6 +7,14 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### Cluster usable
+- **v2.103**: **fix do bug que impedia o cluster de ficar verde** + cluster bidirecional autenticado.
+  - **Bug**: `ha_service.check_peer` chamava `GET {api_url}/api/v1/health` mas o endpoint real é `/api/v1/healthz`. Resultado: o peer sempre devolvia 404, o monitor marcava `error`, e a UI mostrava cluster vermelho mesmo com tudo funcionando. Descoberto rastreando "não consegui ativar cluster dev↔teste". Fix: URL corrigida + status `not_found` distinto pra 404 (vs `error` genérico de outros HTTP codes), com mensagem do payload explicando o que aconteceu.
+  - **Novo endpoint `/api/v1/cluster/peer-ping`** (router em `app/routers/cluster.py`): exige `X-Api-Token` (ou `Authorization: Bearer`), valida via `bcrypt.checkpw` contra qualquer `ha_peers.api_token_hash` registrado localmente, retorna `{ok, version, matched_peer_label, matched_peer_role}`. 401 se ausente ou inválido.
+  - **`ha_service.create_peer` aceita `existing_token`**: modelo "shared secret por link" — A gera token T no primeiro create, operador cola T no espelho do B via `existing_token=T`. B reusa T (hash batendo dos dois lados). Quando ambos têm raw cifrado + hash do mesmo T, ambos podem fazer probe autenticado um no outro. `keep_raw` vira implícito (True) quando `existing_token` é fornecido — sem isso o token vira write-only e o probe falharia.
+  - **`check_peer` prefere `/cluster/peer-ping`** quando o peer tem token raw cifrado guardado; cai pra `/healthz` quando não. Status novo `not_found` (404 no endpoint — geralmente "peer rodando versão sem cluster.py"). Payload inclui `error`, `probe_path`, `authenticated` pra debug. `check_peer` retorna o `error` separado pra UI consumir.
+  - **UI `cluster.php`**: campo "Token existente (opcional)" no form de adicionar peer + `<details>` "Como ativar cluster em 3 passos" (1: cria no A sem token, copia T; 2: cria no B colando T; 3: clica Check). Status amber pra `not_found` + tooltip com a mensagem de erro do payload diretamente na célula (ícone ⓘ). Botão Check passa a mostrar probe path, autenticado sim/não, e detalhe do erro. Modal de "peer criado" diferencia "Token gerado" vs "Token reutilizado do espelho".
+
 ### Multi-tenant (fechamento)
 - **v2.102**: **blocklist_exceptions multi-tenant** com PK composto. V29 recria a tabela com PK `(domain, org_id)` — sentinela `org_id = 0` representa allowlist global (organizações reais começam em 1 na sequence). Trade-off vs padrão das outras tabelas tenant (NULL = global): aqui o PK composto não aceita NULL, então usamos `0`; a diferença é encapsulada nos filtros do repo, API/UI não percebem.
   - `blocklist_exceptions_repo` ganhou `viewer_org_id` em `list_all`/`count`, e `org_id` em `add`/`remove`/`add_many`/`remove_many`. Função `list_domains` virou `list_domains_global` (só globais, pra alimentar o zonefile do Unbound).

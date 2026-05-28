@@ -85,7 +85,14 @@ $isAdmin = Auth::isAdmin();
             <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
                     <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('cluster.section_add_peer') ?></h3>
-                    <p class="text-[10px] text-slate-500 mt-1">Token gerado é exibido uma única vez após criar. Salve em local seguro.</p>
+                    <details class="text-[10px] text-slate-500 mt-2">
+                        <summary class="cursor-pointer font-bold hover:text-slate-700 dark:hover:text-slate-300">Como ativar cluster em 3 passos</summary>
+                        <ol class="mt-2 ml-4 list-decimal space-y-1 leading-relaxed">
+                            <li><b>No servidor A</b>: adicione peer "SRV-B" com <i>Token existente</i> em branco. A gera um token T — copie no popup.</li>
+                            <li><b>No servidor B</b>: adicione peer "SRV-A" colando <b>T</b> no campo <i>Token existente</i>. B reusa o mesmo token (hash batendo do lado de cá).</li>
+                            <li>Clique em <kbd>Check</kbd> nos dois lados — o status deve virar <span class="text-emerald-500 font-bold">ok</span>.</li>
+                        </ol>
+                    </details>
                 </div>
                 <div class="p-6 flex flex-wrap items-end gap-3">
                     <label class="flex flex-col">
@@ -107,9 +114,13 @@ $isAdmin = Auth::isAdmin();
                         <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Prioridade</span>
                         <input type="number" id="nPriority" value="100" min="0" max="1000" class="glass-input w-24 font-mono">
                     </label>
-                    <label class="flex items-center gap-2 cursor-pointer mb-1" title="Guarda o token cifrado pra que o HAPeerMonitor consiga autenticar nos healthchecks">
+                    <label class="flex flex-col" title="Cole aqui o token gerado no peer espelho. Deixe vazio pra gerar um novo.">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Token existente (opcional)</span>
+                        <input type="text" id="nExistingToken" placeholder="cole pra fechar o link" class="glass-input w-64 font-mono">
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer mb-1" title="Guarda o token cifrado pra que o monitor mande X-Api-Token no probe /cluster/peer-ping. Ignorado se Token existente foi colado (implícito).">
                         <input type="checkbox" id="nKeepRaw" class="w-4 h-4">
-                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">🔐 Healthcheck autenticado</span>
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">🔐 Habilitar healthcheck autenticado</span>
                     </label>
                     <button type="button" id="btnCreate" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Adicionar</button>
                 </div>
@@ -153,6 +164,7 @@ $isAdmin = Auth::isAdmin();
     const STATUS_CLS = {
         ok: 'text-emerald-500',
         unauthorized: 'text-amber-500',
+        not_found: 'text-amber-500',
         timeout: 'text-amber-500',
         error: 'text-red-500',
         down: 'text-red-500',
@@ -188,6 +200,10 @@ $isAdmin = Auth::isAdmin();
             $('peersTbody').innerHTML = peers.map(p => {
                 const stCls = STATUS_CLS[p.last_check_status] || 'text-slate-500';
                 const stTxt = p.last_check_status || 'pendente';
+                const errMsg = p.last_check_payload && p.last_check_payload.error ? p.last_check_payload.error : '';
+                const stCell = errMsg
+                    ? `<span class="${stCls}" title="${esc(errMsg)}">${esc(stTxt)} ⓘ</span>`
+                    : `<span class="${stCls}">${esc(stTxt)}</span>`;
                 const lat = p.last_check_latency_ms != null ? `${p.last_check_latency_ms}ms` : '—';
                 const roleBadge = p.role === 'primary'
                     ? '<span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-500">PRIMARY</span>'
@@ -205,7 +221,7 @@ $isAdmin = Auth::isAdmin();
                     <td class="px-3 py-2 font-mono text-[10px] break-all">${esc(p.api_url)}</td>
                     <td class="px-3 py-2">${roleBadge}</td>
                     <td class="px-3 py-2 font-mono">${p.priority}</td>
-                    <td class="px-3 py-2 font-black uppercase tracking-widest text-[10px] ${stCls}">${esc(stTxt)}</td>
+                    <td class="px-3 py-2 font-black uppercase tracking-widest text-[10px]">${stCell}</td>
                     <td class="px-3 py-2 font-mono">${lat}</td>
                     <td class="px-3 py-2 text-[10px] text-slate-500">${relTime(p.last_check_at)}</td>
                     <td class="px-3 py-2 text-right">${actions}</td>
@@ -226,7 +242,15 @@ $isAdmin = Auth::isAdmin();
     async function checkNow(id) {
         const r = await fetch(`/api/v1/ha/peers/${id}/check`, { method: 'POST', headers: H });
         const d = await r.json().catch(() => ({}));
-        (window.customAlert || alert)(r.ok ? `Status: ${d.status} (${d.latency_ms}ms)` : 'Erro check.');
+        if (!r.ok) {
+            (window.customAlert || alert)('Erro check.');
+        } else {
+            const msg = [`Status: ${d.status} (${d.latency_ms}ms)`];
+            if (d.payload?.probe_path) msg.push(`Probe: ${d.payload.probe_path}`);
+            if (d.payload?.authenticated !== undefined) msg.push(`Autenticado: ${d.payload.authenticated ? 'sim' : 'não'}`);
+            if (d.error) msg.push(`Detalhe: ${d.error}`);
+            (window.customAlert || alert)(msg.join('\n'));
+        }
         loadStatus();
     }
 
@@ -240,13 +264,15 @@ $isAdmin = Auth::isAdmin();
 
     if (IS_ADMIN) {
         $('btnCreate')?.addEventListener('click', async () => {
+            const existingTok = $('nExistingToken').value.trim();
             const body = {
                 label: $('nLabel').value.trim(),
                 api_url: $('nUrl').value.trim(),
                 role: $('nRole').value,
                 priority: parseInt($('nPriority').value || '100', 10),
-                keep_raw: $('nKeepRaw').checked,
+                keep_raw: $('nKeepRaw').checked || !!existingTok,
             };
+            if (existingTok) body.existing_token = existingTok;
             if (!body.label || !body.api_url) {
                 (window.customAlert || alert)('Label e URL obrigatórios.');
                 return;
@@ -254,9 +280,11 @@ $isAdmin = Auth::isAdmin();
             const r = await fetch('/api/v1/ha/peers', { method: 'POST', headers: HJ, body: JSON.stringify(body) });
             const d = await r.json().catch(() => ({}));
             if (r.ok || r.status === 201) {
-                // Token raw — exibe modal pra copiar
-                (window.customAlert || alert)(`Peer criado. TOKEN (apenas exibido agora):\n\n${d.api_token}\n\nGuarde antes de fechar.`);
-                $('nLabel').value = ''; $('nUrl').value = '';
+                const intro = d.reused_token
+                    ? `Peer criado reutilizando o token fornecido.\n\nTOKEN (mesmo do espelho):\n\n${d.api_token}`
+                    : `Peer criado. TOKEN (apenas exibido agora):\n\n${d.api_token}\n\nGuarde antes de fechar — cole no peer espelho.`;
+                (window.customAlert || alert)(intro);
+                $('nLabel').value = ''; $('nUrl').value = ''; $('nExistingToken').value = '';
                 loadStatus();
             } else {
                 (window.customAlert || alert)('Erro: ' + (d.detail || r.statusText));

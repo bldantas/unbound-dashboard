@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse
 
 from app.core.deps import require_capability
@@ -77,8 +77,13 @@ async def create_peer(
     role = str(body.get("role", "secondary"))
     priority = int(body.get("priority", 100))
     keep_raw = bool(body.get("keep_raw", False))
+    existing_token = (str(body.get("existing_token") or "")).strip() or None
     try:
-        out = await ha_service.create_peer(label, api_url, role, priority, keep_raw=keep_raw)
+        out = await ha_service.create_peer(
+            label, api_url, role, priority,
+            keep_raw=keep_raw,
+            existing_token=existing_token,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await admin_audit_service.log(
