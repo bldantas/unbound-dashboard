@@ -14,6 +14,10 @@
 //   - hidden    → 0px (sumiu)                                    (mobile/manual)
 //
 // Toggle no topbar cicla full → icon-only → hidden → full.
+//
+// v2.113+: cada seção tem header clicável que colapsa/expande os items.
+// Estado por seção persistido em localStorage.sidebar_sections_collapsed
+// (array de keys). Seção que contém a página ativa força expandida.
 
 require_once __DIR__ . '/../src/Auth.php';
 require_once __DIR__ . '/../src/AlertManager.php';
@@ -99,6 +103,7 @@ $ICON = [
 
 $sidebarSections = [
     [
+        'key'   => 'operacao',
         'label' => 'Operação',
         'items' => [
             ['href' => 'index.php',         'label' => t('sidebar.dashboard'),        'icon' => $ICON['home']],
@@ -110,6 +115,7 @@ $sidebarSections = [
         ],
     ],
     [
+        'key'   => 'dns-blocklists',
         'label' => 'DNS & Blocklists',
         'items' => [
             ['href' => 'threats.php',         'label' => t('sidebar.threats'),         'icon' => $ICON['shieldlock'], 'requires' => 'admin'],
@@ -121,6 +127,7 @@ $sidebarSections = [
         ],
     ],
     [
+        'key'   => 'analise',
         'label' => 'Análise',
         'items' => [
             ['href' => 'analytics.php',     'label' => t('sidebar.analytics'),       'icon' => $ICON['chart'],     'requires' => 'admin'],
@@ -131,6 +138,7 @@ $sidebarSections = [
         ],
     ],
     [
+        'key'   => 'cluster-multi-host',
         'label' => 'Cluster & Multi-host',
         'items' => [
             ['href' => 'cluster.php',         'label' => t('sidebar.cluster'),         'icon' => $ICON['server'],   'requires' => 'global_admin'],
@@ -139,6 +147,7 @@ $sidebarSections = [
         ],
     ],
     [
+        'key'   => 'acesso-tenant',
         'label' => 'Acesso & Tenant',
         'items' => [
             ['href' => 'orgs.php',      'label' => 'Organizações',          'icon' => $ICON['building'],   'requires' => 'global_admin'],
@@ -147,6 +156,7 @@ $sidebarSections = [
         ],
     ],
     [
+        'key'   => 'sistema',
         'label' => 'Sistema',
         'items' => [
             ['href' => 'config.php' . ($hasUpdate ? '?tab=updates' : ''), 'label' => 'Configurações', 'icon' => $ICON['gear'], 'requires' => 'admin', 'active_key' => 'config.php', 'badge_html' => $hasUpdate ? '<span class="sidebar-update-badge ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30 text-[9px] font-black uppercase tracking-widest relative" title="Nova versão disponível">↑ Update</span>' : ''],
@@ -159,6 +169,7 @@ $sidebarSections = [
         ],
     ],
     [
+        'key'   => 'ferramentas',
         'label' => 'Ferramentas',
         'items' => [
             ['href' => 'dns_benchmark.php', 'label' => 'Benchmark DNS', 'icon' => $ICON['lightning'], 'requires' => 'admin'],
@@ -192,38 +203,42 @@ unset($_sect);
     <nav class="flex-1 px-4 py-6 space-y-6 overflow-y-auto overflow-x-visible custom-scrollbar">
         <?php foreach ($sidebarSections as $section): ?>
         <?php if (empty($section['items'])) continue; /* esconde seção vazia */ ?>
-        <div class="sidebar-section relative" data-section="<?= htmlspecialchars($section['label']) ?>">
-            <p class="px-3 text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-3 flex items-center justify-between sidebar-section-header">
-                <span class="sidebar-text"><?= htmlspecialchars($section['label']) ?></span>
+        <?php $sectionItemsId = 'sidebar-section-items-' . htmlspecialchars($section['key']); ?>
+        <div class="sidebar-section relative" data-section-key="<?= htmlspecialchars($section['key']) ?>" data-section="<?= htmlspecialchars($section['label']) ?>">
+            <button type="button" class="w-full px-3 text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-3 flex items-center justify-between sidebar-section-header bg-transparent border-0 cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors" aria-expanded="true" aria-controls="<?= $sectionItemsId ?>">
+                <span class="sidebar-text flex-1 text-left"><?= htmlspecialchars($section['label']) ?></span>
                 <span class="sidebar-text text-slate-500 dark:text-slate-600 normal-case tracking-normal font-bold"><?= count($section['items']) ?></span>
+                <svg class="sidebar-text sidebar-section-chevron w-3 h-3 ml-1.5 shrink-0 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7"/></svg>
                 <!-- Ícone de "se há mais itens" em modo icon-only -->
                 <span class="sidebar-section-dot hidden">
                     <svg class="w-3 h-3 text-slate-500" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="2"/></svg>
                 </span>
-            </p>
-            <div class="space-y-1 sidebar-section-items">
-                <?php foreach ($section['items'] as $it):
-                    $isActive = ($currentPage === ($it['active_key'] ?? $it['href']));
-                    if (!$isActive && !empty($it['active_also'])) {
-                        $isActive = in_array($currentPage, $it['active_also'], true);
-                    }
-                ?>
-                <a href="<?= htmlspecialchars($it['href']) ?>" class="nav-link <?= $isActive ? 'active' : '' ?> <?= isset($it['badge']) && $it['badge'] > 0 ? 'flex justify-between' : '' ?>" data-label="<?= htmlspecialchars($it['label']) ?>" title="<?= htmlspecialchars($it['label']) ?>">
-                    <?php if (isset($it['badge']) && $it['badge'] > 0): ?>
-                        <div class="flex items-center gap-3">
+            </button>
+            <div class="sidebar-section-items-wrapper" id="<?= $sectionItemsId ?>">
+                <div class="space-y-1 sidebar-section-items">
+                    <?php foreach ($section['items'] as $it):
+                        $isActive = ($currentPage === ($it['active_key'] ?? $it['href']));
+                        if (!$isActive && !empty($it['active_also'])) {
+                            $isActive = in_array($currentPage, $it['active_also'], true);
+                        }
+                    ?>
+                    <a href="<?= htmlspecialchars($it['href']) ?>" class="nav-link <?= $isActive ? 'active' : '' ?> <?= isset($it['badge']) && $it['badge'] > 0 ? 'flex justify-between' : '' ?>" data-label="<?= htmlspecialchars($it['label']) ?>" title="<?= htmlspecialchars($it['label']) ?>">
+                        <?php if (isset($it['badge']) && $it['badge'] > 0): ?>
+                            <div class="flex items-center gap-3">
+                                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><?= $it['icon'] ?></svg>
+                                <span class="sidebar-text"><?= htmlspecialchars($it['label']) ?></span>
+                            </div>
+                            <span class="sidebar-text bg-red-500/20 text-red-500 text-[10px] font-black px-2 py-0.5 rounded-full border border-red-500/20"><?= (int) $it['badge'] ?></span>
+                        <?php else: ?>
                             <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><?= $it['icon'] ?></svg>
                             <span class="sidebar-text"><?= htmlspecialchars($it['label']) ?></span>
-                        </div>
-                        <span class="sidebar-text bg-red-500/20 text-red-500 text-[10px] font-black px-2 py-0.5 rounded-full border border-red-500/20"><?= (int) $it['badge'] ?></span>
-                    <?php else: ?>
-                        <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><?= $it['icon'] ?></svg>
-                        <span class="sidebar-text"><?= htmlspecialchars($it['label']) ?></span>
-                        <?php if (!empty($it['badge_html'])): ?>
-                            <span class="sidebar-text"><?= $it['badge_html'] /* já é HTML seguro vindo da config */ ?></span>
+                            <?php if (!empty($it['badge_html'])): ?>
+                                <span class="sidebar-text"><?= $it['badge_html'] /* já é HTML seguro vindo da config */ ?></span>
+                            <?php endif; ?>
                         <?php endif; ?>
-                    <?php endif; ?>
-                </a>
-                <?php endforeach; ?>
+                    </a>
+                    <?php endforeach; ?>
+                </div>
             </div>
 
             <!-- Flyout: exibido em modo icon-only no hover da seção -->
@@ -365,5 +380,41 @@ html.dark .sidebar-flyout {
 }
 #mainSidebar.sidebar-icon-only .nav-link:hover::after {
     opacity: 1;
+}
+
+/* ============================================================
+   Collapse de seção (v2.113+) — header clicável + chevron rotaciona
+   ============================================================ */
+.sidebar-section-items-wrapper {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 0.22s ease, opacity 0.22s ease;
+    opacity: 1;
+}
+.sidebar-section-items-wrapper > .sidebar-section-items {
+    overflow: hidden;
+    min-height: 0;
+}
+.sidebar-section.collapsed .sidebar-section-items-wrapper {
+    grid-template-rows: 0fr;
+    opacity: 0;
+}
+.sidebar-section.collapsed .sidebar-section-chevron {
+    transform: rotate(-90deg);
+}
+.sidebar-section.collapsed .sidebar-section-header {
+    margin-bottom: 0;
+}
+/* Em icon-only o header vira só o "dot" — desabilita toggle e esconde chevron. */
+#mainSidebar.sidebar-icon-only .sidebar-section-header {
+    pointer-events: none;
+}
+#mainSidebar.sidebar-icon-only .sidebar-section-chevron {
+    display: none !important;
+}
+/* Em icon-only sempre exibir items (collapse só faz sentido em full). */
+#mainSidebar.sidebar-icon-only .sidebar-section-items-wrapper {
+    grid-template-rows: 1fr !important;
+    opacity: 1 !important;
 }
 </style>

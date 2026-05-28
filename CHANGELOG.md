@@ -7,6 +7,17 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### Sidebar: seções colapsáveis com chevron
+- **v2.113.0**: cada uma das 7 seções da sidebar ganha header clicável que colapsa/expande os itens daquela seção. Continua sobre o trabalho da v2.112.
+  - **Header virou `<button>`** em [includes/sidebar.php](includes/sidebar.php): qualquer click no título (label, contador ou chevron) alterna o estado da seção. Hover destaca a cor pra deixar claro que é clicável.
+  - **Chevron** (▼) à direita do contador rotaciona -90° quando a seção está colapsada (vira ▶). Animação 200ms.
+  - **Animação suave** via truque `grid-template-rows: 1fr ↔ 0fr` no wrapper `.sidebar-section-items-wrapper`. Sem `max-height` mágico — funciona com qualquer quantidade de items.
+  - **Persistência** em `localStorage.sidebar_sections_collapsed` (JSON array de keys de seção). Keys estáveis: `operacao`, `dns-blocklists`, `analise`, `cluster-multi-host`, `acesso-tenant`, `sistema`, `ferramentas`.
+  - **Auto-expand da seção ativa**: se você navegou pra uma página dentro de uma seção colapsada, ela abre automaticamente (não esconde onde você está). O estado salvo é preservado — quando você sair daquela página, a seção volta a colapsar.
+  - **Default**: tudo expandido (preserva comportamento anterior). User colapsa o que quer ocultar.
+  - **Acessibilidade**: `aria-expanded="true|false"` + `aria-controls` no header apontam pro id do wrapper.
+  - **Compat com icon-only**: no modo de 64px o collapse é desabilitado (`pointer-events: none` + chevron escondido + `grid-template-rows: 1fr !important`). O flyout no hover já é a UX correta nesse modo.
+
 ### Sidebar reorganizada + modo icon-only com flyout
 - **v2.112.0**: refatoração da barra lateral. Antes 38 itens distribuídos em 3 seções desbalanceadas ("Monitoramento" tinha 26 itens misturando operação, segurança, DNS, multi-tenant, backup; "Sistema" tinha só 4). Agora:
   - **7 seções temáticas** ([includes/sidebar.php](includes/sidebar.php)): Operação, DNS & Blocklists, Análise, Cluster & Multi-host, Acesso & Tenant, Sistema, Ferramentas.

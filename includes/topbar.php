@@ -244,6 +244,58 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
         if (savedMode !== 'full') updateSidebarUI(savedMode);
     }
 
+    // --- COLLAPSE DE SEÇÕES (v2.113+) ---
+    // Cada seção tem header clicável. Estado persistido em localStorage como
+    // array de keys colapsadas. Seção que contém a página ativa força expandida
+    // (independente do estado salvo) pra navegação não "esconder" onde o user está.
+    const SIDEBAR_SECTIONS_KEY = 'sidebar_sections_collapsed';
+
+    function loadCollapsedSections() {
+        try {
+            const raw = localStorage.getItem(SIDEBAR_SECTIONS_KEY);
+            return new Set(raw ? JSON.parse(raw) : []);
+        } catch { return new Set(); }
+    }
+
+    function saveCollapsedSections(set) {
+        localStorage.setItem(SIDEBAR_SECTIONS_KEY, JSON.stringify([...set]));
+    }
+
+    function applySidebarSectionsState() {
+        const collapsed = loadCollapsedSections();
+        document.querySelectorAll('#mainSidebar .sidebar-section').forEach(sec => {
+            const key = sec.dataset.sectionKey;
+            if (!key) return;
+            const hasActive = !!sec.querySelector('.nav-link.active');
+            const shouldCollapse = collapsed.has(key) && !hasActive;
+            sec.classList.toggle('collapsed', shouldCollapse);
+            const header = sec.querySelector('.sidebar-section-header');
+            if (header) header.setAttribute('aria-expanded', shouldCollapse ? 'false' : 'true');
+        });
+    }
+
+    document.querySelectorAll('#mainSidebar .sidebar-section-header').forEach(header => {
+        header.addEventListener('click', () => {
+            // Em icon-only o pointer-events: none já bloqueia, mas guard extra:
+            if (sidebar.classList.contains('sidebar-icon-only')) return;
+            const sec = header.closest('.sidebar-section');
+            const key = sec?.dataset.sectionKey;
+            if (!key) return;
+            const collapsed = loadCollapsedSections();
+            const wasCollapsed = sec.classList.contains('collapsed');
+            if (wasCollapsed) {
+                collapsed.delete(key);
+            } else {
+                collapsed.add(key);
+            }
+            saveCollapsedSections(collapsed);
+            sec.classList.toggle('collapsed', !wasCollapsed);
+            header.setAttribute('aria-expanded', wasCollapsed ? 'true' : 'false');
+        });
+    });
+
+    applySidebarSectionsState();
+
     // --- THEME LOGIC ---
     const sunIcon = document.getElementById('sunIcon');
     const moonIcon = document.getElementById('moonIcon');
