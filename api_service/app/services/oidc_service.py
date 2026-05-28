@@ -1,5 +1,5 @@
 """
-OIDC SSO — Authorization Code flow simples.
+OIDC SSO — Authorization Code flow com PKCE.
 
 Suporta qualquer IdP OpenID Connect (Google, Microsoft Entra ID, Keycloak,
 Authentik, etc). Flow:
