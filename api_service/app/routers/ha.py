@@ -125,6 +125,36 @@ async def update_peer(
     return {"updated": True}
 
 
+@router.put("/peers/{peer_id}/token")
+async def set_peer_token(
+    peer_id: Annotated[int, Path(ge=1)],
+    body: dict,
+    user: Annotated[dict, Depends(require_capability("config.write"))],
+    request: Request,
+) -> dict:
+    """Substitui o token de um peer (usado pra "fechar o link" quando
+    ambos os lados foram criados sem coordenar)."""
+    token = str(body.get("token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="token obrigatório")
+    try:
+        ok = await ha_service.set_peer_token(peer_id, token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not ok:
+        raise HTTPException(status_code=404, detail="peer não encontrado")
+    await admin_audit_service.log(
+        actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
+        actor_username=user.get("username"),
+        actor_ip=request.client.host if request.client else None,
+        action="ha.peer.token_replaced",
+        category="host",
+        target_type="ha_peer",
+        target_id=str(peer_id),
+    )
+    return {"updated": True}
+
+
 @router.delete("/peers/{peer_id}", response_model=None)
 async def delete_peer(
     peer_id: Annotated[int, Path(ge=1)],

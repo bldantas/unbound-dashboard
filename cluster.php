@@ -86,12 +86,25 @@ $isAdmin = Auth::isAdmin();
                 <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
                     <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest"><?= t('cluster.section_add_peer') ?></h3>
                     <details class="text-[10px] text-slate-500 mt-2">
-                        <summary class="cursor-pointer font-bold hover:text-slate-700 dark:hover:text-slate-300">Como ativar cluster em 3 passos</summary>
-                        <ol class="mt-2 ml-4 list-decimal space-y-1 leading-relaxed">
-                            <li><b>No servidor A</b>: adicione peer "SRV-B" com <i>Token existente</i> em branco. A gera um token T — copie no popup.</li>
-                            <li><b>No servidor B</b>: adicione peer "SRV-A" colando <b>T</b> no campo <i>Token existente</i>. B reusa o mesmo token (hash batendo do lado de cá).</li>
-                            <li>Clique em <kbd>Check</kbd> nos dois lados — o status deve virar <span class="text-emerald-500 font-bold">ok</span>.</li>
-                        </ol>
+                        <summary class="cursor-pointer font-bold hover:text-slate-700 dark:hover:text-slate-300">Como ativar cluster (2 cenários)</summary>
+                        <div class="mt-2 ml-2 space-y-3 leading-relaxed">
+                            <div>
+                                <div class="font-bold text-slate-700 dark:text-slate-300 mb-1">A) Cenário sequencial — recomendado</div>
+                                <ol class="ml-3 list-decimal space-y-1">
+                                    <li>No <b>servidor A</b>: adicione peer "SRV-B" com <i>Token existente</i> em branco. A gera token <b>T</b> — copie no popup.</li>
+                                    <li>No <b>servidor B</b>: adicione peer "SRV-A" colando <b>T</b> em <i>Token existente</i>. B reusa o mesmo token.</li>
+                                    <li>Clique em <kbd>Check</kbd> — status vira <span class="text-emerald-500 font-bold">ok</span> nos dois lados.</li>
+                                </ol>
+                            </div>
+                            <div>
+                                <div class="font-bold text-slate-700 dark:text-slate-300 mb-1">B) Já criou dos dois lados sem coordenar?</div>
+                                <ol class="ml-3 list-decimal space-y-1">
+                                    <li>Escolha um dos tokens (digamos <b>T_A</b>, do servidor A). Vá no <b>servidor B</b>, clique no botão <kbd>🔑</kbd> do peer "SRV-A".</li>
+                                    <li>Cole <b>T_A</b> no modal. B passa a usar o mesmo token de A.</li>
+                                    <li>Clique <kbd>Check</kbd> — fica <span class="text-emerald-500 font-bold">ok</span> autenticado.</li>
+                                </ol>
+                            </div>
+                        </div>
                     </details>
                 </div>
                 <div class="p-6 flex flex-wrap items-end gap-3">
@@ -213,7 +226,8 @@ $isAdmin = Auth::isAdmin();
                     ? ' <span class="text-[10px] text-emerald-500" title="Healthcheck autenticado (token cifrado guardado)">🔐</span>'
                     : '';
                 const actions = IS_ADMIN
-                    ? `<button data-id="${p.id}" class="checkBtn glass-btn text-[10px] uppercase font-black">Check</button>
+                    ? `<button data-id="${p.id}" data-label="${esc(p.label)}" class="tokenBtn glass-btn text-[10px] uppercase font-black" title="Substituir token (cole o token do espelho)">🔑</button>
+                       <button data-id="${p.id}" class="checkBtn glass-btn text-[10px] uppercase font-black">Check</button>
                        <button data-id="${p.id}" class="delBtn glass-btn !bg-red-600/80 !text-white text-[10px] uppercase font-black">Excluir</button>`
                     : '';
                 return `<tr class="hover:bg-slate-50 dark:hover:bg-white/5">
@@ -229,6 +243,7 @@ $isAdmin = Auth::isAdmin();
             }).join('');
             document.querySelectorAll('.checkBtn').forEach(btn => btn.addEventListener('click', () => checkNow(btn.dataset.id)));
             document.querySelectorAll('.delBtn').forEach(btn => btn.addEventListener('click', () => delPeer(btn.dataset.id)));
+            document.querySelectorAll('.tokenBtn').forEach(btn => btn.addEventListener('click', () => replaceToken(btn.dataset.id, btn.dataset.label)));
         }
 
         if (IS_ADMIN && $('fPromote')) {
@@ -252,6 +267,32 @@ $isAdmin = Auth::isAdmin();
             (window.customAlert || alert)(msg.join('\n'));
         }
         loadStatus();
+    }
+
+    async function replaceToken(id, label) {
+        const tok = await (window.customPrompt
+            ? customPrompt(`Substituir token de ${label}`,
+                'Cole o token gerado no peer espelho. Este lado passa a usar o mesmo token (hash + raw cifrado).',
+                {placeholder: 'token raw (16+ chars)', okLabel: 'Substituir', variant: 'warning'})
+            : Promise.resolve(window.prompt(`Token novo pra peer ${label}:`)));
+        if (tok === null) return;
+        const trimmed = (tok || '').trim();
+        if (!trimmed) return;
+        if (trimmed.length < 16) {
+            customAlert('Erro', 'Token muito curto (mín 16 chars).', 'error');
+            return;
+        }
+        const r = await fetch(`/api/v1/ha/peers/${id}/token`, {
+            method: 'PUT', headers: HJ,
+            body: JSON.stringify({token: trimmed}),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) {
+            customAlert('Token substituído', 'Clique em Check pra validar contra o peer espelho.', 'success');
+            loadStatus();
+        } else {
+            customAlert('Erro', d.detail || r.statusText, 'error');
+        }
     }
 
     async function delPeer(id) {

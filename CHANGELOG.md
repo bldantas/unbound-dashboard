@@ -7,6 +7,14 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### Cluster fix da UX
+- **v2.103.1**: o esquema "shared secret" da v2.103.0 forçava o operador a seguir uma ordem específica (cria no A → copia → cria no B colando). Quem criasse os dois lados sem coordenar ficava sem opção: ambos os tokens distintos, nenhum dos lados conhece o do outro, **e não tinha como editar** o peer pra alinhar. Bruno reportou exatamente esse trava em deploy real.
+  - **Novo endpoint `PUT /api/v1/ha/peers/{id}/token`**: substitui o token de um peer existente (atualiza `api_token_hash` + `api_token_raw_encrypted` na mesma transação). Audit log `ha.peer.token_replaced`.
+  - **`ha_service.set_peer_token(peer_id, token)`**: validação + bcrypt + cipher_service.encrypt + UPDATE. ValueError se token < 16 chars; False se peer não existe.
+  - **UI `cluster.php`**: botão `🔑` na coluna de actions de cada peer (admin only) → abre prompt customizado pedindo o token. Substitui in-place sem precisar recriar peer + perder ID/histórico.
+  - **Guia inline reescrito** pra cobrir 2 cenários: (A) sequencial recomendado, (B) já criou dos dois lados — instruções de uso do botão 🔑 pra alinhar.
+- **`includes/custom_modals.php` ganhou `customPrompt`**: faltava no kit (só tinha `customConfirm`/`customAlert`). Mesmo padrão dos outros — variants, ESC fecha, click no backdrop fecha, Enter submete. Memória [[feedback-no-native-dialogs]] alinhada: agora 100% sem `window.prompt`.
+
 ### Cluster usable
 - **v2.103**: **fix do bug que impedia o cluster de ficar verde** + cluster bidirecional autenticado.
   - **Bug**: `ha_service.check_peer` chamava `GET {api_url}/api/v1/health` mas o endpoint real é `/api/v1/healthz`. Resultado: o peer sempre devolvia 404, o monitor marcava `error`, e a UI mostrava cluster vermelho mesmo com tudo funcionando. Descoberto rastreando "não consegui ativar cluster dev↔teste". Fix: URL corrigida + status `not_found` distinto pra 404 (vs `error` genérico de outros HTTP codes), com mensagem do payload explicando o que aconteceu.

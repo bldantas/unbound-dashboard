@@ -163,6 +163,42 @@ async def update_peer(peer_id: int, fields: dict) -> bool:
     return True
 
 
+async def set_peer_token(peer_id: int, token: str) -> bool:
+    """Substitui o token de um peer existente.
+
+    Substitui tanto `api_token_hash` (bcrypt do raw) quanto
+    `api_token_raw_encrypted` (cipher_service do raw) — assim o peer fica
+    coerente nas duas direções: este lado manda o novo token no probe E
+    aceita esse mesmo token vindo do outro lado.
+
+    Use-case típico: você criou peer dos dois lados sem coordenar, cada
+    um gerou um token diferente. Anota o token de UM dos lados (digamos
+    T_A) e cola via este endpoint no OUTRO lado. Agora ambos os lados
+    têm hash(T_A) + raw(T_A) — probe bidirecional autenticado funciona.
+    """
+    from app.services import cipher_service
+
+    token = (token or "").strip()
+    if len(token) < 16:
+        raise ValueError("token muito curto (mín 16 chars)")
+    row = await db_fetchone("SELECT id FROM ha_peers WHERE id = ?", [int(peer_id)])
+    if not row:
+        return False
+    token_hash = bcrypt.hashpw(token.encode(), bcrypt.gensalt()).decode()
+    encrypted = cipher_service.encrypt(token)
+    await db_execute(
+        """
+        UPDATE ha_peers
+        SET api_token_hash = ?,
+            api_token_raw_encrypted = ?,
+            updated_at = NOW()
+        WHERE id = ?
+        """,
+        [token_hash, encrypted, int(peer_id)],
+    )
+    return True
+
+
 async def delete_peer(peer_id: int) -> bool:
     row = await db_fetchone("SELECT id FROM ha_peers WHERE id = ?", [int(peer_id)])
     if not row:

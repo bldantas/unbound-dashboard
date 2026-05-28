@@ -10,8 +10,11 @@
 //     opts: { variant: 'info'|'success'|'warning'|'error'|'danger', okLabel, cancelLabel }
 //   window.customAlert(title, body, variant) → Promise<void>
 //     variant: 'info'|'success'|'warning'|'error'|'danger'
+//   window.customPrompt(title, body, opts) → Promise<string|null>
+//     opts: { placeholder, defaultValue, variant, okLabel, cancelLabel, inputType ('text'|'password') }
+//     resolve(null) se cancelado, resolve(string) se OK.
 //
-// ESC fecha; click no backdrop fecha; foco automático no botão primário.
+// ESC fecha; click no backdrop fecha; foco automático no input/botão primário.
 ?>
 
 <!-- Modal genérico: confirmação -->
@@ -27,6 +30,24 @@
         <div class="flex justify-end gap-2">
             <button type="button" id="generic-confirm-cancel" class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
             <button type="button" id="generic-confirm-ok" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">Confirmar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal genérico: prompt (input + ok/cancel) -->
+<div id="generic-prompt-modal" class="hidden fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
+    <div class="glass-panel max-w-md w-full !p-6 border-slate-200 dark:border-white/10 shadow-2xl">
+        <div class="flex items-start gap-3 mb-4">
+            <div id="generic-prompt-icon" class="shrink-0 w-10 h-10 rounded-full bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 flex items-center justify-center text-lg font-black">?</div>
+            <div class="min-w-0 flex-1">
+                <h3 id="generic-prompt-title" class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Entrada</h3>
+                <p id="generic-prompt-body" class="text-[12px] text-slate-600 dark:text-slate-400 mt-1 break-words whitespace-pre-line"></p>
+                <input id="generic-prompt-input" type="text" class="mt-3 w-full px-3 py-2 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/40">
+            </div>
+        </div>
+        <div class="flex justify-end gap-2">
+            <button type="button" id="generic-prompt-cancel" class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
+            <button type="button" id="generic-prompt-ok" class="glass-btn !bg-cyan-600 !text-white text-[10px] uppercase font-black">OK</button>
         </div>
     </div>
 </div>
@@ -75,6 +96,16 @@
         body:    document.getElementById('generic-alert-body'),
         icon:    document.getElementById('generic-alert-icon'),
         okBtn:   document.getElementById('generic-alert-ok'),
+        pending: null,
+    };
+    const promptModal = {
+        root:    document.getElementById('generic-prompt-modal'),
+        title:   document.getElementById('generic-prompt-title'),
+        body:    document.getElementById('generic-prompt-body'),
+        icon:    document.getElementById('generic-prompt-icon'),
+        input:   document.getElementById('generic-prompt-input'),
+        okBtn:   document.getElementById('generic-prompt-ok'),
+        cancel:  document.getElementById('generic-prompt-cancel'),
         pending: null,
     };
 
@@ -143,10 +174,49 @@
     alertModal.okBtn.addEventListener('click', closeAlert);
     alertModal.root.addEventListener('click', (e) => { if (e.target === alertModal.root) closeAlert(); });
 
-    // ESC fecha qualquer um dos dois
+    window.customPrompt = function (title, body, opts) {
+        opts = opts || {};
+        return new Promise(resolve => {
+            promptModal.title.textContent = title || 'Entrada';
+            promptModal.body.textContent  = body  || '';
+            applyIcon(promptModal.icon, opts.variant || 'info');
+            promptModal.input.type = opts.inputType === 'password' ? 'password' : 'text';
+            promptModal.input.placeholder = opts.placeholder || '';
+            promptModal.input.value = opts.defaultValue || '';
+            promptModal.okBtn.textContent = opts.okLabel || 'OK';
+            promptModal.cancel.textContent = opts.cancelLabel || 'Cancelar';
+            promptModal.okBtn.classList.remove('!bg-cyan-600', '!bg-red-600', '!bg-amber-600', '!bg-emerald-600');
+            promptModal.okBtn.classList.add(
+                opts.variant === 'danger' || opts.variant === 'error' ? '!bg-red-600' :
+                opts.variant === 'warning' ? '!bg-amber-600' :
+                opts.variant === 'success' ? '!bg-emerald-600' : '!bg-cyan-600'
+            );
+            promptModal.pending = resolve;
+            promptModal.root.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+            setTimeout(() => promptModal.input.focus(), 30);
+        });
+    };
+    function closePrompt(value) {
+        if (!promptModal.pending) return;
+        const fn = promptModal.pending;
+        promptModal.pending = null;
+        promptModal.root.classList.add('hidden');
+        if (alertModal.root.classList.contains('hidden') && confirmModal.root.classList.contains('hidden')) document.body.style.overflow = '';
+        fn(value);
+    }
+    promptModal.okBtn.addEventListener('click', () => closePrompt(promptModal.input.value));
+    promptModal.cancel.addEventListener('click', () => closePrompt(null));
+    promptModal.root.addEventListener('click', (e) => { if (e.target === promptModal.root) closePrompt(null); });
+    promptModal.input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); closePrompt(promptModal.input.value); }
+    });
+
+    // ESC fecha qualquer um dos três
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            if (confirmModal.pending) closeConfirm(false);
+            if (promptModal.pending) closePrompt(null);
+            else if (confirmModal.pending) closeConfirm(false);
             else if (alertModal.pending) closeAlert();
         }
     });
