@@ -7,6 +7,11 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### TODOs limpos: install.sh + orgs.php
+- **v2.104.2**: dois fixes baratos da lista de pendências.
+  - **install.sh: remove `UV_PYTHON="$(command -v python3)"`** (linha 322). Antes forçava o Python do sistema (3.11 no Debian 12) e quebrava com `No interpreter found for Python >=3.13`. Agora deixa o `uv` resolver via `pyproject.toml` — se o sistema só tem 3.11, baixa Python 3.13 standalone (~50 MB, cacheado em `~/.local/share/uv/python`). `update.sh` já estava OK.
+  - **orgs.php texto stale**: subtitle dizia "Particionamento de dados (audit, hosts, etc) por org fica como TODO da próxima iteração" — mas isso foi feito ao longo de v2.89 (hosts), v2.92 (alerts + admin_audit), v2.98 (client_policies) e v2.102 (blocklist_exceptions). Reescrito pra descrever o estado real. Bullets de "limitações conhecidas" também reescritos: removida "listings ainda são globais" (já não é verdade), mantidas "user sem org = system admin" e "RBAC per-org não implementado", adicionada "split-horizon de blocklist por view ainda não" (V29 destrava schema mas falta plumbing no zonefile do Unbound).
+
 ### Docs fix — inconsistências do MANUAL_INSTALACAO
 - **v2.104.1**: revisão crítica do manual após v2.104.0 — Bruno perguntou "tá tudo ok?" e fiz cruzamento com os scripts reais. 4 inconsistências:
   - **Python 3.11+ → 3.13+** (corrigido em MANUAL + README): `pyproject.toml` exige `>=3.13`, mas o manual dizia 3.11+. Em Debian 12 (Python 3.11 default) o `uv` baixa Python 3.13 standalone automaticamente — documentado como overhead esperado.

@@ -34,15 +34,15 @@ $currentPage = 'orgs.php';
                     <svg class="w-8 h-8 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
                     Organizações
                 </h1>
-                <p class="page-subtitle">Multi-tenant infrastructure (v2.80). Esta release entrega CRUD de orgs + assign de usuários. Particionamento de dados (audit, hosts, etc) por org fica como TODO da próxima iteração.</p>
+                <p class="page-subtitle">Multi-tenant — CRUD de orgs + assign de usuários + particionamento de dados (alerts, audit, hosts, client_policies, blocklist_exceptions) filtrado por <code>org_id</code> do viewer.</p>
             </header>
 
             <div class="glass-panel border-amber-200 dark:border-amber-500/30 bg-amber-50/40 dark:bg-amber-500/5 mb-6 p-4 text-xs">
                 <p class="text-amber-700 dark:text-amber-300 font-black uppercase tracking-widest text-[10px] mb-1">⚠ Limitações conhecidas</p>
                 <ul class="text-slate-600 dark:text-slate-400 list-disc list-inside space-y-0.5">
-                    <li>Listings de hosts/audit/blocklists ainda são globais — não filtram por org_id.</li>
-                    <li>Usuários sem org (org_id NULL) seguem sendo "system admins" — comportamento atual preservado.</li>
-                    <li>RBAC per-org (admin gerencia só sua org) ainda não — admin global pode tudo.</li>
+                    <li>Usuários sem org (<code>org_id NULL</code>) seguem sendo "system admins" — veem dados globais + de todas as orgs.</li>
+                    <li>RBAC per-org não implementado — admin de uma org ainda precisa de role <code>admin</code> global pra ações administrativas. Não há "admin só da org X".</li>
+                    <li>Split-horizon de blocklist por view ainda não — exceções com <code>org_id &gt; 0</code> existem no DB (V29) mas o zonefile do Unbound segue único e global. Pra a exceção da org realmente impactar o resolver, falta plumbing.</li>
                 </ul>
             </div>
 

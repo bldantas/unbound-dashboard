@@ -316,10 +316,17 @@ if getent group adm >/dev/null 2>&1; then
 fi
 
 # Sync deps Python via uv (cria .venv dentro de api_service/)
+#
+# Sem UV_PYTHON= fixo: deixa o uv resolver a versão a partir do pyproject.toml
+# (requires-python = ">=3.13"). Se o sistema já tem python3.13, usa esse;
+# senão, uv baixa um Python standalone (~50 MB, cacheado em ~/.local/share/uv/python).
+# Antes forçávamos UV_PYTHON="$(command -v python3)" — em Debian 12 isso pega
+# Python 3.11 e quebra com "No interpreter found for Python >=3.13".
 info "Criando venv + instalando deps via uv sync..."
+info "(uv vai baixar Python 3.13 standalone se o sistema só tiver 3.11 — primeira instalação demora ~30s a mais)"
 (
     cd "$APISERVICE_DIR"
-    UV_PYTHON="$(command -v python3)" "$UV_BIN" sync --no-dev --quiet
+    "$UV_BIN" sync --no-dev --quiet
 )
 [ -x "$APISERVICE_DIR/.venv/bin/uvicorn" ] || err ".venv do api_service não foi criado corretamente"
 log "venv pronto em $APISERVICE_DIR/.venv"
