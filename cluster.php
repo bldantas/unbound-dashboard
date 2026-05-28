@@ -193,12 +193,15 @@ $isAdmin = Auth::isAdmin();
                     ? '<span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-500">PRIMARY</span>'
                     : '<span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-slate-500/20 text-slate-500">secondary</span>';
                 const enabledBadge = p.enabled ? '' : ' <span class="text-[10px] text-slate-500 italic">(off)</span>';
+                const authBadge = p.has_raw_token
+                    ? ' <span class="text-[10px] text-emerald-500" title="Healthcheck autenticado (token cifrado guardado)">🔐</span>'
+                    : '';
                 const actions = IS_ADMIN
                     ? `<button data-id="${p.id}" class="checkBtn glass-btn text-[10px] uppercase font-black">Check</button>
                        <button data-id="${p.id}" class="delBtn glass-btn !bg-red-600/80 !text-white text-[10px] uppercase font-black">Excluir</button>`
                     : '';
                 return `<tr class="hover:bg-slate-50 dark:hover:bg-white/5">
-                    <td class="px-3 py-2 font-mono">${esc(p.label)}${enabledBadge}</td>
+                    <td class="px-3 py-2 font-mono">${esc(p.label)}${enabledBadge}${authBadge}</td>
                     <td class="px-3 py-2 font-mono text-[10px] break-all">${esc(p.api_url)}</td>
                     <td class="px-3 py-2">${roleBadge}</td>
                     <td class="px-3 py-2 font-mono">${p.priority}</td>

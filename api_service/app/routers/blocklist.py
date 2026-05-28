@@ -16,7 +16,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
-from app.core.deps import require_capability
+from app.core.deps import require_capability, resolve_viewer_org_id
 from app.repositories.duckdb import (
     blocklist_exceptions_repo,
     blocklist_sources_repo,
@@ -222,17 +222,44 @@ async def domains_to_block(
 # ============================================================
 
 
+def _resolve_target_org(body_org_id, viewer_org_id: int | None) -> int:
+    """Determina org_id de write a partir do body + viewer. Aplica RBAC tenant.
+
+    - viewer_org_id is None (system admin): aceita body.org_id (0 ou N); default 0
+    - viewer_org_id = N (org-scoped): força N; body com outro org_id vira 403
+
+    Retorna org_id já normalizado (0 = global).
+    """
+    if viewer_org_id is None:
+        if body_org_id is None or body_org_id == "":
+            return 0
+        try:
+            return int(body_org_id)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="org_id inválido") from exc
+    # User org-scoped: sempre força a própria org
+    if body_org_id is not None and body_org_id != "" and int(body_org_id) != int(viewer_org_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Sem permissão pra criar exceção fora da própria organização",
+        )
+    return int(viewer_org_id)
+
+
 @router.get("/exceptions")
 async def list_exceptions(
-    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
+    payload: Annotated[dict, Depends(require_capability("blocklist.read"))],
 ) -> dict:
-    """Lista todas as exceções da allowlist."""
-    rows = await blocklist_exceptions_repo.list_all()
+    """Lista exceções visíveis pro viewer (globais + da própria org)."""
+    viewer_org_id = await resolve_viewer_org_id(payload)
+    rows = await blocklist_exceptions_repo.list_all(viewer_org_id=viewer_org_id)
     return {
         "count": len(rows),
         "exceptions": [
             {
                 "domain": r["domain"],
+                "org_id": r.get("org_id") or 0,
+                "scope": "global" if (r.get("org_id") or 0) == 0 else f"org:{r.get('org_id')}",
                 "reason": r.get("reason"),
                 "created_by": r.get("created_by"),
                 "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
@@ -244,35 +271,48 @@ async def list_exceptions(
 
 @router.post("/exceptions", status_code=status.HTTP_201_CREATED)
 async def add_exception(
-    user: Annotated[dict, Depends(require_capability("blocklist.write"))],
+    payload: Annotated[dict, Depends(require_capability("blocklist.write"))],
     body: dict = Body(...),
 ) -> dict:
-    """Adiciona exceção. Body: {"domain": str, "reason": str?}."""
+    """Adiciona exceção. Body: {"domain": str, "reason": str?, "org_id": int?}.
+
+    `org_id` opcional. Admin global default = 0 (allowlist global).
+    User org-scoped sempre força a própria org (body.org_id é ignorado/checado).
+    """
     domain = (body.get("domain") or "").strip().lower()
     if not domain:
         raise HTTPException(status_code=400, detail="domain é obrigatório")
+    viewer_org_id = await resolve_viewer_org_id(payload)
+    target_org = _resolve_target_org(body.get("org_id"), viewer_org_id)
     reason = (body.get("reason") or "").strip() or None
-    created_by = user.get("username") if isinstance(user, dict) else None
-    added = await blocklist_exceptions_repo.add(domain, reason=reason, created_by=created_by)
-    return {"added": added, "domain": domain}
+    created_by = payload.get("username") if isinstance(payload, dict) else None
+    added = await blocklist_exceptions_repo.add(
+        domain, org_id=target_org, reason=reason, created_by=created_by,
+    )
+    return {"added": added, "domain": domain, "org_id": target_org}
 
 
 @router.delete("/exceptions/{domain}")
 async def remove_exception(
     domain: str,
-    _: Annotated[dict, Depends(require_capability("blocklist.write"))],
+    payload: Annotated[dict, Depends(require_capability("blocklist.write"))],
+    org_id: int | None = Query(None, description="0=global, N=org. Default = própria org do viewer ou 0 pra admin global."),
 ) -> dict:
-    removed = await blocklist_exceptions_repo.remove(domain)
-    return {"removed": removed, "domain": domain.lower().strip()}
+    """Remove exceção. Sem org_id explícito, admin global apaga a global (0);
+    user org-scoped apaga a da própria org."""
+    viewer_org_id = await resolve_viewer_org_id(payload)
+    target_org = _resolve_target_org(org_id, viewer_org_id)
+    removed = await blocklist_exceptions_repo.remove(domain, org_id=target_org)
+    return {"removed": removed, "domain": domain.lower().strip(), "org_id": target_org}
 
 
 @router.post("/exceptions/bulk")
 async def bulk_add_exceptions(
-    user: Annotated[dict, Depends(require_capability("blocklist.write"))],
+    payload: Annotated[dict, Depends(require_capability("blocklist.write"))],
     body: dict = Body(...),
 ) -> dict:
     """
-    Bulk add. Body: `{"domains": [...], "reason": str?}`.
+    Bulk add. Body: `{"domains": [...], "reason": str?, "org_id": int?}`.
     Aceita até 50.000 domínios. Pula inválidos (sem ponto, vazio, com espaço) e
     duplicados (já na tabela ou repetidos no payload).
     """
@@ -281,44 +321,58 @@ async def bulk_add_exceptions(
         raise HTTPException(status_code=400, detail="`domains` deve ser uma lista de strings")
     if len(domains) > 50000:
         raise HTTPException(status_code=400, detail="Máximo 50.000 domínios por chamada")
+    viewer_org_id = await resolve_viewer_org_id(payload)
+    target_org = _resolve_target_org(body.get("org_id"), viewer_org_id)
     reason = (body.get("reason") or "").strip() or None
-    created_by = user.get("username") if isinstance(user, dict) else None
+    created_by = payload.get("username") if isinstance(payload, dict) else None
     return await blocklist_exceptions_repo.add_many(
-        [str(x) for x in domains], reason=reason, created_by=created_by
+        [str(x) for x in domains],
+        org_id=target_org,
+        reason=reason,
+        created_by=created_by,
     )
 
 
 @router.post("/exceptions/bulk-delete")
 async def bulk_remove_exceptions(
-    _: Annotated[dict, Depends(require_capability("blocklist.write"))],
+    payload: Annotated[dict, Depends(require_capability("blocklist.write"))],
     body: dict = Body(...),
 ) -> dict:
-    """Bulk delete. Body: `{"domains": [...]}`."""
+    """Bulk delete. Body: `{"domains": [...], "org_id": int?}`."""
     domains = body.get("domains") or []
     if not isinstance(domains, list):
         raise HTTPException(status_code=400, detail="`domains` deve ser uma lista de strings")
     if len(domains) > 50000:
         raise HTTPException(status_code=400, detail="Máximo 50.000 domínios por chamada")
-    return await blocklist_exceptions_repo.remove_many([str(x) for x in domains])
+    viewer_org_id = await resolve_viewer_org_id(payload)
+    target_org = _resolve_target_org(body.get("org_id"), viewer_org_id)
+    return await blocklist_exceptions_repo.remove_many(
+        [str(x) for x in domains], org_id=target_org,
+    )
 
 
 @router.get("/exceptions/export.csv")
 async def export_exceptions_csv(
-    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
+    payload: Annotated[dict, Depends(require_capability("blocklist.read"))],
 ):
-    """Download da allowlist em CSV. 1 domínio por linha (compat com import)."""
+    """Download da allowlist em CSV. 1 domínio por linha (compat com import).
+    Inclui scope (global ou nome da org) por linha."""
     import csv
     import io
 
     from fastapi.responses import StreamingResponse
 
-    rows = await blocklist_exceptions_repo.list_all()
+    viewer_org_id = await resolve_viewer_org_id(payload)
+    rows = await blocklist_exceptions_repo.list_all(viewer_org_id=viewer_org_id)
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["domain", "reason", "created_by", "created_at"])
+    writer.writerow(["domain", "org_id", "scope", "reason", "created_by", "created_at"])
     for r in rows:
+        oid = r.get("org_id") or 0
         writer.writerow([
             r["domain"],
+            oid,
+            "global" if oid == 0 else f"org:{oid}",
             r.get("reason") or "",
             r.get("created_by") or "",
             r["created_at"].isoformat() if r.get("created_at") else "",

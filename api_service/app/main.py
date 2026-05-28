@@ -129,6 +129,13 @@ async def lifespan(app: FastAPI):
             hint="Defina SECRETS_MASTER_KEY no env pra cifrar OIDC client_secret + HA tokens. "
                  "Gere: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'",
         )
+    else:
+        # Cifra secrets legacy plaintext que sobraram de pré-master-key
+        try:
+            from app.services.secrets_migrator import migrate_legacy_secrets
+            await migrate_legacy_secrets()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("secrets_migrator.bootstrap_failed", error=str(exc))
 
     # Rehidrata Redis com sessões persistidas no DuckDB (sobreviver restart Redis)
     try:

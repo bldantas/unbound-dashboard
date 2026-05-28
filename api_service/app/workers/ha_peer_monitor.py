@@ -1,12 +1,15 @@
 """
 HAPeerMonitor — polla `/api/v1/health` dos peers HA a cada 30s.
 
-Atualiza `last_check_*` em `ha_peers`. Healthcheck é anônimo (sem
-X-Api-Token disponível — token raw existe só no momento da criação).
-Se peer exige auth no /health, marca `unauthorized` no status.
+Atualiza `last_check_*` em `ha_peers`. Healthcheck é autenticado quando
+o peer foi criado com `keep_raw=true` (token raw cifrado guardado em
+`api_token_raw_encrypted` via cipher_service). O `ha_service.check_peer`
+decifra e envia `X-Api-Token` + `Authorization: Bearer` em cada probe.
 
-Limitação conhecida (TODO futuro): pra healthcheck autenticado, precisa
-secrets table que guarda token raw cifrado, ou ENV var por peer.
+Peers criados sem `keep_raw` continuam com probe anônimo — se o `/health`
+do peer exigir auth, o status fica como `unauthorized`. Pra ativar auth
+em um peer existente, recriar com a flag (token raw só é exposto 1x na
+criação por design).
 """
 
 from __future__ import annotations

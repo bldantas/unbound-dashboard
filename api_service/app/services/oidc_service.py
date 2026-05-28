@@ -12,7 +12,10 @@ Authentik, etc). Flow:
 5. Match user por email; cria se `auto_create_users`
 6. Emite JWT local + redireciona pra UI
 
-NÃO usa PKCE (TODO se IdP exigir).
+Usa PKCE S256 (RFC 7636) no Authorization Code flow: code_verifier
+random 43-char base64url + code_challenge SHA256(verifier). IdPs sem
+suporte ignoram os parâmetros extras — backwards-compatible.
+
 client_secret é cifrado via cipher_service (Fernet) se SECRETS_MASTER_KEY
 estiver configurada — fallback plaintext sem ela.
 """

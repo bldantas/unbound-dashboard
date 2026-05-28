@@ -5,6 +5,25 @@ release individual. Releases anteriores mantêm o formato antigo (uma
 seção por versão) por histórico — consolidação retroativa só pra
 2026-05-26 (36 releases num dia inflaram o arquivo).
 
+## 2026-05-28
+
+### Multi-tenant (fechamento)
+- **v2.102**: **blocklist_exceptions multi-tenant** com PK composto. V29 recria a tabela com PK `(domain, org_id)` — sentinela `org_id = 0` representa allowlist global (organizações reais começam em 1 na sequence). Trade-off vs padrão das outras tabelas tenant (NULL = global): aqui o PK composto não aceita NULL, então usamos `0`; a diferença é encapsulada nos filtros do repo, API/UI não percebem.
+  - `blocklist_exceptions_repo` ganhou `viewer_org_id` em `list_all`/`count`, e `org_id` em `add`/`remove`/`add_many`/`remove_many`. Função `list_domains` virou `list_domains_global` (só globais, pra alimentar o zonefile do Unbound).
+  - `blocklist_sources_repo.domains_to_block()` filtra `WHERE org_id = 0` no subquery — preserva comportamento atual do blocklist file global. Exceções org-scoped existem no DB e UI/API as listam, mas só passam a aparecer no zonefile quando split-horizon de blocklist por view for implementado (TODO futuro além da V29).
+  - Router `/api/v1/blocklist/exceptions`: helper `_resolve_target_org(body_org_id, viewer_org_id)` enforce tenant — system admin aceita qualquer `org_id`, user org-scoped sempre força a própria org (tentar outra = 403). DELETE aceita `org_id` via query param. Export CSV inclui colunas `org_id` e `scope`.
+  - UI `blocklists.php`: nova coluna "Escopo" na tabela de exceções com badge global/`org_name` (lazy load via `/api/v1/organizations/`). Form ganha select de Org ("— Global —" como default). Delete envia `?org_id=N` resolvido do badge da linha.
+
+### Auth / observabilidade
+- **HA peer healthcheck autenticado**: docstring do `ha_peer_monitor` estava stale — funcionalidade já existia ponta-a-ponta (V20 `api_token_raw_encrypted` + service `keep_raw=True` + UI checkbox em cluster.php + check_peer envia X-Api-Token). Limpado o TODO falso, atualizada descrição do worker e adicionado badge 🔐 na listagem de peers em cluster.php pra deixar visível quais peers usam auth.
+- **Secrets legados — worker one-shot**: `secrets_migrator.migrate_legacy_secrets()` roda no lifespan startup logo após a master key carregar. Idempotente: pra cada tabela conhecida (oidc_config.client_secret legacy → client_secret_encrypted; backup_destinations.secret_key inline), se valor != `enc:v1:%`, cifra in-place. No-op se master key ausente. Counters em log structlog (`secrets_migrator.migrated` quando algo é cifrado, `nothing_to_migrate` quando limpo). Resolve o último vestígio do TODO sobre secrets pré-cifragem.
+
+### UX / digest
+- **DigestSender cap 500 + CTA dashboard**: cap centralizado em `DIGEST_ITEMS_CAP = 500` (era 100, hardcoded em 4 lugares). Acima do cap, o digest HTML mostra banner amarelo "+N eventos não estão listados acima → Ver lista completa no dashboard" linkado a `/alerts.php`. CTA button "Abrir dashboard" no rodapé do email. Plain-text fallback ganha link `/alerts.php` na linha de truncado. Subject mantém formato.
+
+### Limpeza
+- **OIDC docstring**: removida menção stale a "NÃO usa PKCE (TODO se IdP exigir)" — PKCE S256 foi implementado em v2.101.0. Docstring atualizada pra refletir o estado real.
+
 ## 2026-05-26
 
 Dia denso de features e fixes: **36 releases** (v2.39 → v2.74).

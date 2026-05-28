@@ -166,11 +166,14 @@ $currentPage = 'blocklists.php';
                         Use pra liberar serviços legítimos que alguma fonte bloqueia por engano (ex: <code>googletagmanager.com</code>).
                     </p>
                     <?php if (\App\Auth::can('blocklist.write')): ?>
-                        <form id="formAddException" class="flex flex-col md:flex-row gap-3">
+                        <form id="formAddException" class="flex flex-col md:flex-row gap-3 flex-wrap">
                             <input type="text" id="exDomain" placeholder="domain.com" required pattern="^[a-z0-9][a-z0-9.\-]*\.[a-z]{2,}$"
-                                   class="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 rounded-2xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                                   class="flex-1 min-w-[200px] px-4 py-3 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 rounded-2xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
                             <input type="text" id="exReason" placeholder="Motivo (opcional)" maxlength="200"
-                                   class="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                                   class="flex-1 min-w-[200px] px-4 py-3 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                            <select id="exOrg" title="Escopo da exceção" class="px-4 py-3 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 rounded-2xl text-sm w-56 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                                <option value="">— Global —</option>
+                            </select>
                             <button type="submit" class="glass-btn !bg-emerald-600 !text-white text-[10px] uppercase font-black flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                                 <span>Adicionar</span>
@@ -212,6 +215,7 @@ $currentPage = 'blocklists.php';
                             <thead>
                                 <tr>
                                     <th>Domínio</th>
+                                    <th class="w-24">Escopo</th>
                                     <th>Motivo</th>
                                     <th class="w-32">Criado por</th>
                                     <th class="w-40">Quando</th>
@@ -219,7 +223,7 @@ $currentPage = 'blocklists.php';
                                 </tr>
                             </thead>
                             <tbody id="exceptionsBody">
-                                <tr><td colspan="5" class="px-6 py-12 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Carregando...</td></tr>
+                                <tr><td colspan="6" class="px-6 py-12 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Carregando...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -526,33 +530,71 @@ $currentPage = 'blocklists.php';
     });
 
     // ============ EXCEÇÕES (Tab 3) ============
+    let orgsCache = null;
+    async function loadOrgsForSelect() {
+        if (orgsCache !== null) return orgsCache;
+        try {
+            const r = await fetch('/api/v1/organizations/', { headers: H });
+            if (!r.ok) { orgsCache = []; return orgsCache; }
+            const d = await r.json();
+            orgsCache = d.items || [];
+        } catch (_) { orgsCache = []; }
+        return orgsCache;
+    }
+    const orgsById = {};
+    async function populateExOrgSelect() {
+        const orgs = await loadOrgsForSelect();
+        const sel = document.getElementById('exOrg');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— Global —</option>';
+        orgs.forEach(o => {
+            orgsById[String(o.id)] = o.name;
+            const opt = document.createElement('option');
+            opt.value = String(o.id);
+            opt.textContent = o.name;
+            sel.appendChild(opt);
+        });
+    }
+
     async function loadExceptions() {
         const body = document.getElementById('exceptionsBody');
-        body.innerHTML = `<tr><td colspan="5" class="px-6 py-12 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Carregando...</td></tr>`;
+        body.innerHTML = `<tr><td colspan="6" class="px-6 py-12 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Carregando...</td></tr>`;
         try {
+            // Pre-carrega orgs pra resolver nome no badge (idempotente)
+            await loadOrgsForSelect();
             const res = await fetch('/api/v1/blocklist/exceptions', { headers: H });
             const data = await res.json();
             document.getElementById('exCount').textContent = data.count || 0;
             renderExceptions(data.exceptions || []);
         } catch (err) {
-            body.innerHTML = `<tr><td colspan="5" class="px-6 py-12 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro: ${err.message}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="6" class="px-6 py-12 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro: ${err.message}</td></tr>`;
         }
+    }
+
+    function scopeBadge(ex) {
+        const oid = ex.org_id || 0;
+        if (oid === 0) {
+            return '<span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-slate-500/15 text-slate-500">global</span>';
+        }
+        const name = orgsById[String(oid)] || `org #${oid}`;
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-pink-500/15 text-pink-600 dark:text-pink-400" title="Org #${oid}">${escapeHtml(name)}</span>`;
     }
 
     function renderExceptions(list) {
         const body = document.getElementById('exceptionsBody');
         if (!list.length) {
-            body.innerHTML = `<tr><td colspan="5" class="px-6 py-12 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Nenhuma exceção cadastrada</td></tr>`;
+            body.innerHTML = `<tr><td colspan="6" class="px-6 py-12 text-center text-slate-500 text-xs uppercase font-black tracking-widest">Nenhuma exceção cadastrada</td></tr>`;
             return;
         }
         body.innerHTML = list.map(ex => `
             <tr>
                 <td class="font-mono text-sm font-bold">${escapeHtml(ex.domain)}</td>
+                <td>${scopeBadge(ex)}</td>
                 <td class="text-[12px] text-slate-500">${escapeHtml(ex.reason || '—')}</td>
                 <td class="text-[10px] text-slate-500 font-black uppercase tracking-widest">${escapeHtml(ex.created_by || '—')}</td>
                 <td class="text-[11px] text-slate-500">${fmtAge(ex.created_at)}</td>
                 <td class="text-right">
-                    ${CAN_WRITE ? `<button class="text-red-500 hover:text-red-700 btn-del-ex" data-domain="${escapeHtml(ex.domain)}" title="Remover">
+                    ${CAN_WRITE ? `<button class="text-red-500 hover:text-red-700 btn-del-ex" data-domain="${escapeHtml(ex.domain)}" data-org="${ex.org_id || 0}" title="Remover">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2"></path></svg>
                     </button>` : ''}
                 </td>
@@ -564,10 +606,13 @@ $currentPage = 'blocklists.php';
         const btn = e.target.closest('.btn-del-ex');
         if (!btn) return;
         const domain = btn.dataset.domain;
-        const ok = await customConfirm(`Remover exceção <code>${domain}</code>?`, 'Remover?');
+        const orgId = btn.dataset.org || '0';
+        const scope = orgId === '0' ? 'global' : (orgsById[orgId] || `org #${orgId}`);
+        const ok = await customConfirm(`Remover exceção <code>${domain}</code> (${scope})?`, 'Remover?');
         if (!ok) return;
         try {
-            const res = await fetch(`/api/v1/blocklist/exceptions/${encodeURIComponent(domain)}`, { method: 'DELETE', headers: H });
+            const url = `/api/v1/blocklist/exceptions/${encodeURIComponent(domain)}?org_id=${encodeURIComponent(orgId)}`;
+            const res = await fetch(url, { method: 'DELETE', headers: H });
             const data = await res.json();
             if (data.removed) {
                 toast(`Exceção ${domain} removida`, 'success');
@@ -582,29 +627,37 @@ $currentPage = 'blocklists.php';
     });
 
     const formAdd = document.getElementById('formAddException');
-    if (formAdd) formAdd.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const domain = document.getElementById('exDomain').value.trim().toLowerCase();
-        const reason = document.getElementById('exReason').value.trim();
-        try {
-            const res = await fetch('/api/v1/blocklist/exceptions', {
-                method: 'POST', headers: HJ,
-                body: JSON.stringify({ domain, reason }),
-            });
-            const data = await res.json();
-            if (data.added) {
-                toast(`Exceção ${domain} adicionada`, 'success');
-                document.getElementById('exDomain').value = '';
-                document.getElementById('exReason').value = '';
-                applyBanner && (applyBanner.style.display = '');
-                await loadExceptions();
-            } else {
-                toast(data.added === false ? 'Domínio já existe na allowlist' : 'Falha ao adicionar', 'warning');
+    if (formAdd) {
+        // Pré-popula select de orgs quando o form é renderizado
+        populateExOrgSelect();
+        formAdd.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const domain = document.getElementById('exDomain').value.trim().toLowerCase();
+            const reason = document.getElementById('exReason').value.trim();
+            const orgVal = document.getElementById('exOrg').value;
+            const payload = { domain, reason };
+            if (orgVal) payload.org_id = parseInt(orgVal, 10);
+            try {
+                const res = await fetch('/api/v1/blocklist/exceptions', {
+                    method: 'POST', headers: HJ,
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                if (data.added) {
+                    toast(`Exceção ${domain} adicionada`, 'success');
+                    document.getElementById('exDomain').value = '';
+                    document.getElementById('exReason').value = '';
+                    document.getElementById('exOrg').value = '';
+                    applyBanner && (applyBanner.style.display = '');
+                    await loadExceptions();
+                } else {
+                    toast(data.added === false ? 'Domínio já existe na allowlist (neste escopo)' : 'Falha ao adicionar', 'warning');
+                }
+            } catch (err) {
+                toast('Falha: ' + err.message, 'error');
             }
-        } catch (err) {
-            toast('Falha: ' + err.message, 'error');
-        }
-    });
+        });
+    }
 
     // ============ UTIL ============
     function escapeHtml(s) {

@@ -63,8 +63,13 @@ async def mark_synced(slug: str, count: int, error: str | None = None) -> None:
 
 async def domains_to_block() -> list[str]:
     """Domínios distintos a bloquear no Unbound: união das sources com
-    block_enabled=true MENOS as exceptions. Ordem ASC pra consistência do
-    .conf gerado (diff-friendly).
+    block_enabled=true MENOS as exceptions globais (org_id = 0). Ordem ASC
+    pra consistência do .conf gerado (diff-friendly).
+
+    Exceptions org-scoped (org_id > 0) NÃO são aplicadas aqui — esse blocklist
+    file é único e global pro daemon. Pra exceções por-org passarem a valer,
+    será preciso split-horizon de blocklist via views client_policies — TODO
+    futuro além do escopo da V29.
     """
     rows = await db_fetchall(
         """
@@ -72,7 +77,7 @@ async def domains_to_block() -> list[str]:
         FROM blocklist_entries e
         JOIN blocklist_sources s ON e.source_slug = s.slug
         WHERE s.block_enabled = true
-          AND e.domain NOT IN (SELECT domain FROM blocklist_exceptions)
+          AND e.domain NOT IN (SELECT domain FROM blocklist_exceptions WHERE org_id = 0)
         ORDER BY e.domain
         """
     )

@@ -26,6 +26,7 @@ from app.services import email_notifier, notification_prefs_service
 log = structlog.get_logger(__name__)
 
 TICK_SECONDS = 3600  # 1x/hora
+DIGEST_ITEMS_CAP = 500  # Acima disso, trunca com CTA pro dashboard
 
 _SEVERITY_RANK = {"critical": 3, "warning": 2, "info": 1}
 
@@ -72,7 +73,7 @@ def _format_body(username: str, items: list[dict], window_hours: int = 24) -> st
         ),
         reverse=False,
     )
-    for it in items_sorted[:100]:
+    for it in items_sorted[:DIGEST_ITEMS_CAP]:
         sev = str(it.get("severity") or "info").upper()
         typ = str(it.get("type") or "?")
         msg = str(it.get("message") or "(sem mensagem)")[:200]
@@ -80,8 +81,10 @@ def _format_body(username: str, items: list[dict], window_hours: int = 24) -> st
         lines.append(f"[{sev}] {typ} — {ts}")
         lines.append(f"  {msg}")
         lines.append("")
-    if len(items) > 100:
-        lines.append(f"... e mais {len(items) - 100} eventos truncados.")
+    if len(items) > DIGEST_ITEMS_CAP:
+        extra = len(items) - DIGEST_ITEMS_CAP
+        lines.append(f"... e mais {extra} eventos não listados acima.")
+        lines.append("Veja a lista completa em /alerts.php")
         lines.append("")
     lines.append("Acesse o dashboard pra ver todos.")
     lines.append("")
@@ -110,7 +113,7 @@ def _format_html_body(username: str, items: list[dict], window_hours: int = 24) 
         ),
     )
     rows: list[str] = []
-    for it in items_sorted[:100]:
+    for it in items_sorted[:DIGEST_ITEMS_CAP]:
         sev = str(it.get("severity") or "info").lower()
         if sev not in _HTML_SEVERITY_STYLE:
             sev = "info"
@@ -133,12 +136,24 @@ def _format_html_body(username: str, items: list[dict], window_hours: int = 24) 
             "</td></tr>"
         )
     truncated = ""
-    if len(items) > 100:
+    if len(items) > DIGEST_ITEMS_CAP:
+        extra = len(items) - DIGEST_ITEMS_CAP
         truncated = (
-            f"<p style=\"color:#94a3b8;font-size:12px;font-style:italic;\">"
-            f"... e mais {len(items) - 100} eventos truncados. Acesse o dashboard pra ver todos."
-            "</p>"
+            "<div style=\"margin-top:16px;padding:12px 16px;background:#fef3c7;"
+            "border-left:3px solid #d97706;border-radius:6px;\">"
+            f"<p style=\"margin:0;color:#78350f;font-size:13px;\">"
+            f"+ <strong>{extra}</strong> eventos não estão listados acima. "
+            f"<a href=\"/alerts.php\" style=\"color:#92400e;text-decoration:underline;font-weight:600;\">"
+            "Ver lista completa no dashboard →</a>"
+            "</p></div>"
         )
+    cta = (
+        "<div style=\"margin-top:20px;text-align:center;\">"
+        "<a href=\"/alerts.php\" style=\"display:inline-block;padding:10px 24px;"
+        "background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;"
+        "font-weight:600;font-size:13px;\">Abrir dashboard</a>"
+        "</div>"
+    )
     return (
         "<html><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
         "color:#0f172a;background:#f8fafc;margin:0;padding:24px;\">"
@@ -151,6 +166,7 @@ def _format_html_body(username: str, items: list[dict], window_hours: int = 24) 
         f"<tbody>{''.join(rows)}</tbody>"
         "</table>"
         f"{truncated}"
+        f"{cta}"
         "<p style=\"color:#94a3b8;font-size:11px;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:12px;\">"
         "— Unbound Dashboard — Para alterar suas preferências, acesse /notifications.php"
         "</p></div></body></html>"
