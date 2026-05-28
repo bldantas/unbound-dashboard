@@ -302,7 +302,7 @@ $isAdmin = Auth::isAdmin();
 
     if (IS_ADMIN) {
         $('btnDismissAll')?.addEventListener('click', async () => {
-            const ok = await (window.customConfirm ? customConfirm('Marcar TODAS as notificações como lidas?') : Promise.resolve(confirm('Confirma?')));
+            const ok = await (window.customConfirm ? customConfirm('Marcar TODAS as notificações como lidas?') : Promise.resolve(confirm(t('js.confirm_default'))));
             if (!ok) return;
             const r = await fetch('/api/v1/notifications/dismiss-all', { method: 'POST', headers: H });
             const d = await r.json().catch(() => ({}));
@@ -325,7 +325,7 @@ $isAdmin = Auth::isAdmin();
             (window.customAlert || alert)(r.ok ? t('js.saved') : t('js.error_generic'));
         });
         $('btnRetPrune')?.addEventListener('click', async () => {
-            const ok = await (window.customConfirm ? customConfirm('Rodar prune agora? Notificações antigas (resolvidas/lidas) serão apagadas.') : Promise.resolve(confirm('Confirma?')));
+            const ok = await (window.customConfirm ? customConfirm('Rodar prune agora? Notificações antigas (resolvidas/lidas) serão apagadas.') : Promise.resolve(confirm(t('js.confirm_default'))));
             if (!ok) return;
             const r = await fetch('/api/v1/notifications/prune-now', { method: 'POST', headers: H });
             const d = await r.json().catch(() => ({}));

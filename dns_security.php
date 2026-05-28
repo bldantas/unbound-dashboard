@@ -424,7 +424,7 @@ $isAdmin = Auth::isAdmin();
             };
             const r = await fetch('/api/v1/dns-security/settings', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
             if (r.ok) (window.customAlert || alert)('Salvo. Clique em "Aplicar" pra recarregar o Unbound.');
-            else (window.customAlert || alert)('Erro ao salvar.');
+            else (window.customAlert || alert)(t('js.save_failed'));
         });
 
         $('btnApply').addEventListener('click', async () => {

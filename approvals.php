@@ -181,7 +181,7 @@ $currentUserId = (int)($_SESSION['user_id'] ?? 0);
     }
 
     async function execNow(id) {
-        const ok = await (window.customConfirm ? customConfirm(`Executar request #${id} agora? O handler registrado replay-a a action automaticamente.`) : Promise.resolve(confirm('Confirma?')));
+        const ok = await (window.customConfirm ? customConfirm(`Executar request #${id} agora? O handler registrado replay-a a action automaticamente.`) : Promise.resolve(confirm(t('js.confirm_default'))));
         if (!ok) return;
         const r = await fetch(`/api/v1/approvals/${id}/execute`, { method: 'POST', headers: HJ, body: '{}' });
         const d = await r.json().catch(() => ({}));
@@ -199,7 +199,7 @@ $currentUserId = (int)($_SESSION['user_id'] ?? 0);
             const reason = window.prompt('Motivo da rejeição (opcional):') || '';
             body = { reason };
         } else {
-            const ok = await (window.customConfirm ? customConfirm(`Aprovar request #${id}? O requester continua sendo quem executa a ação.`) : Promise.resolve(confirm('Confirma?')));
+            const ok = await (window.customConfirm ? customConfirm(`Aprovar request #${id}? O requester continua sendo quem executa a ação.`) : Promise.resolve(confirm(t('js.confirm_default'))));
             if (!ok) return;
         }
         const r = await fetch(`/api/v1/approvals/${id}/${kind}`, { method: 'POST', headers: HJ, body: JSON.stringify(body) });

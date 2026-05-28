@@ -50,8 +50,19 @@ _HTML_SEVERITY_STYLE = {
 }
 
 
-def _format_body(username: str, items: list[dict], window_hours: int = 24) -> str:
-    """Plain-text body — fallback pra clientes que não renderizam HTML."""
+def _format_body(
+    username: str,
+    items: list[dict],
+    window_hours: int = 24,
+    part: int = 1,
+    parts: int = 1,
+    total_items: int | None = None,
+) -> str:
+    """Plain-text body — fallback pra clientes que não renderizam HTML.
+
+    Quando paginado (parts > 1), `items` é o chunk dessa parte e
+    `total_items` é o total geral pra mostrar no header.
+    """
     if not items:
         return (
             f"Olá {username},\n\n"
@@ -59,10 +70,12 @@ def _format_body(username: str, items: list[dict], window_hours: int = 24) -> st
             "que atenda às suas preferências.\n\n"
             "— Unbound Dashboard"
         )
+    total = total_items if total_items is not None else len(items)
+    part_label = f" — parte {part}/{parts}" if parts > 1 else ""
     lines = [
         f"Olá {username},",
         "",
-        f"Digest das últimas {window_hours}h ({len(items)} eventos):",
+        f"Digest das últimas {window_hours}h ({total} eventos{part_label}):",
         "",
     ]
     items_sorted = sorted(
@@ -73,6 +86,8 @@ def _format_body(username: str, items: list[dict], window_hours: int = 24) -> st
         ),
         reverse=False,
     )
+    # Quando paginado, items JÁ é o chunk apropriado (cap aplicado fora) —
+    # não trunca aqui. Mantemos o slice por segurança defensiva.
     for it in items_sorted[:DIGEST_ITEMS_CAP]:
         sev = str(it.get("severity") or "info").upper()
         typ = str(it.get("type") or "?")
@@ -81,7 +96,11 @@ def _format_body(username: str, items: list[dict], window_hours: int = 24) -> st
         lines.append(f"[{sev}] {typ} — {ts}")
         lines.append(f"  {msg}")
         lines.append("")
-    if len(items) > DIGEST_ITEMS_CAP:
+    if parts > 1 and part < parts:
+        lines.append(f"... continua na parte {part + 1}/{parts}.")
+        lines.append("")
+    elif len(items) > DIGEST_ITEMS_CAP:
+        # Caso defensivo — não deveria mais acontecer com paginação
         extra = len(items) - DIGEST_ITEMS_CAP
         lines.append(f"... e mais {extra} eventos não listados acima.")
         lines.append("Veja a lista completa em /alerts.php")
@@ -92,8 +111,19 @@ def _format_body(username: str, items: list[dict], window_hours: int = 24) -> st
     return "\n".join(lines)
 
 
-def _format_html_body(username: str, items: list[dict], window_hours: int = 24) -> str:
-    """HTML body — tabela com badges coloridos por severidade."""
+def _format_html_body(
+    username: str,
+    items: list[dict],
+    window_hours: int = 24,
+    part: int = 1,
+    parts: int = 1,
+    total_items: int | None = None,
+) -> str:
+    """HTML body — tabela com badges coloridos por severidade.
+
+    Quando paginado (parts > 1), `items` é o chunk dessa parte e
+    `total_items` é o total geral pra mostrar no header.
+    """
     esc = html_lib.escape
     user_safe = esc(username)
     if not items:
@@ -136,7 +166,17 @@ def _format_html_body(username: str, items: list[dict], window_hours: int = 24) 
             "</td></tr>"
         )
     truncated = ""
-    if len(items) > DIGEST_ITEMS_CAP:
+    if parts > 1 and part < parts:
+        truncated = (
+            "<div style=\"margin-top:16px;padding:12px 16px;background:#dbeafe;"
+            "border-left:3px solid #2563eb;border-radius:6px;\">"
+            f"<p style=\"margin:0;color:#1e3a8a;font-size:13px;\">"
+            f"Continua na <strong>parte {part + 1} de {parts}</strong> "
+            "(próximo email)."
+            "</p></div>"
+        )
+    elif len(items) > DIGEST_ITEMS_CAP:
+        # Caso defensivo — não deveria mais acontecer com paginação
         extra = len(items) - DIGEST_ITEMS_CAP
         truncated = (
             "<div style=\"margin-top:16px;padding:12px 16px;background:#fef3c7;"
@@ -161,7 +201,9 @@ def _format_html_body(username: str, items: list[dict], window_hours: int = 24) 
         "padding:24px;border:1px solid #e2e8f0;\">"
         f"<h2 style=\"margin:0 0 8px;font-size:20px;\">Olá, <strong>{user_safe}</strong></h2>"
         f"<p style=\"color:#475569;margin:0 0 16px;\">Digest das últimas {window_hours}h "
-        f"(<strong>{len(items)}</strong> eventos):</p>"
+        f"(<strong>{total_items if total_items is not None else len(items)}</strong> eventos"
+        + (f" — parte {part}/{parts}" if parts > 1 else "")
+        + "):</p>"
         "<table style=\"width:100%;border-collapse:collapse;\">"
         f"<tbody>{''.join(rows)}</tbody>"
         "</table>"
@@ -225,28 +267,71 @@ class DigestSender:
 
         sent = 0
         failed = 0
+        parts_sent = 0
         for u in due:
             user_id = u["user_id"]
             email = u["email"]
             sev_min = u["severity_min"]
             cats = u["categories"]
             personalized = [it for it in all_items if _passes_filter(it, sev_min, cats)]
-            subject = f"[Unbound Dashboard] Digest diário — {len(personalized)} eventos"
-            uname = u.get("username") or email
-            body = _format_body(uname, personalized)
-            html_body = _format_html_body(uname, personalized)
-            ok, reason = email_notifier._send_via_smtp(  # noqa: SLF001
-                cfg, email, subject, body, html_body=html_body,
+            total = len(personalized)
+            # Mantém ordenação igual a _format_body/_html_body
+            personalized_sorted = sorted(
+                personalized,
+                key=lambda r: (
+                    -(_SEVERITY_RANK.get(str(r.get("severity") or "info"), 0)),
+                    str(r.get("started_at") or ""),
+                ),
             )
-            if ok:
+            # Paginação: divide em chunks de DIGEST_ITEMS_CAP
+            if total == 0:
+                chunks: list[list[dict]] = [[]]
+            else:
+                chunks = [
+                    personalized_sorted[i : i + DIGEST_ITEMS_CAP]
+                    for i in range(0, total, DIGEST_ITEMS_CAP)
+                ]
+            parts = len(chunks)
+            uname = u.get("username") or email
+            user_ok = True
+            for idx, chunk in enumerate(chunks, start=1):
+                part_suffix = f" (parte {idx}/{parts})" if parts > 1 else ""
+                subject = (
+                    f"[Unbound Dashboard] Digest diário — {total} eventos{part_suffix}"
+                )
+                body = _format_body(
+                    uname, chunk, part=idx, parts=parts, total_items=total,
+                )
+                html_body = _format_html_body(
+                    uname, chunk, part=idx, parts=parts, total_items=total,
+                )
+                ok, reason = email_notifier._send_via_smtp(  # noqa: SLF001
+                    cfg, email, subject, body, html_body=html_body,
+                )
+                if ok:
+                    parts_sent += 1
+                    log.info(
+                        "digest_sender.sent",
+                        to=email, user_id=user_id,
+                        part=idx, parts=parts, items_in_part=len(chunk),
+                    )
+                else:
+                    user_ok = False
+                    log.warning(
+                        "digest_sender.failed",
+                        to=email, part=idx, parts=parts, reason=reason,
+                    )
+                    break  # não envia partes seguintes se uma falhou
+            if user_ok:
                 sent += 1
                 await notification_prefs_service.mark_digest_sent(user_id)
-                log.info("digest_sender.sent", to=email, user_id=user_id, items=len(personalized))
             else:
                 failed += 1
-                log.warning("digest_sender.failed", to=email, reason=reason)
 
-        return {"sent": sent, "failed": failed, "due": len(due)}
+        return {
+            "sent": sent, "failed": failed,
+            "due": len(due), "parts_sent": parts_sent,
+        }
 
     async def run_now(self) -> dict:
         return await self._run_once()

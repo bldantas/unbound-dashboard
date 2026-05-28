@@ -393,7 +393,7 @@ $currentPage = 'analytics.php';
                 window.customAlert ? customAlert('Salvo.') : alert('Salvo.');
                 loadRetention();
             } else {
-                window.customAlert ? customAlert('Erro ao salvar.') : alert('Erro ao salvar.');
+                window.customAlert ? customAlert(t('js.save_failed')) : alert(t('js.save_failed'));
             }
         });
 

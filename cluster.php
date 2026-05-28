@@ -296,7 +296,7 @@ $isAdmin = Auth::isAdmin();
     }
 
     async function delPeer(id) {
-        const ok = await (window.customConfirm ? customConfirm('Remover peer? Histórico de checks também sai.') : Promise.resolve(confirm('Confirma?')));
+        const ok = await (window.customConfirm ? customConfirm('Remover peer? Histórico de checks também sai.') : Promise.resolve(confirm(t('js.confirm_default'))));
         if (!ok) return;
         const r = await fetch(`/api/v1/ha/peers/${id}`, { method: 'DELETE', headers: H });
         if (r.ok || r.status === 204) loadStatus();

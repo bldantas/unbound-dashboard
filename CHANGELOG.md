@@ -7,6 +7,11 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### DigestSender paginação + i18n batch
+- **v2.106.0**: 2 itens da lista de pendências.
+  - **DigestSender paginação multi-email** ([digest_sender.py](api_service/app/workers/digest_sender.py)): quando o digest tem > 500 eventos, divide em chunks de `DIGEST_ITEMS_CAP=500` e envia 1 email por chunk. Subject ganha sufixo `(parte X/Y)`. Header do body indica a parte. Banner azul "Continua na parte X+1 de Y (próximo email)" entre partes. Se uma parte falhar no SMTP, as seguintes são abortadas e o user é contado como `failed`. Counter `parts_sent` no retorno. Validado: 1200 eventos → 3 emails (500+500+200). Antes truncava silenciosamente acima de 500 — agora cobre 100% dos eventos do digest, sem perda.
+  - **i18n batch**: 12 ocorrências hardcoded migradas pra `t('js.*')` em 8 páginas (analytics, approvals, audit, backup_offsite, cluster, dns_security, notifications, performance). Strings: `'Confirma?'` (9× → `t('js.confirm_default')`) e `'Erro ao salvar.'` (4× → `t('js.save_failed')`). Chaves já existiam no namespace `js.*` — não precisou expandir lang/pt-BR.php nem lang/en.php. Cobertura ainda parcial; estratégia segue a v2.100 (só strings cross-cutting que aparecem em 2+ páginas).
+
 ### Split-horizon de blocklist por org — completo
 - **v2.105.0**: fecha o débito arquitetural que estava aberto desde V29. Exceções da `blocklist_exceptions` com `org_id > 0` agora têm **efeito real no resolver** — não só existem no DB.
   - **`client_policies_repo.list_all_full_enabled()`** ([client_policies_repo.py](api_service/app/repositories/duckdb/client_policies_repo.py)) ganhou `org_id` + `org_exceptions` no payload. Pra cada policy enabled com `org_id > 0`, carrega `SELECT domain FROM blocklist_exceptions WHERE org_id = <policy.org_id>`. Dedupe vs `allows` da policy é feito no Python (evita linha duplicada no .conf).

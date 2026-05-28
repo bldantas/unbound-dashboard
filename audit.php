@@ -301,7 +301,7 @@ $isAdmin = Auth::isAdmin();
             (window.customAlert || alert)(r.ok ? t('js.saved') : t('js.error_generic'));
         });
         $('aBtnRetPrune').addEventListener('click', async () => {
-            const ok = await (window.customConfirm ? customConfirm('Rodar prune agora? Entries antigas serão apagadas.') : Promise.resolve(confirm('Confirma?')));
+            const ok = await (window.customConfirm ? customConfirm('Rodar prune agora? Entries antigas serão apagadas.') : Promise.resolve(confirm(t('js.confirm_default'))));
             if (!ok) return;
             const r = await fetch('/api/v1/audit/admin/prune-now', { method: 'POST', headers: H });
             const d = await r.json().catch(() => ({}));

@@ -260,7 +260,7 @@ $isAdmin = Auth::isAdmin();
             (window.customAlert || alert)(r.ok ? t('js.saved_apply_hint') : t('js.save_failed'));
         });
         $('btnApply')?.addEventListener('click', async () => {
-            const ok = await (window.customConfirm ? customConfirm('Aplicar tuning de performance + restart Unbound? ~2s de interrupção.') : Promise.resolve(confirm('Confirma?')));
+            const ok = await (window.customConfirm ? customConfirm('Aplicar tuning de performance + restart Unbound? ~2s de interrupção.') : Promise.resolve(confirm(t('js.confirm_default'))));
             if (!ok) return;
             const r = await fetch('/api/v1/dns-security/apply', { method: 'POST', headers: H });
             const d = await r.json().catch(() => ({}));

@@ -461,7 +461,7 @@ $currentPage = 'backup_offsite.php';
             backup_s3_restore_test_interval_hours: String(Math.max(1, Math.min(720, parseInt(document.getElementById('rtInterval').value || '168', 10)))),
         };
         const r = await fetch('/api/v1/backup-offsite/settings', { method: 'PUT', headers: HJ, body: JSON.stringify(body) });
-        toast(r.ok ? 'Salvo. Aplica no próximo ciclo do worker.' : 'Erro ao salvar.', r.ok ? 'success' : 'error');
+        toast(r.ok ? 'Salvo. Aplica no próximo ciclo do worker.' : t('js.save_failed'), r.ok ? 'success' : 'error');
         loadRestoreTestPanel();
     });
     loadRestoreTestPanel();
@@ -519,7 +519,7 @@ $currentPage = 'backup_offsite.php';
             const d = await r.json().catch(() => ({}));
             toast(d.success ? 'Conexão OK ✓' : `Falha: ${d.error || r.statusText}`, d.success ? 'success' : 'error');
         } else if (kind === 'delete') {
-            const ok = window.customConfirm ? await window.customConfirm('Excluir este destino? Backups já enviados ao S3 não são removidos.', 'Confirma?') : confirm('Excluir?');
+            const ok = window.customConfirm ? await window.customConfirm('Excluir este destino? Backups já enviados ao S3 não são removidos.', t('js.confirm_default')) : confirm('Excluir?');
             if (!ok) return;
             const r = await fetch(`/api/v1/backup-offsite/destinations/${id}`, { method: 'DELETE', headers: H });
             toast(r.ok || r.status === 204 ? 'Excluído.' : 'Erro.', r.ok ? 'success' : 'error');
@@ -561,7 +561,7 @@ $currentPage = 'backup_offsite.php';
     });
 
     document.getElementById('btnDestUploadAll').addEventListener('click', async () => {
-        const ok = window.customConfirm ? await window.customConfirm('Disparar upload em TODOS os destinos enabled agora? Cada destino gera tarball próprio.', 'Confirma?') : confirm('Upload em todos?');
+        const ok = window.customConfirm ? await window.customConfirm('Disparar upload em TODOS os destinos enabled agora? Cada destino gera tarball próprio.', t('js.confirm_default')) : confirm('Upload em todos?');
         if (!ok) return;
         const r = await fetch('/api/v1/backup-offsite/destinations/upload-all', { method: 'POST', headers: H });
         const d = await r.json().catch(() => ({}));
