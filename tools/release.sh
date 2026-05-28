@@ -4,7 +4,9 @@
 #
 # Publica uma release no GitHub a partir da VERSION atual:
 #   1. Roda tools/build-update.sh (gera tarball + .sha256 em dist/)
-#   2. Extrai notas do CHANGELOG.md (primeira seção `## vX.Y.Z — …`)
+#   2. Extrai notas do CHANGELOG.md — tenta 2 formatos em ordem:
+#      a) OLD (pré-2026-05-26): seção `## vX.Y.Z — Title`
+#      b) NEW (date-grouped):    `- **vX.Y.Z**: ...` dentro de `### Title`
 #   3. `gh release create vX.Y.Z` com tarball+sha256 como assets
 #   4. Notifica o usuário com URL da release
 #
@@ -89,7 +91,8 @@ step "Extraindo notas da release"
 
 [ -f "$CHANGELOG_FILE" ] || { error "CHANGELOG.md ausente"; exit 1; }
 
-# Pega o bloco entre `## v<VERSION>` e o próximo `## v` ou `---`
+# Formato OLD (releases pré-2026-05-26): uma seção por versão `## vX.Y.Z — Title`
+# Pega o bloco entre `## v<VERSION>` e o próximo `## v` ou `---`.
 NOTES=$(awk -v version="$VERSION" '
     BEGIN { found=0; emit=0 }
     /^## v/ {
@@ -101,11 +104,38 @@ NOTES=$(awk -v version="$VERSION" '
     }
     emit { print }
 ' "$CHANGELOG_FILE" | sed '/./,$!d' | awk 'BEGIN{RS=""} {print; exit}')
+
+# Formato NEW (a partir de 2026-05-26): agrupado por data, versão como bullet.
+#   ## YYYY-MM-DD
+#   ### Título da feature
+#   - **vX.Y.Z**: preamble
+#     - sub-bullets...
+# Extrai o bullet `- **v<VERSION>**` + sub-bullets, prependa o `### Título`
+# convertido em `## Título` pra ficar um heading bonito na release body.
+if [ -z "$NOTES" ]; then
+    NOTES=$(awk -v version="$VERSION" '
+        BEGIN { emit=0; section_title=""; version_marker = "- **v" version "**" }
+        /^## / { if (emit) exit; section_title=""; next }
+        /^### / { if (emit) exit; section_title = substr($0, 5); next }
+        /^- \*\*v[0-9]/ {
+            if (emit) exit
+            if (index($0, version_marker) == 1) {
+                if (section_title != "") { print "## " section_title; print "" }
+                emit = 1
+                print
+                next
+            }
+            next
+        }
+        emit { print }
+    ' "$CHANGELOG_FILE")
+fi
+
 # Trim leading/trailing blank lines
 NOTES=$(printf "%s" "$NOTES" | awk 'NF{found=1} found' | tac | awk 'NF{found=1} found' | tac)
 
 if [ -z "$NOTES" ]; then
-    warn "Não encontrei seção '## v$VERSION' no CHANGELOG.md — release sem notas"
+    warn "Não encontrei v$VERSION no CHANGELOG.md (nem como '## v$VERSION' nem como '- **v$VERSION**:') — release sem notas"
     NOTES="Release $TAG. Consulte CHANGELOG.md no repositório."
 fi
 
