@@ -115,11 +115,43 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
     // Mobile breakpoint = Tailwind md (768px)
     const mqMobile = window.matchMedia('(max-width: 767px)');
 
-    // --- SIDEBAR LOGIC ---
-    // Desktop: colapsa width pra 0. Mobile: drawer fixed com backdrop.
-    function updateSidebarUI(isCollapsed) {
+    // --- SIDEBAR LOGIC (v2.112+) ---
+    // Desktop: 3 modos ciclados pelo toggle do topbar:
+    //   'full'      → 256px com texto
+    //   'icon-only' → 64px só ícones (flyout no hover do mouse)
+    //   'hidden'    → 0px (totalmente colapsada)
+    // Persistido em localStorage como 'sidebar_mode'.
+    // Mobile: drawer simples (open/closed), igual antes.
+    function applyDesktopMode(mode) {
+        sidebar.classList.remove('sidebar-collapsed', 'sidebar-icon-only');
+        if (mode === 'hidden') {
+            sidebar.classList.add('sidebar-collapsed');
+            sidebar.style.width = '0px';
+            sidebar.style.minWidth = '0px';
+            sidebar.style.opacity = '0';
+            iconOpen.classList.remove('hidden');
+            iconClose.classList.add('hidden');
+        } else if (mode === 'icon-only') {
+            sidebar.classList.add('sidebar-icon-only');
+            sidebar.style.width = '';
+            sidebar.style.minWidth = '';
+            sidebar.style.opacity = '1';
+            iconOpen.classList.add('hidden');
+            iconClose.classList.remove('hidden');
+        } else {
+            // 'full' (default)
+            sidebar.style.width = '256px';
+            sidebar.style.minWidth = '256px';
+            sidebar.style.opacity = '1';
+            iconOpen.classList.add('hidden');
+            iconClose.classList.remove('hidden');
+        }
+    }
+
+    function updateSidebarUI(mobileCollapsedOrMode) {
         if (mqMobile.matches) {
-            // Mobile: isCollapsed=true significa drawer fechada
+            // Mobile: arg=true → drawer fechada
+            const isCollapsed = mobileCollapsedOrMode === true || mobileCollapsedOrMode === 'hidden';
             if (isCollapsed) {
                 sidebar.classList.remove('mobile-open');
                 sidebarBackdrop?.classList.remove('mobile-open');
@@ -129,7 +161,6 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
                 sidebarBackdrop?.classList.add('mobile-open');
                 document.body.style.overflow = 'hidden';
             }
-            // Limpa inline styles do desktop mode (CSS responsivo cuida)
             sidebar.style.width = '';
             sidebar.style.minWidth = '';
             sidebar.style.opacity = '';
@@ -137,22 +168,17 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
             iconClose.classList.toggle('hidden', isCollapsed);
             return;
         }
-        // Desktop: width collapse
-        if (isCollapsed) {
-            sidebar.classList.add('sidebar-collapsed');
-            sidebar.style.width = '0px';
-            sidebar.style.minWidth = '0px';
-            sidebar.style.opacity = '0';
-            iconOpen.classList.remove('hidden');
-            iconClose.classList.add('hidden');
-        } else {
-            sidebar.classList.remove('sidebar-collapsed');
-            sidebar.style.width = '256px';
-            sidebar.style.minWidth = '256px';
-            sidebar.style.opacity = '1';
-            iconOpen.classList.add('hidden');
-            iconClose.classList.remove('hidden');
-        }
+        // Desktop: arg pode ser bool (legacy) ou string ('full'|'icon-only'|'hidden')
+        let mode = mobileCollapsedOrMode;
+        if (typeof mode === 'boolean') mode = mode ? 'hidden' : 'full';
+        if (!['full', 'icon-only', 'hidden'].includes(mode)) mode = 'full';
+        applyDesktopMode(mode);
+    }
+
+    function getDesktopMode() {
+        if (sidebar.classList.contains('sidebar-collapsed')) return 'hidden';
+        if (sidebar.classList.contains('sidebar-icon-only')) return 'icon-only';
+        return 'full';
     }
 
     function isCurrentlyCollapsed() {
@@ -161,10 +187,17 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
     }
 
     btnSidebar.addEventListener('click', () => {
-        const newCollapsed = !isCurrentlyCollapsed();
-        // Em desktop persiste; em mobile nunca (sempre começa fechada após reload)
-        if (!mqMobile.matches) localStorage.setItem('sidebar_collapsed', newCollapsed);
-        updateSidebarUI(newCollapsed);
+        if (mqMobile.matches) {
+            updateSidebarUI(!isCurrentlyCollapsed());
+            return;
+        }
+        // Desktop: cicla full → icon-only → hidden → full
+        const current = getDesktopMode();
+        const next = current === 'full' ? 'icon-only'
+                   : current === 'icon-only' ? 'hidden'
+                   : 'full';
+        localStorage.setItem('sidebar_mode', next);
+        updateSidebarUI(next);
     });
 
     // Click no backdrop fecha o drawer mobile
@@ -189,16 +222,26 @@ if (isset($isUnboundRunning) && isset($uptimeHuman)) {
             // Entrando em mobile: drawer fechada
             updateSidebarUI(true);
         } else {
-            // Voltando pra desktop: restaura estado salvo
-            updateSidebarUI(localStorage.getItem('sidebar_collapsed') === 'true');
+            // Voltando pra desktop: restaura modo salvo (v2.112+)
+            // Compat com chave legada sidebar_collapsed
+            let savedMode = localStorage.getItem('sidebar_mode');
+            if (!savedMode) {
+                savedMode = localStorage.getItem('sidebar_collapsed') === 'true' ? 'hidden' : 'full';
+            }
+            updateSidebarUI(savedMode);
         }
     });
 
     // Inicializar
     if (mqMobile.matches) {
         updateSidebarUI(true);  // mobile sempre começa fechada
-    } else if (localStorage.getItem('sidebar_collapsed') === 'true') {
-        updateSidebarUI(true);
+    } else {
+        // Desktop: aplica modo salvo (v2.112+ usa sidebar_mode; compat com legacy)
+        let savedMode = localStorage.getItem('sidebar_mode');
+        if (!savedMode) {
+            savedMode = localStorage.getItem('sidebar_collapsed') === 'true' ? 'hidden' : 'full';
+        }
+        if (savedMode !== 'full') updateSidebarUI(savedMode);
     }
 
     // --- THEME LOGIC ---

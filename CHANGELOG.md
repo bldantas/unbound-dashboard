@@ -7,6 +7,16 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### Sidebar reorganizada + modo icon-only com flyout
+- **v2.112.0**: refatoração da barra lateral. Antes 38 itens distribuídos em 3 seções desbalanceadas ("Monitoramento" tinha 26 itens misturando operação, segurança, DNS, multi-tenant, backup; "Sistema" tinha só 4). Agora:
+  - **7 seções temáticas** ([includes/sidebar.php](includes/sidebar.php)): Operação, DNS & Blocklists, Análise, Cluster & Multi-host, Acesso & Tenant, Sistema, Ferramentas.
+  - **Estrutura data-driven**: cada item é um dict com `href`, `label`, `icon`, `requires` ('admin' / 'global_admin' / 'cap:X' / null). Filtragem por permissão centralizada num `$canSee` closure. Counter no header de cada seção mostra qty depois do filtro — admin org-scoped vê menos.
+  - **Modo icon-only** novo: sidebar com 64px só ícones. Ativa via toggle do topbar (cicla `full → icon-only → hidden → full`). Persistido em `localStorage` como `sidebar_mode` (compat com chave legada `sidebar_collapsed`).
+  - **Flyout no hover** (modo icon-only): passar mouse num ícone mostra tooltip com label via `::after`. Passar mouse na seção mostra flyout completo com todos os itens daquela seção (HTML pré-renderizado).
+  - **Ícones consolidados**: 21 SVGs únicos extraídos num dict `$ICON` reusável (antes copy-paste em cada item). Reduz arquivo de 273 → 270 linhas mas com lógica muito mais rica.
+  - **Acessibilidade**: cada item tem `data-label` + `title`; flyouts usam `aria-hidden`.
+  - **Sem mudança de comportamento pro user típico** (modo `full` permanece default). Só ganhou opções extras + organização melhor.
+
 ### Docs: anuncia SDKs em README, MANUAL e docs/README
 - **v2.111.1**: hotfix da v2.111 — entreguei os SDKs mas esqueci de anunciar nos manuais. Bruno apontou.
   - **README.md** ganha seção "API pública + SDKs" com ponteiros pros `clients/python/`, `clients/js/`, scripts de regeneração e o portal interativo.
