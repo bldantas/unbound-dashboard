@@ -7,6 +7,15 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### Split-horizon de blocklist por org — completo
+- **v2.105.0**: fecha o débito arquitetural que estava aberto desde V29. Exceções da `blocklist_exceptions` com `org_id > 0` agora têm **efeito real no resolver** — não só existem no DB.
+  - **`client_policies_repo.list_all_full_enabled()`** ([client_policies_repo.py](api_service/app/repositories/duckdb/client_policies_repo.py)) ganhou `org_id` + `org_exceptions` no payload. Pra cada policy enabled com `org_id > 0`, carrega `SELECT domain FROM blocklist_exceptions WHERE org_id = <policy.org_id>`. Dedupe vs `allows` da policy é feito no Python (evita linha duplicada no .conf).
+  - **`UnboundConfigManager::generateViewsConf()`** ([UnboundConfigManager.php:624](src/UnboundConfigManager.php#L624)) emite as `org_exceptions` como `local-zone "X." transparent` no view block, depois das allows. Como Unbound tem precedência view > server, isso **sobrescreve** o `always_nxdomain` global da blocklist pros clientes daquela view — efetivamente "destrava" o domínio só pra org.
+  - Filtro `$effective` em `generateViewsConf()` agora aceita policy com SÓ `org_exceptions` (sem blocks/allows próprios). Antes uma policy assim era skipada porque "não tinha regra".
+  - **Trigger pra re-apply**: nenhum trabalho — o botão "Aplicar & Recarregar Unbound" em `/blocklists.php` já chama `applyConfig()` que dispara `generateViewsConf()` no final. Operador só precisa clicar Aplicar após adicionar/remover exception org-scoped.
+  - Validado end-to-end com fixture: policy `acme-office` (org=1, range `192.168.10.0/24`), 3 exceptions org-scoped (`googleads.com`, `doubleclick.net`, `github.com`-dup-com-allow), 1 exception global (`org_id=0`), 1 de outra org (`org_id=99`). Resultado: payload retornou só `[doubleclick.net, googleads.com]` — duplicada com allow foi removida, global foi ignorada (já está no zonefile global), outra org foi ignorada.
+  - `orgs.php` bullet sobre split-horizon foi removido — pendência fechada.
+
 ### TODOs limpos: install.sh + orgs.php
 - **v2.104.2**: dois fixes baratos da lista de pendências.
   - **install.sh: remove `UV_PYTHON="$(command -v python3)"`** (linha 322). Antes forçava o Python do sistema (3.11 no Debian 12) e quebrava com `No interpreter found for Python >=3.13`. Agora deixa o `uv` resolver via `pyproject.toml` — se o sistema só tem 3.11, baixa Python 3.13 standalone (~50 MB, cacheado em `~/.local/share/uv/python`). `update.sh` já estava OK.

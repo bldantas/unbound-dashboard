@@ -638,10 +638,13 @@ class UnboundConfigManager
         }
 
         // Policies sem range são inúteis (nenhum cliente cai nelas) — skip
-        // e flag pra view também (view sem ACL é orfã).
+        // e flag pra view também (view sem ACL é orfã). Considera org_exceptions
+        // (split-horizon de blocklist por org, v2.105) como regra também — uma
+        // policy pode ter SÓ exceções da org, sem blocks/allows próprios.
         $effective = array_filter(
             $policies,
-            fn ($p) => !empty($p['ranges']) && (!empty($p['blocks']) || !empty($p['allows']))
+            fn ($p) => !empty($p['ranges'])
+                && (!empty($p['blocks']) || !empty($p['allows']) || !empty($p['org_exceptions']))
         );
 
         if (empty($effective)) {
@@ -683,6 +686,20 @@ class UnboundConfigManager
                 $domain = trim((string) $d, " .");
                 if ($domain !== '') {
                     $content .= "    local-zone: \"{$domain}.\" transparent\n";
+                }
+            }
+            // org_exceptions (v2.105): split-horizon de blocklist por org.
+            // São domínios da `blocklist_exceptions` com `org_id = policy.org_id`.
+            // `transparent` na view sobrescreve o `always_nxdomain` global da
+            // blocklist pros clientes dessa policy/org. Backend já dedupliza
+            // contra allows da policy, então não vai duplicar linha.
+            if (!empty($p['org_exceptions'])) {
+                $content .= "    # blocklist exceptions da org #{$p['org_id']} (v2.105 split-horizon)\n";
+                foreach ($p['org_exceptions'] as $d) {
+                    $domain = trim((string) $d, " .");
+                    if ($domain !== '') {
+                        $content .= "    local-zone: \"{$domain}.\" transparent\n";
+                    }
                 }
             }
         }

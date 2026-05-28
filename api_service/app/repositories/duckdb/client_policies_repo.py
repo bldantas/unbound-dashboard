@@ -325,13 +325,21 @@ async def full(slug: str) -> dict | None:
 
 
 async def list_all_full_enabled() -> list[dict]:
-    """Lista todas as policies com `enabled=true`, com ranges/blocks/allows.
+    """Lista todas as policies com `enabled=true`, com ranges/blocks/allows
+    e org_exceptions (split-horizon de blocklist por org — v2.105).
+
+    org_exceptions: domínios em `blocklist_exceptions` com `org_id` igual ao
+    `org_id` da policy. Vão entrar como `local-zone "X." transparent` no view
+    block do Unbound — sobrescreve o `always_nxdomain` global da blocklist
+    pros clientes daquela view, na prática "destravando" o domínio só pra org.
+
+    Dedupe vs allows é feito aqui pra evitar linhas duplicadas no .conf.
 
     Consumida pelo PHP UnboundConfigManager.generateViewsConf via API.
     """
     policies = await db_fetchall(
         """
-        SELECT id, slug, name, enabled, sort_order
+        SELECT id, slug, name, enabled, sort_order, org_id
         FROM client_policies
         WHERE enabled = true
         ORDER BY sort_order, name
@@ -340,14 +348,36 @@ async def list_all_full_enabled() -> list[dict]:
     out: list[dict] = []
     for p in policies:
         pid = int(p["id"])
+        oid = p.get("org_id")
+        # Carrega exceções da org da policy. Skip se:
+        #   - policy não tem org (legacy / explicitamente global)
+        #   - policy é "global" (org_id == 0 sentinela do blocklist_exceptions),
+        #     porque essas exceções já entram no zonefile global via
+        #     blocklist_sources_repo.domains_to_block() — duplicar é redundante
+        org_exceptions: list[str] = []
+        if oid is not None and int(oid) > 0:
+            rows = await db_fetchall(
+                "SELECT domain FROM blocklist_exceptions WHERE org_id = ? ORDER BY domain",
+                [int(oid)],
+            )
+            org_exceptions = [str(r["domain"]) for r in rows]
+
+        allows_list = [r["domain"] for r in await list_allows(pid)]
+        # Dedupe org_exceptions vs allows — se o operador já tinha o mesmo
+        # domínio em allows da policy, não duplica no .conf
+        allows_set = {d.lower() for d in allows_list}
+        org_exceptions = [d for d in org_exceptions if d.lower() not in allows_set]
+
         out.append(
             {
                 "id": pid,
                 "slug": p["slug"],
                 "name": p["name"],
+                "org_id": oid,
                 "ranges": [r["cidr"] for r in await list_ranges(pid)],
                 "blocks": [r["domain"] for r in await list_blocks(pid)],
-                "allows": [r["domain"] for r in await list_allows(pid)],
+                "allows": allows_list,
+                "org_exceptions": org_exceptions,
             }
         )
     return out

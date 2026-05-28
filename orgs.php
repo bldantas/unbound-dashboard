@@ -42,7 +42,6 @@ $currentPage = 'orgs.php';
                 <ul class="text-slate-600 dark:text-slate-400 list-disc list-inside space-y-0.5">
                     <li>Usuários sem org (<code>org_id NULL</code>) seguem sendo "system admins" — veem dados globais + de todas as orgs.</li>
                     <li>RBAC per-org não implementado — admin de uma org ainda precisa de role <code>admin</code> global pra ações administrativas. Não há "admin só da org X".</li>
-                    <li>Split-horizon de blocklist por view ainda não — exceções com <code>org_id &gt; 0</code> existem no DB (V29) mas o zonefile do Unbound segue único e global. Pra a exceção da org realmente impactar o resolver, falta plumbing.</li>
                 </ul>
             </div>
 
