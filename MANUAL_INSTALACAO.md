@@ -411,6 +411,65 @@ sudo systemctl restart unbound-dashboard-api
 
 ---
 
+## 🧩 Integração via API + SDKs (opcional)
+
+Pra automatizar tarefas via scripts externos, dashboards de terceiros ou bots, gere um **API token escopado** e use o SDK Python ou JS distribuído com o repo.
+
+### 1. Criar token escopado
+
+Em `/config.php` → aba **API Tokens** → "Gerar novo token":
+- Label clara (ex: `bot-allowlist`, `monitoring-readonly`)
+- ✅ Marque **"🔒 Restringir capabilities"**
+- Selecione apenas as caps que o bot precisa (ver receitas comuns em `/api_docs.php`)
+- Copie o `raw_token` exibido — **só aparece uma vez**
+
+### 2. Usar o SDK Python
+
+```bash
+cd /var/www/html/unbound-dashboard/clients/python
+pip install -e .
+```
+
+```python
+from unbound_dashboard_client import AuthenticatedClient
+from unbound_dashboard_client.api.blocklist import (
+    list_exceptions_api_v1_blocklist_exceptions_get,
+)
+
+client = AuthenticatedClient(
+    base_url="https://seu-dashboard.exemplo.com",
+    token="<TOKEN>",
+    prefix="",
+    auth_header_name="X-Api-Token",
+)
+result = list_exceptions_api_v1_blocklist_exceptions_get.sync(client=client)
+print(f"Allowlist tem {result.count} domínios")
+```
+
+### 3. Usar o SDK TypeScript/JS
+
+```typescript
+import { OpenAPI, BlocklistService } from "./clients/js";
+
+OpenAPI.BASE = "https://seu-dashboard.exemplo.com";
+OpenAPI.HEADERS = { "X-Api-Token": "..." };
+
+const result = await BlocklistService.listExceptionsApiV1BlocklistExceptionsGet();
+```
+
+Detalhes em [clients/README.md](clients/README.md), [clients/python/README.md](clients/python/README.md) e [clients/js/README.md](clients/js/README.md).
+
+Para re-gerar os SDKs após mudanças no schema da API:
+
+```bash
+sudo bash /var/www/html/unbound-dashboard/tools/gen_sdk_python.sh
+sudo bash /var/www/html/unbound-dashboard/tools/gen_sdk_js.sh
+```
+
+> O `gen_sdk_python.sh` precisa de `uv` (já vem com o install.sh). O `gen_sdk_js.sh` precisa de `npm/npx` — instale com `sudo apt install npm` se ausente.
+
+---
+
 ## 🌐 Setup do Cluster HA (opcional)
 
 Para alta disponibilidade entre dois ou mais servidores Unbound Dashboard, configure peers HA — ver guia completo em [docs/pages/cluster.md](docs/pages/cluster.md). Resumo:

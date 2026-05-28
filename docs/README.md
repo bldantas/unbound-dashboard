@@ -33,6 +33,9 @@
 
 - **Swagger interativo** da API FastAPI: [`/api/v1/docs`](http://localhost:8001/api/v1/docs) (no servidor instalado) — 100+ endpoints atuais documentados automaticamente
 - **OpenAPI JSON**: `/api/v1/openapi.json`
+- **SDK Python**: [`../clients/python/`](../clients/python/) — gerado via `openapi-python-client`
+- **SDK TypeScript/JS**: [`../clients/js/`](../clients/js/) — gerado via `openapi-typescript-codegen`
+- **Portal interativo**: `/api_docs.php` — Quick start Python, receitas de tokens escopados, integração Prometheus + Grafana
 
 ---
 

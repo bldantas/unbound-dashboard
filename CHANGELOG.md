@@ -7,6 +7,12 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### Docs: anuncia SDKs em README, MANUAL e docs/README
+- **v2.111.1**: hotfix da v2.111 — entreguei os SDKs mas esqueci de anunciar nos manuais. Bruno apontou.
+  - **README.md** ganha seção "API pública + SDKs" com ponteiros pros `clients/python/`, `clients/js/`, scripts de regeneração e o portal interativo.
+  - **MANUAL_INSTALACAO.md** ganha seção "🧩 Integração via API + SDKs (opcional)" — 3 passos: criar token escopado, usar SDK Python, usar SDK JS. Receitas copy-paste.
+  - **docs/README.md** seção "Auto-gerada" linka os 2 SDKs + portal.
+
 ### SDKs Python + TypeScript/JS gerados
 - **v2.111.0**: complemento da v2.110 — agora há **SDKs concretos** distribuídos no repo, prontos pra usar.
   - **`clients/python/`** — Gerado via `openapi-python-client` a partir do `/api/v1/openapi.json` (190 endpoints, 25 schemas). Package `unbound_dashboard_client` instalável via `pip install -e .`. Suporta sync + asyncio. README com exemplo httpx, login JWT e snippets pra cada caso comum.

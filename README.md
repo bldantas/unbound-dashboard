@@ -63,6 +63,13 @@ O Apache faz reverse proxy de `/api/v1/*` para o FastAPI; o restante das rotas (
 ### Internacionalização
 - **i18n pt-BR + en** server-side (`t()`) e client-side (`window.t()`) — ~24 páginas migradas, namespace `js.*` pra toasts cross-cutting
 
+### API pública + SDKs
+- **API tokens com capabilities granulares** (v2.110+) — tokens podem ser restritos a um subconjunto de capabilities em vez de admin global. Configurações → API Tokens → "🔒 Restringir capabilities".
+- **SDK Python** em [`clients/python/`](clients/python/) — gerado via `openapi-python-client`, instalável via `pip install -e .` direto do repo. 190 endpoints, sync + asyncio.
+- **SDK TypeScript/JS** em [`clients/js/`](clients/js/) — gerado via `openapi-typescript-codegen`, fetch-based, CancelablePromise. Importa direto do diretório.
+- **Re-geradores**: [`tools/gen_sdk_python.sh`](tools/gen_sdk_python.sh) + [`tools/gen_sdk_js.sh`](tools/gen_sdk_js.sh).
+- **Portal interativo** em `/api_docs.php` (no servidor instalado) com Swagger, ReDoc, Prometheus/Grafana setup, e exemplos curl + Python.
+
 ## Requisitos
 
 - **SO**: Debian 12+ (Bookworm/Trixie) ou Ubuntu 22.04 LTS+
