@@ -7,6 +7,15 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### Docs catch-up
+- **v2.104.0**: rodada de manutenção de documentação. Bruno apontou que as features acumularam de v2.32 até v2.103.x sem atualização nos manuais.
+  - **`SISTEMA.md` reescrito** — listas reais de 37 routers, 33+ services, 18 workers, V1..V29 migrations, ~190+ testes (era V1..V5 e 4 workers, snapshot de v2.2.0). Novas seções: backend FastAPI categorizado, frontend agrupado por domínio (Operação / Multi-tenant / Cluster HA / Segurança / Notificações / Backup / i18n), segurança (PKCE, SECRETS_MASTER_KEY, shared-secret-per-link), observabilidade (Prometheus, Grafana, structlog, audit log), histórico de marcos linkando CHANGELOG.
+  - **`README.md` atualizado** — funcionalidades categorizadas (Operação, DNS+Blocklists, Multi-tenant+Cluster, Segurança, Notificações+Backup, Atualização, i18n), tabela de workers com 18 entradas, link pra `docs/pages/cluster.md`, nota sobre legacy em `docs/components/` e `docs/api/`.
+  - **`MANUAL_INSTALACAO.md` ganhou** — Passo 3.5 (`SECRETS_MASTER_KEY` recomendado com receita Fernet 32-byte), Passo 3.6 (drop-in `unbound.service.d/logfile.conf` aplicado automaticamente, explicação do bug em Debian/Ubuntu modernos), seção troubleshooting "LogWatcher vazio" e "`peer-ping` 404 após update", seção final "Setup do Cluster HA (opcional)" com receita em 5 passos.
+  - **`docs/pages/cluster.md` criado** — guia completo de setup do cluster: conceito shared-secret-per-link, 3 passos sequenciais, cenário corretivo com botão 🔑, tabela de diagnóstico de status (`ok`/`unauthorized`/`not_found`/`timeout`/`error`/`down`), manual failover, pré-requisitos, limitações conhecidas, endpoints relacionados, memórias.
+  - **23 arquivos antigos marcados `[DEPRECATED]`** — header inserido no topo de `docs/components/*.md` (16 classes PHP, várias removidas em v2.2) e `docs/api/*.md` (7 endpoints PHP migrados pra FastAPI). Mantidos por histórico, com link pro `SISTEMA.md`.
+  - **`docs/README.md` reescrito** — separa "atual & vivo" de "legado (marcado DEPRECATED)" de "auto-gerada" (Swagger). Adiciona lista de TODOs de documentação (29 páginas + features transversais como multi-tenant, OIDC, secrets, workers, backup, i18n) pra próximas rodadas.
+
 ### Hotfix update.sh
 - **v2.103.2**: `tools/update.sh` agora limpa `__pycache__` em `api_service/app/` depois do rsync e antes do restart. Bug descoberto no deploy do `dashboard.redeconexao.net` ao subir v2.103.1: VERSION foi escrito, `app/routers/cluster.py` chegou em disco, `app/main.py` foi atualizado com `app.include_router(cluster.router)` — mas o serviço reiniciou carregando uma versão antiga do `main.py` (provavelmente bytecode stale ou race entre escrita do .py e restart), resultando em `/api/v1/cluster/peer-ping → 404` apesar da rota estar registrada no source. Limpar `__pycache__` à força elimina a classe inteira de bug — uvicorn recompila em ms no startup. Workaround manual aplicado uma vez (`find ... -name __pycache__ -exec rm -rf {} +`); agora é parte do pipeline.
 

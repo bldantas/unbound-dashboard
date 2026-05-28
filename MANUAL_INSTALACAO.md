@@ -130,6 +130,40 @@ sudo -E bash install.sh
 
 ---
 
+## 🔐 Passo 3.5: Configurar `SECRETS_MASTER_KEY` (recomendado)
+
+**Não é estritamente obrigatório** pra o sistema subir, mas é altamente recomendado em produção — sem ela, secrets sensíveis (OIDC `client_secret`, tokens HA, chaves S3 de backup) ficam em **plaintext** no DuckDB.
+
+```bash
+# Gera uma chave Fernet 32-byte aleatória
+KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+
+# Adiciona ao env file
+echo "SECRETS_MASTER_KEY=$KEY" | sudo tee -a /etc/unbound-dashboard/api-v1.env
+sudo systemctl restart unbound-dashboard-api
+```
+
+Na próxima partida, o worker `secrets_migrator` cifra automaticamente qualquer secret já gravado em plaintext (warning `cipher_service.no_master_key` some dos logs). Tem chamada **idempotente**: rodar uma segunda vez é no-op.
+
+**Guarde a chave em local seguro** — se ela for perdida e o env file for reescrito, os secrets cifrados ficam ilegíveis. Backup recomendado: cópia da `api-v1.env` em volume separado ou cofre (Vault, 1Password, etc).
+
+---
+
+## 🔧 Passo 3.6: Drop-in stderr do Unbound (aplicado automaticamente)
+
+O `install.sh` e `update.sh` aplicam automaticamente um drop-in systemd em `/etc/systemd/system/unbound.service.d/logfile.conf` com `StandardError=append:/var/log/unbound/unbound.log`.
+
+**Por quê?** Em Debian/Ubuntu modernos, `unbound -d` (foreground) joga stderr no journal e **ignora** `logfile:` em `unbound.conf`. Sem o drop-in, o LogWatcher do dashboard faz tail de arquivo vazio — Live Stream e tabela `query_logs` ficam sem dados, mesmo com o Unbound respondendo `dig` normalmente.
+
+Você não precisa fazer nada — só está documentado pra explicar o arquivo extra. Se precisar verificar:
+
+```bash
+ls -la /etc/systemd/system/unbound.service.d/logfile.conf
+sudo systemctl cat unbound | grep StandardError
+```
+
+---
+
 ## 🌐 Passo 4: Acesso
 
 Após o `install.sh` finalizar, acesse:
@@ -349,6 +383,43 @@ Acesse `/health.php` no dashboard e clique em **Executar Auto-Reparo**, ou rode 
 ```bash
 sudo /usr/local/bin/unbound-health-fix.sh
 ```
+
+### LogWatcher não recebe queries (Live Stream vazio)
+
+Sintoma: o resolver responde `dig` normalmente, mas a página Live Stream e a tabela `query_logs` ficam vazias. Provável: drop-in `unbound.service.d/logfile.conf` não foi aplicado.
+
+```bash
+ls -la /etc/systemd/system/unbound.service.d/logfile.conf
+# Se não existir:
+sudo cp /var/www/html/unbound-dashboard/api_service/deployments/systemd/unbound.service.d/logfile.conf \
+        /etc/systemd/system/unbound.service.d/
+sudo systemctl daemon-reload && sudo systemctl restart unbound
+# Confirma:
+ls -la /var/log/unbound/unbound.log  # tamanho > 0
+```
+
+### `/api/v1/cluster/peer-ping` retorna 404 após update
+
+Significa que o serviço subiu carregando bytecode antigo do `main.py`. Resolvido em **v2.103.2** (`update.sh` limpa `__pycache__` automaticamente). Workaround manual em versões anteriores:
+
+```bash
+sudo find /var/www/html/unbound-dashboard/api_service/app -name __pycache__ -exec rm -rf {} +
+sudo systemctl restart unbound-dashboard-api
+```
+
+---
+
+## 🌐 Setup do Cluster HA (opcional)
+
+Para alta disponibilidade entre dois ou mais servidores Unbound Dashboard, configure peers HA — ver guia completo em [docs/pages/cluster.md](docs/pages/cluster.md). Resumo:
+
+1. Ambos servidores precisam estar na mesma versão (v2.103.0+ pro cluster autenticado)
+2. Ambos com `SECRETS_MASTER_KEY` configurada (Passo 3.5 acima)
+3. **No servidor A**: `/cluster.php` → Adicionar peer "SRV-B" com Token existente em branco → copia o token T do popup
+4. **No servidor B**: `/cluster.php` → Adicionar peer "SRV-A" colando T em Token existente
+5. Clica "Check" em ambos os lados — deve virar `ok` 🔐
+
+Cenário corretivo (se já criou os dois lados sem coordenar): use o botão 🔑 em qualquer um dos peers pra substituir o token e alinhar.
 
 ---
 

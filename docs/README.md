@@ -1,65 +1,79 @@
 # Documentação do Unbound Dashboard
 
-Esta pasta contém documentação de componentes e APIs principais do projeto.
+> **Status:** parcialmente desatualizada. Esta pasta foi escrita no início do projeto (pré-v2.2) e várias seções descrevem código que foi removido na modernização MariaDB → DuckDB. As entradas legadas estão marcadas com `> ⚠️ DEPRECATED` no topo do arquivo.
+>
+> Para a **arquitetura atual** consulte sempre:
+> - [`SISTEMA.md`](../SISTEMA.md) — visão completa do sistema
+> - [`MANUAL_INSTALACAO.md`](../MANUAL_INSTALACAO.md) — instalação e troubleshooting
+> - [`CHANGELOG.md`](../CHANGELOG.md) — histórico de releases
 
-Estrutura:
+---
 
-- `components/` — documentação das classes principais da aplicação PHP.
-- `api/` — documentação das rotas PHP em `api/*.php` (legacy, em migração para FastAPI).
-- `pages/` — documentação das páginas principais de interface.
-- `PLANO_MODERNIZACAO_V1.md` — doc canônica da migração MariaDB → DuckDB (concluída 2026-05-04).
-- `TROUBLESHOOTING.md` — problemas comuns e soluções.
+## Conteúdo
 
-Para a documentação técnica do **api_service** (FastAPI/DuckDB/Redis), consulte:
+### Atual & vivo
 
-- `../api_service/deployments/README.md` — deployment systemd + Apache.
-- `../api_service/app/routers/*.py` — endpoints REST `/api/v1/*` (auth, alerts, blocklist, exports, health, history, stats, threats, unbound, users).
-- `../api_service/migrations/duckdb/V*.sql` — schema versionado.
-- `../api_service/tests/` — 60+ testes (pytest + pytest-asyncio).
+| Arquivo | Descrição |
+|---|---|
+| [PLANO_MODERNIZACAO_V1.md](PLANO_MODERNIZACAO_V1.md) | **Canônico.** Plano da migração MariaDB → DuckDB (concluído v2.2.0). |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Problemas comuns e soluções. |
+| [pages/cluster.md](pages/cluster.md) | Setup do cluster HA (shared-secret-per-link, botão 🔑, debugging). |
+| [grafana/](grafana/) | Dashboards Grafana versionados. |
 
-Use estes arquivos para entender o propósito, responsabilidades e dependências de cada módulo.
+### Legado (marcado como DEPRECATED)
 
-## Índice de Documentação
+| Pasta | O que tem | Por que está estale |
+|---|---|---|
+| [components/](components/) | 16 classes PHP (BlocklistManager, AlertManager, Database, …) | Várias removidas em v2.2.0 quando MariaDB caiu. Lógica migrou pra `api_service/app/services/` e `app/workers/`. |
+| [api/](api/) | 7 endpoints PHP (`stats.php`, `export.php`, `service_control.php`, …) | Todos migrados pra FastAPI em `/api/v1/*` desde v2.1.0. Endpoints PHP residuais são fallbacks. |
+| [pages/](pages/) (parcial) | 13 páginas básicas (alerts, blocklist, history, etc) | Capturam só o estado pré-v2.32. **29 páginas novas sem doc** (cluster, sso, hosts, orgs, notifications, observability, policies, dns_security, doh_inbound, geo_blocking, performance, sessions, webhooks, …). |
+| [REFACTORING_PLAN_V2.md](REFACTORING_PLAN_V2.md) | Plano da v2 "do zero" em `/opt/` | v2 está pausada. Doc mantida por histórico. |
 
-### Componentes
-- `components/AlertManager.md` — gerencia geração e resolução de alertas.
-- `components/AppMetricsManager.md` — monitora status do webserver (MariaDB removido em 2026-05-04, retorna stub `offline`).
-- `components/Auth.md` — autenticação, sessão e autorização de usuários.
-- `components/BlocklistManager.md` — gerencia listas de domínios bloqueados.
-- `components/Database.md` — **DEPRECATED** (stub que lança `PDOException`). MariaDB removido em 2026-05-04; use `App\ApiClient` para acessar dados via FastAPI/DuckDB.
-- `components/DiagnosticsManager.md` — executa verificações de rede e DNS.
-- `components/Environment.md` — lê variáveis de ambiente e `.env`.
-- `components/NetworkManager.md` — gerencia hostname, DNS e interfaces de rede.
-- `components/SecurityMonitor.md` — coleta métricas de segurança e portas.
-- `components/ServerMonitor.md` — coleta métricas de hardware e uso de recursos.
-- `components/ShellHelper.md` — executa comandos shell de forma segura.
-- `components/SourceBalanceManager.md` — gerencia múltiplas instâncias Unbound.
-- `components/StatsManager.md` — agrega estatísticas e séries temporais.
-- `components/SystemCheckManager.md` — valida serviços e configuração do Unbound.
-- `components/UnboundConfigManager.md` — monta e aplica configuração do Unbound.
-- `components/UnboundManager.md` — verifica estado e métricas do Unbound.
+### Auto-gerada
 
-### APIs
-- `api/blocklist_search.md` — busca na blacklist para o painel.
-- `api/export.md` — exporta e importa dados e logs do sistema.
-- `api/fix_health.md` — executa rotina de auto-reparo do Unbound.
-- `api/live_log.md` — fornece logs em tempo real do Unbound.
-- `api/service_control.md` — controla start/stop/restart do serviço Unbound.
-- `api/setup_wizard.md` — valida ambiente na instalação/configuração.
-- `api/stats.md` — retorna estatísticas agregadas para o painel.
+- **Swagger interativo** da API FastAPI: [`/api/v1/docs`](http://localhost:8001/api/v1/docs) (no servidor instalado) — 100+ endpoints atuais documentados automaticamente
+- **OpenAPI JSON**: `/api/v1/openapi.json`
 
-### Páginas
-- `pages/alerts.md` — explica a página de alertas e métricas do painel.
-- `pages/blocklist.md` — descreve a página de gestão de bloqueios.
-- `pages/config.md` — documenta a página de configuração do Unbound.
-- `pages/dns_benchmark.md` — explica a página de benchmark DNS.
-- `pages/exports.md` — documenta exportação e backup de dados.
-- `pages/health.md` — descreve auditoria e reparo de saúde do sistema.
-- `pages/history.md` — explica o histórico de consultas DNS.
-- `pages/index.md` — resume a página principal do painel.
-- `pages/logs.md` — documenta a página de visualização de logs.
-- `pages/recover.md` — descreve a recuperação de senha.
-- `pages/reset.md` — documenta a redefinição de senha com token.
-- `pages/setup.md` — explica a página de instalação inicial.
-- `pages/threats.md` — descreve a página de ameaças e blacklist.
+---
 
+## Lista de TODOs de documentação
+
+Áreas que merecem doc dedicada (PRs bem-vindos):
+
+### Páginas sem doc
+
+- `cluster.php` ✅ (feito em [pages/cluster.md](pages/cluster.md))
+- `client_policies.php` — split-horizon DNS
+- `dns_security.php` — DNSSEC + QNAME minimization
+- `doh_inbound.php` — TLS inbound do Unbound
+- `geo_blocking.php` — bloqueio por país
+- `external_health.php` — probes externos
+- `notifications.php` — preferências de digest
+- `observability.php` — workers + Prometheus + Grafana
+- `orgs.php` — multi-tenant
+- `hosts.php` — multi-host gerenciado
+- `sso.php` — OIDC com PKCE + group mapping
+- `audit.php` — admin audit log
+- `approvals.php` — workflow de aprovação
+- `secrets.php` — gestão de SECRETS_MASTER_KEY
+- `backups.php` — destinos S3 múltiplos + restore
+- `updates.php` — self-update + histórico
+- `webhooks.php`, `sessions.php`, `performance.php`, `recover.php`, `reset.php`, `compliance.php`
+
+### Features transversais
+
+- **Multi-tenant** — modelo, helper `resolve_viewer_org_id`, padrão `NULL = global` (exceto `blocklist_exceptions` que usa `org_id = 0`)
+- **OIDC** — claim parsing (dot-path), group mapping com role rank, PKCE
+- **`SECRETS_MASTER_KEY`** — formato Fernet, fallback plaintext, `secrets_migrator`
+- **Workers asyncio** — supervisor, backoff, lifecycle, métricas
+- **Backup multi-S3** — destinations service, cache de tarball, restore test runner
+- **i18n** — `t()` PHP vs `window.t()` JS, namespace `js.*` pra toasts cross-cutting
+
+---
+
+## Como usar esta pasta no estado atual
+
+1. Para arquitetura/setup: use os arquivos no diretório raiz ([SISTEMA.md](../SISTEMA.md), [MANUAL_INSTALACAO.md](../MANUAL_INSTALACAO.md)).
+2. Para endpoints específicos: consulte o Swagger.
+3. Para entender o histórico de evolução: [CHANGELOG.md](../CHANGELOG.md) (agrupado por dia desde 2026-05-26).
+4. Os arquivos `> ⚠️ DEPRECATED` podem ainda ter valor histórico (entender de onde veio um padrão), mas não confie nos detalhes específicos de implementação.

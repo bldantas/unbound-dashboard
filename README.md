@@ -7,11 +7,11 @@ Painel de administração web para o servidor DNS **Unbound**, com monitoramento
 | Camada | Tecnologia |
 |---|---|
 | Frontend | PHP 8.1+ (Apache + PHP-FPM via mod_proxy_fcgi), Tailwind CSS, Vanilla JS, Chart.js |
-| API | FastAPI (Python 3.11+) servida por uvicorn em `127.0.0.1:8001` |
+| API | FastAPI (Python 3.13+) servida por uvicorn em `127.0.0.1:8001` — 37 routers `/api/v1/*` |
 | Banco | DuckDB (arquivo único em `/var/lib/unbound-dashboard/unbound_dash.duckdb`) |
-| Cache / Queue | Redis 7+ |
+| Cache / Queue / Pub-Sub | Redis 7+ |
 | Resolver | Unbound 1.17+ |
-| Workers | asyncio: `LogWatcher`, `StatsAggregator`, `AlertChecker`, `JsonExporter` |
+| Workers | 18 asyncio supervisionados (LogWatcher, StatsAggregator, AlertChecker, UnboundCollector, UpdateChecker, HostPoller, BlocklistSyncer, AnomalyDetector, BackupUploader, QueryLogPruner, NotificationPruner, AuditPruner, PrometheusExporter, HAPeerMonitor, ExternalHealthPruner, RestoreTestRunner, BaselineLearner, GeoBlockUpdater, DigestSender) |
 
 O Apache faz reverse proxy de `/api/v1/*` para o FastAPI; o restante das rotas (páginas PHP, AJAX legado) é servido por PHP-FPM via `mod_proxy_fcgi`. JWT (HS256) é compartilhado entre PHP e FastAPI via sessão.
 
@@ -19,16 +19,46 @@ O Apache faz reverse proxy de `/api/v1/*` para o FastAPI; o restante das rotas (
 
 ## Funcionalidades
 
-- **Dashboard principal** — métricas em tempo real (queries, bloqueios, latência, uso de recursos)
-- **Histórico DNS** — consulta e filtragem de registros de consultas
-- **Blocklist** — gerenciamento de listas de bloqueio (StevenBlack, Hagezi, ANATEL/Anablock judicial)
-- **Alertas** — detecção automática de anomalias e alertas configuráveis
-- **Diagnósticos** — testes de conectividade, rede e serviços
-- **Benchmark DNS** — comparação de performance entre 8 resolvers (3 rounds)
-- **Logs ao vivo** — visualização em tempo real dos logs do Unbound
-- **Exportação** — backup e exportação de dados e configurações
-- **Configuração** — interface para configurar o Unbound sem editar arquivos manualmente
-- **Saúde & Auditoria** — verificação de integridade de componentes, status systemd e auto-reparo
+### Operação
+- **Dashboard principal** — widgets: Alertas Ativos, Saúde de Infra, Workers, Live stream mini (WS), Top países 24h, Multi-host overview, Top 5 + Recent activity (tabbed)
+- **Live stream** — feed contínuo de queries via WebSocket
+- **Histórico DNS** — consulta e filtragem de registros
+- **Diagnósticos** + **Benchmark DNS** (3 rounds, 8 resolvers)
+- **Saúde & Auto-reparo** — DuckDB/Redis/Apache/Unbound status
+
+### DNS + Blocklists
+- **Blocklists multi-fonte** — 10 presets curados (StevenBlack, Hagezi, OISD, AdGuard, NoCoin, EasyPrivacy…) com toggle indexar/bloquear independentes + allowlist global ou por org
+- **ANATEL/Anablock** — busca dedicada na base judicial em `/blocklist.php`
+- **Client policies** — split-horizon DNS por CIDR/IP via `access-control-view` + views Unbound
+- **DNS Security** — DNSSEC, QNAME minimization, harden options
+- **Geo blocking** — bloqueio por país via CIDRs MaxMind
+- **DoH inbound** — TLS terminado no Unbound
+
+### Multi-tenant + Cluster
+- **Organizations** — filtros por org em hosts, alerts, audit, policies, blocklist
+- **Multi-host gerenciado** — poller agrega métricas de hosts secundários via api_tokens
+- **Cluster HA** — peers com healthcheck autenticado (`/api/v1/cluster/peer-ping` + shared-secret-per-link). Ver [docs/pages/cluster.md](docs/pages/cluster.md)
+
+### Segurança
+- **RBAC** com 4 papéis + custom roles + 12 capabilities
+- **2FA TOTP** opt-in por usuário
+- **OIDC SSO** com PKCE S256 + group mapping (role rank)
+- **JWT denylist** em Redis (revogação imediata)
+- **`SECRETS_MASTER_KEY`** (Fernet) cifra secrets em DB; `secrets_migrator` corrige plaintext legacy na partida
+- **Admin audit** persistente (DuckDB)
+
+### Notificações & Backup
+- **Email/SMTP** + **Webhooks** + **Digest diário HTML** com preferências por user
+- **Backup multi-S3** (AWS/MinIO/Wasabi/R2/B2) com cache de tarball compartilhado
+- **Restore test runner** smoke periódico do backup
+
+### Atualização
+- **Self-update via UI** — botão + histórico + auditoria + rollback automático em falha
+- **Notificação por email/webhook** quando release nova
+- **Aplicação automática** do drop-in `unbound.service.d/logfile.conf` (resolve bug do stderr→journal em Debian/Ubuntu modernos)
+
+### Internacionalização
+- **i18n pt-BR + en** server-side (`t()`) e client-side (`window.t()`) — ~24 páginas migradas, namespace `js.*` pra toasts cross-cutting
 
 ## Requisitos
 
@@ -150,11 +180,15 @@ e cópia do `api-v1.env`.
 
 ## Documentação
 
-A documentação completa de componentes, APIs e páginas está em [docs/](docs/README.md).
+- [SISTEMA.md](SISTEMA.md) — arquitetura completa, lista de routers/services/workers, RBAC, segurança, observabilidade
+- [MANUAL_INSTALACAO.md](MANUAL_INSTALACAO.md) — instalação passo a passo (one-liner GitHub ou pacote versionado)
+- [CHANGELOG.md](CHANGELOG.md) — histórico completo de releases (formato agrupado por dia desde v2.39)
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — problemas comuns e soluções
+- [docs/pages/cluster.md](docs/pages/cluster.md) — guia de setup do cluster HA
+- [docs/PLANO_MODERNIZACAO_V1.md](docs/PLANO_MODERNIZACAO_V1.md) — doc canônica da migração MariaDB → DuckDB (concluída em v2.2.0)
+- Swagger interativo da API: `/api/v1/docs` (no servidor instalado)
 
-- [Plano de Modernização v1](docs/PLANO_MODERNIZACAO_V1.md) — doc canônica da migração MariaDB → DuckDB
-- [Troubleshooting](docs/TROUBLESHOOTING.md) — problemas comuns e soluções
-- [Manual de Instalação](MANUAL_INSTALACAO.md) — guia passo a passo
+> Os arquivos em [docs/components/](docs/components/) e [docs/api/](docs/api/) descrevem código pré-modernização v2.2 (classes PHP/endpoints PHP que foram removidos ou migrados). Mantidos por histórico; ver os headers `[DEPRECATED]`.
 
 ## Changelog
 

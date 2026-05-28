@@ -1,306 +1,252 @@
-# Unbound Dashboard - Documentação do Sistema
+# Unbound Dashboard — Documentação do Sistema
 
-O **Unbound Dashboard** é uma aplicação web para gerenciar, monitorar e configurar o servidor DNS Unbound, com ferramentas completas para administração do sistema operacional subjacente.
+Painel de administração web para o servidor DNS **Unbound**, com observabilidade em tempo real, blocklists multi-fonte, alertas, multi-tenant, cluster HA, e ferramentas completas de administração do SO subjacente.
 
-A partir da v2.2.0 (2026-05-04), o sistema é híbrido: frontend PHP servindo as páginas + backend Python/FastAPI para dados, persistência (DuckDB) e workers assíncronos. MariaDB foi removido. Apache faz reverse proxy de `/api/v1/*` para o FastAPI em `127.0.0.1:8001`.
+**Stack atual (v2.103.x):** PHP (frontend SSR via Apache+PHP-FPM) + FastAPI/DuckDB/Redis (backend Python) + Unbound 1.17+. MariaDB foi removido em 2026-05-04 (v2.2.0). Apache faz reverse proxy de `/api/v1/*` pro FastAPI em `127.0.0.1:8001`.
+
+Para o histórico de releases consulte o [CHANGELOG.md](CHANGELOG.md). Para instalação consulte o [MANUAL_INSTALACAO.md](MANUAL_INSTALACAO.md).
 
 ---
 
-## 🏗 Estrutura de Diretórios
+## Estrutura de Diretórios
 
 ```
 .
-├── api/             # Endpoints PHP legados (transição → FastAPI)
-├── api_service/     # FastAPI app: routers, services, repositories, workers, migrations
+├── api/                 # Endpoints PHP em transição → FastAPI (resíduos)
+├── api_service/         # FastAPI app (foco da modernização v1)
 │   ├── app/
-│   │   ├── core/        # config (+ GITHUB_TOKEN), security (JWT), deps,
-│   │   │                 # rate_limit, metrics, rbac (4 roles + 11 capabilities)
-│   │   ├── routers/     # auth, alerts, audit, blocklist, exports, health,
-│   │   │                 # history, stats, threats, unbound, updates, users, webhooks
-│   │   ├── services/    # auth, audit, email_notifier, history, jwt_denylist,
-│   │   │                 # sessions, stats, threats, totp, unbound_stats, updater,
-│   │   │                 # users, webhook_notifier
-│   │   ├── repositories/duckdb/  # acesso DuckDB (connection.py com retry + N repos)
-│   │   ├── workers/     # alert_checker, log_watcher, stats_aggregator,
-│   │   │                 # unbound_collector, update_checker (6h GitHub poll)
-│   │   ├── infrastructure/  # redis_client, shell, system_health, unbound
-│   │   └── db/          # runner de migrations idempotente
-│   ├── migrations/duckdb/   # V1..V5: initial, last_login, auth_sessions, totp, update_audit
-│   ├── deployments/         # systemd unit, apache, env example
-│   ├── tools/               # create_admin.py, migrate_mariadb_to_duckdb.py (one-time)
-│   └── tests/               # 110+ testes (pytest + pytest-asyncio)
-├── docs/            # Documentação de componentes, APIs e páginas
-├── includes/        # Partials HTML (sidebar, topbar, head, footer)
-├── scripts/         # update_blacklist.php (chama api_service via ApiClient)
-├── src/             # Classes PHP: Auth, ApiClient, Managers, Monitors
-├── tools/           # build-package.sh, install.sh, update.sh, build-update.sh
-├── data/            # Cache de runtime, snapshots JSON (gitignored)
-└── *.php            # Páginas: index, config, history, alerts, threats, blocklist, etc.
+│   │   ├── core/        # config, security (JWT/PKCE), deps, rate_limit, metrics, rbac
+│   │   ├── routers/     # 37 routers — /api/v1/* (ver lista abaixo)
+│   │   ├── services/    # 33+ services (lógica de domínio)
+│   │   ├── repositories/duckdb/  # acesso DuckDB serializado por executor
+│   │   ├── workers/     # 18 workers asyncio supervisionados (ver lista abaixo)
+│   │   ├── infrastructure/  # redis_client, shell allowlisted, system_health, unbound
+│   │   └── db/          # runner idempotente de migrations
+│   ├── migrations/duckdb/   # V1..V29 — schema versionado
+│   ├── deployments/         # systemd unit, Apache conf, drop-in unbound, env example
+│   ├── tools/               # create_admin, migrate_mariadb_to_duckdb (one-time)
+│   └── tests/               # ~190+ testes (pytest + pytest-asyncio)
+├── docs/                # Documentação técnica (parcialmente legada — ver docs/README.md)
+├── includes/            # Partials HTML: sidebar, topbar, head, footer, custom_modals
+├── scripts/             # Scripts utilitários remanescentes (ex: update_blacklist.php)
+├── src/                 # Classes PHP: Auth, ApiClient, I18n, configurações
+├── tools/               # build-package, install, update, build-update, release.sh
+├── data/                # Cache/snapshots de runtime (gitignored)
+├── lang/                # Arquivos pt-BR e en (i18n PHP + window.t() JS)
+└── *.php                # 43 páginas da interface (ver Frontend abaixo)
 ```
 
-**Banco DuckDB**: arquivo único em `/var/lib/unbound-dashboard/unbound_dash.duckdb` (owned by `www-data`).
-
-**EnvironmentFile**: `/etc/unbound-dashboard/api-v1.env` (chmod 640, owner `root:www-data`) — contém `JWT_SECRET`, `DB_PATH`, `REDIS_URL`, etc.
-
+**Banco DuckDB**: arquivo único em `/var/lib/unbound-dashboard/unbound_dash.duckdb` (owner `www-data`).
+**EnvironmentFile**: `/etc/unbound-dashboard/api-v1.env` (chmod 640, root:www-data) — `JWT_SECRET`, `DB_PATH`, `REDIS_URL`, **`SECRETS_MASTER_KEY`** (Fernet 32-byte), `GITHUB_TOKEN` (opcional).
 **Backups**: `/var/backups/unbound-dashboard/` — gerados pelo `update.sh` antes de cada update.
 
 ---
 
-## ⚙️ Componentes Principais (`/src/`)
+## Backend FastAPI (`api_service/app/`)
 
-A lógica nuclear da aplicação reside nos módulos em `/src/`:
+### Routers (37) — `/api/v1/*`
 
-1. **`UnboundConfigManager`** e **`UnboundManager`**:
-   - Responsáveis diretos pela leitura, reescrita e aplicação de configurações nos arquivos do Unbound (ex: `unbound.conf`).
-2. **`NetworkManager`**:
-   - Gerenciamento de configurações sensíveis do servidor, incluindo interfaces de rede, IPs, e o sincronismo de **NTP/timezone**.
-3. **`SourceBalanceManager`**:
-   - Módulo responsável pelo gerenciamento de políticas de roteamento ou controle de fontes (source balance).
-4. **`ServerMonitor`**, **`SecurityMonitor`**, **`AppMetricsManager`** e **`SystemCheckManager`**:
-   - Monitoramento integrado contínuo da saúde do hardware, tráfego na rede, métricas do Unbound, uptime e detecção de riscos/ameaças.
-   - Após o tear-down do MariaDB, `AppMetricsManager.getMariaDBStats()` retorna stub `offline` permanente; o widget correspondente em `alerts.php` será substituído por status do `api_service`/DuckDB em revisão futura.
-5. **`AlertManager`**:
-   - Agrega falhas, percalços nos processos ou alertas de alta prioridade gerados pelos módulos de monitoramento (ex: CPU alta, memória excedida, serviço parado).
-6. **`DiagnosticsManager`**:
-   - Facilita relatórios detalhados com informações e troubleshooting caso algo de errado ocorra.
-7. **`BlocklistManager`**:
-   - Gerencia as fontes de listas de bloqueio (ex: StevenBlack, Hagezi) e integrações com o Anablock/ANATEL.
+| Domínio | Routers |
+|---|---|
+| Auth & Identidade | `auth`, `users`, `api_tokens`, `oidc`, `organizations`, `secrets` |
+| DNS & Blocklists | `blocklist`, `policies` (split-horizon), `dns_security` (DNSSEC/QNAME min), `doh_inbound`, `geo_blocking`, `geoip` |
+| Operação | `unbound`, `stats`, `threats`, `history`, `analytics`, `observability`, `health`, `host` |
+| Alertas & Notificações | `alerts`, `notifications`, `webhooks`, `external_health`, `approvals` |
+| Cluster & Multi-host | `cluster` (peer-ping autenticado), `ha`, `hosts` |
+| Backup & Compliance | `backup_offsite`, `compliance`, `audit`, `updates`, `exports` |
+| Misc | `grafana`, `rate_limits`, `ws_notifications`, `ws_queries` |
 
----
+Swagger auto-gerado em [/api/v1/docs](http://localhost:8001/api/v1/docs) (também via Apache em prod).
 
-## 🎨 Frontend (Telas) e Funcionalidades
+### Services (33+) — lógica de domínio
 
-As principais views disponíveis para o usuário acessar a partir dos menus do sistema:
+`auth`, `audit`, `admin_audit`, `email_notifier`, `webhook_notifier`, `history`, `jwt_denylist`, `sessions`, `stats`, `threats`, `totp`, `unbound_stats`, `updater`, `users`, `oidc`, `cipher` (Fernet), **`secrets_migrator`** (one-shot na partida), `ha`, `managed_hosts`, `multi_host_sync`, `notification_prefs`, `organizations`, `pdf_report`, `query_broker`, `alerts_broker`, `geoip`, `geo_blocking`, `dns_security`, `doh_inbound`, `external_health`, `backup_offsite`, `backup_destinations`, `blocked_matcher`, `approval`, `api_tokens`.
 
-- **Dashboard Principal (`index.php`)**: Exibe estatísticas gerais e visão panorâmica da resolução de nomes (DNS). O card de latência exibe a **Latência Efetiva** (ponderada pela taxa de cache), com detalhes de **Recursão** (tempo bruto de ida ao upstream) e **Mediana** como subtítulos.
-- **Configuração (`config.php`)**: Interface principal para ditar regras, encaminhamentos e gerir de fato os arquivos do DNS.
-- **Painel de Saúde (`health.php`) e Alertas (`alerts.php`)**: Visualização limpa e premium do estado atual da máquina (CPU, RAM, Disco) e pendências de estabilidade.
-- **Diagnostics (`diagnostics.php`)**, **Logs (`logs.php`)** e **History (`history.php`)**: Ferramentas cruciais para depurar requisições em tempo real e consultar o histórico de resolução/bloqueios (incluindo recursos estendidos de delimitação dinâmica e grids ajustados para visualização do fluxo em full-width). A aba **Live Sniffer** em Logs intercepta pacotes DNS em tempo real via polling do `api/live_log.php`, diferenciando visualmente consultas `[QUERY]` de respostas `[REPLY]` com cores distintas.
-- **Central de Exportação (`exports.php`)**: Página dedicada para download de dados do sistema. Oferece 5 tipos de exportação: Consultas DNS (CSV), Relatório de Estatísticas (JSON), Log do Sistema (TXT), Backup de Configurações (TAR.GZ) e Lista de Bloqueios (CSV). Todos os downloads são gerados sob demanda via `api/export.php`.
-- **Recover (`recover.php`)**: Redefinição de senha via token enviado por email. Configuração inicial não tem mais wizard — é feita pelo `install.sh` (que cria o admin via `api_service/tools/create_admin.py`). Acesso ao sistema antes da instalação retorna 503 em `not_installed.php`.
-- **DNS Benchmark (`dns_benchmark.php`) e Threats (`threats.php`)**: Avaliação da latência global e listas de acesso/firewall ou proteção contra ameaças de malware.
-- **Lista Judicial ANATEL (`blocklist.php`)**: Interface de consulta avançada para domínios bloqueados por ordem judicial (Anablock). Permite busca por palavras-chave, filtragem por TLD (top-level domain) e visualização de estatísticas da base de dados judicial.
+### Workers (18) — asyncio supervisionados
 
----
+Todos rodam dentro do uvicorn, com backoff exponencial (1s→60s) em crash. Listados em [api_service/app/main.py](api_service/app/main.py):
 
-## 🌓 Sistema de Temas e Interface (Modo TV)
-
-O dashboard conta com um sistema de interface moderno e adaptável:
-
-1. **Temas Dinâmicos**: Suporte a modos **Claro**, **Escuro** e **Padrão do Sistema**, alternáveis via ícone Sol/Lua na topbar. A preferência é persistida no `localStorage` do navegador.
-2. **Sidebar Colapsável**: O menu lateral pode ser ocultado completamente para maximizar a área de visualização, ideal para exibição em TVs ou monitores de monitoramento (*NOC*). O estado é persistido via `localStorage`.
-3. **Topbar com Status do Serviço**: A barra superior exibe em tempo real o status do daemon Unbound (Online/Offline) com indicador pulsante, o tempo de uptime, seletor de tema e informações do usuário logado.
-4. **Design Responsivo**: Layout otimizado com Grid e Flexbox (Tailwind CSS) para diferentes resoluções.
-
-### Arquitetura de Componentes de UI
-
-| Componente | Arquivo | Função |
+| Worker | Tick | Função |
 |---|---|---|
-| Head | `includes/head.php` | Carrega Tailwind CDN com `darkMode: 'class'`, aplica tema antes da renderização (prevenção de FOUC), carrega fontes e CSS |
-| Topbar | `includes/topbar.php` | Barra superior sticky com toggle de sidebar, status do serviço/uptime, seletor de tema e perfil do usuário |
-| Sidebar | `includes/sidebar.php` | Menu lateral com navegação, badge de alertas e ação de logout |
-| Footer | `includes/footer.php` | Rodapé padrão |
-| CSS | `src/dashboard.css` | Variáveis CSS dinâmicas (`:root` / `html.dark`), estilos glassmorphism, tabelas, formulários e animações |
+| `LogWatcher` | 5s flush | Tail `/var/log/unbound/unbound.log` → batch insert em `query_logs` |
+| `StatsAggregator` | 60s | UPSERT em `daily_stats`, `hourly_stats` |
+| `UnboundCollector` | 60s | `unbound-control stats_noreset` → JSON cache + delta |
+| `AlertChecker` | 60s | 8 categorias (no_queries, cpu, mem, swap, disk, network, ssh_failed, webserver) com dedupe + auto-resolve |
+| `UpdateChecker` | 6h | Polla GitHub Releases, popula Redis cache; notifica email/webhook |
+| `HostPoller` | configurável | Multi-host: agrega métricas de hosts gerenciados via api_tokens |
+| `BlocklistSyncer` | horário | Re-baixa blocklists das fontes habilitadas (StevenBlack, Hagezi, OISD, AdGuard, NoCoin, EasyPrivacy, etc) |
+| `AnomalyDetector` | configurável | Detecção de spikes em `query_logs` baseado em baseline aprendido |
+| `BackupUploader` | diário | Multi-S3 (AWS/MinIO/Wasabi/R2/B2) com cache de tarball compartilhado |
+| `QueryLogPruner` | diário | Retenção rolling de `query_logs` |
+| `NotificationPruner` | diário | Retenção de notificações |
+| `AuditPruner` | diário | Retenção de `admin_audit` |
+| `PrometheusExporter` | 10s | Refresh de métricas custom (`unbound_*`, `worker_*`) em `/metrics` |
+| `HAPeerMonitor` | 30s | Probe autenticado `/api/v1/cluster/peer-ping` em todos os peers HA |
+| `ExternalHealthPruner` | diário | Retenção de `external_health_probes` |
+| `RestoreTestRunner` | configurável | Testa restore de backup S3 em DuckDB temporário (smoke periódico) |
+| `BaselineLearner` | configurável | Aprende baseline horário pra `AnomalyDetector` |
+| `GeoBlockUpdater` | diário | Atualiza CIDRs de países bloqueados em `geo_blocks` |
+| `DigestSender` | horário | Digest diário de notificações por email (HTML multipart com badges) |
 
-### Detalhes Técnicos do Sistema de Temas
+Endpoint enumerável em [/api/v1/observability/workers](http://localhost:8001/api/v1/observability/workers).
 
-- **Configuração do Tailwind**: O `tailwind.config` com `darkMode: 'class'` é declarado **após** o carregamento do CDN para que o Tailwind respeite a classe `.dark` no elemento `<html>` em vez de usar `prefers-color-scheme` do sistema operacional.
-- **Variáveis CSS**: O arquivo `dashboard.css` define variáveis em `:root` (tema claro) e `html.dark` (tema escuro) que controlam fundos, bordas, sombras e textos globalmente.
-- **Cores de texto**: Todos os textos de conteúdo usam o padrão `text-slate-900 dark:text-white` ou variantes coloridas com `dark:` prefix para garantir legibilidade em ambos os modos.
-- **Gráficos (Chart.js)**: As cores de labels, grids e legendas dos gráficos são configuradas dinamicamente via `document.documentElement.classList.contains('dark')`.
-- **Páginas migradas**: `index.php`, `config.php`, `history.php`, `alerts.php`, `logs.php`, `threats.php`, `diagnostics.php`, `health.php`, `dns_benchmark.php`, `exports.php`.
+### Migrations DuckDB (V1..V29)
+
+29 migrations idempotentes em [api_service/migrations/duckdb/](api_service/migrations/duckdb/) — desde o schema inicial (V1) até multi-tenant em blocklist_exceptions (V29). Runner aplica em ordem e grava sha256 em `schema_migrations`.
+
 ---
 
-## 👥 Controle de Acesso por Roles (RBAC)
+## Frontend (43 páginas)
 
-O sistema implementa RBAC granular via **capabilities** — centralizado em `api_service/app/core/rbac.py` (Python) com espelho em `src/Auth.php::can()` (PHP). v2.15.0 expandiu de 2 pra 4 papéis.
+Páginas SSR PHP + Tailwind + Vanilla JS. JWT injetado via `<meta name="api-jwt">` pra chamadas AJAX ao FastAPI. Todas suportam tema claro/escuro + i18n (pt-BR/en via `t()` server-side e `window.t()` client-side).
 
-### Papéis Disponíveis (4)
+### Operação (visão geral, NOC)
+
+- `index.php` — dashboard principal com widgets: Alertas Ativos, Saúde de Infra, Workers, Live stream mini, Top países 24h, Multi-host overview, Top 5 + Recent (tabbed)
+- `logs.php` — live sniffer (WS `/api/v1/ws/queries`)
+- `history.php` — histórico DNS com filtros
+- `live_stream.php` — feed contínuo de queries via WebSocket
+- `threats.php`, `blocklist.php` (Judicial ANATEL), `blocklists.php` (multi-source não-judicial + allowlist)
+- `diagnostics.php`, `dns_benchmark.php` (3 rounds, 8 resolvers)
+- `health.php` (DuckDB/Redis/Apache/Unbound status + auto-reparo)
+
+### Configuração & gestão
+
+- `config.php` — configuração principal do Unbound (16 abas: forward zones, DoH/DoT, DNSSEC, performance, etc.)
+- `client_policies.php` — split-horizon DNS por CIDR/IP via `access-control-view` + views
+- `dns_security.php` — DNSSEC + QNAME minimization + harden options
+- `doh_inbound.php` — TLS inbound + cert management
+- `geo_blocking.php` — bloqueio por país via CIDRs MaxMind/geofeeds
+- `external_health.php` — probes externos (CDN, DoH público, etc.)
+
+### Multi-tenant & cluster
+
+- `orgs.php` — gestão de organizações (multi-tenant)
+- `hosts.php` — multi-host managed (poller + drill-down)
+- `cluster.php` — peers HA com healthcheck autenticado (`/api/v1/cluster/peer-ping`) — ver [docs/pages/cluster.md](docs/pages/cluster.md)
+
+### Segurança & auditoria
+
+- `users.php`, `sessions.php`, `sso.php` (OIDC com PKCE + group mapping)
+- `audit.php` (admin audit log), `approvals.php` (workflows de aprovação)
+- `secrets.php` — gestão de SECRETS_MASTER_KEY + status do cipher_service
+- `webhooks.php`, `smtp.php`
+
+### Backup & manutenção
+
+- `backups.php` — destinos S3 múltiplos + restore + smoke
+- `updates.php` — self-update via UI (botão + histórico + auditoria)
+- `notifications.php` — preferências de digest + retenção
+
+### Misc
+
+- `compliance.php`, `performance.php`, `observability.php`, `recover.php`, `reset.php`, `login.php`, `profile.php`, `changelog.php`, `release.php`
+
+---
+
+## RBAC
+
+Centralizado em [api_service/app/core/rbac.py](api_service/app/core/rbac.py) (Python) com espelho em [src/Auth.php::can()](src/Auth.php).
+
+### Papéis (4)
 
 | Papel | Descrição |
 |---|---|
-| **admin** | Acesso total: configuração, gestão de usuários, alertas, SMTP/webhooks, updates |
-| **readonly_admin** | Vê tudo (inclui SMTP/webhooks/users) mas não modifica nada |
-| **operator** | NOC: resolve alertas, modifica blocklist, vê threats. Sem acesso a SMTP/webhooks/users |
-| **viewer** | Read-only básico: dashboard, history, threats |
+| **admin** | Acesso total |
+| **readonly_admin** | Vê tudo (inclui SMTP/webhooks/users) mas não modifica |
+| **operator** | NOC: resolve alertas, modifica blocklist, vê threats |
+| **viewer** | Read-only básico |
 
-### Capabilities (11) → Roles
+Custom roles podem ser criadas em runtime (v2.15+) — combinações arbitrárias de capabilities.
 
-| Capability | Roles |
-|---|---|
-| `config.write` | admin |
-| `users.manage` | admin |
-| `webhooks.manage` | admin |
-| `smtp.manage` | admin |
-| `alerts.resolve` | admin, operator |
-| `blocklist.write` | admin, operator |
-| `alerts.read` | admin, readonly_admin, operator |
-| `blocklist.read` | admin, readonly_admin, operator |
-| `users.read` | admin, readonly_admin |
-| `config.read_sensitive` | admin, readonly_admin |
-| `dashboard.read` | todos |
+### Capabilities (12+)
 
-### Implementação
+`config.write`, `config.read_sensitive`, `users.manage`, `users.read`, `webhooks.manage`, `smtp.manage`, `alerts.resolve`, `alerts.read`, `blocklist.write`, `blocklist.read`, `dashboard.read`. Ver `_DEFAULT_CAPS` em [rbac.py](api_service/app/core/rbac.py) pro mapping atual.
 
-- **Backend (Python)**: `require_capability("cap")` dependency em FastAPI endpoints. Ex: `Depends(require_capability("alerts.resolve"))`.
-- **Frontend (PHP)**: `Auth::can('cap')` espelha o mapeamento. Páginas e botões usam essa checagem ao invés do `Auth::isAdmin()` legado.
-- **Catálogo de roles**: `Auth::rolesCatalog()` retorna metadata (label + descrição) usado em dropdowns.
+### Multi-tenant
 
-### Outros recursos de segurança
-
-- **2FA TOTP opt-in** (v2.16.0): cada user pode ativar 2FA via app autenticador. Login fica em 2 passos (challenge_token + code TOTP). Admin pode resetar 2FA de outros users.
-- **JWT + denylist Redis** (v2.9.0): user desativado → todos os tokens dele caem imediatamente (sem esperar JWT expirar).
-- **Sliding session** (v2.7.0): refresh silencioso quando JWT está perto de expirar.
-- **Sessões ativas persistentes** (v2.10.0/v2.13.0): tracked em Redis (fast) + DuckDB (sobrevive restart). User vê suas sessões + encerra individualmente na aba Perfil.
-- **Audit log de updates** (v2.19.0): tabela DuckDB `update_audit` registra cada update/restore com user_id, username, IP, from/to_version, status e duração. Aba dedicada "Auditoria".
+Tabelas com `org_id`: `users`, `managed_hosts`, `alerts`, `admin_audit`, `client_policies`, `blocklist_exceptions` (V29: PK composto `(domain, org_id)`, sentinela `0 = global`). Filtro padrão: viewer global vê tudo; viewer org-scoped vê globais + da própria org. Helper `resolve_viewer_org_id(payload)` em [core/deps.py](api_service/app/core/deps.py).
 
 ---
 
-## 🔒 Segurança e Práticas do Sistema
+## Segurança
 
-Muitas das funções do *Unbound Dashboard* exigem privilégios elevados (`root`). Para contornar e prover acesso seguro ao servidor da web (`www-data` no Apache), o sistema faz forte uso de:
-- Regras minuciosas de escalonamento registradas em `/etc/sudoers.d/unbound-dashboard` para que o painel consiga executar reinícios de serviços e ajustes de permissão de maneira isolada.
-- Operações de `I/O` em arquivos de configuração que recorrem à pasta `/var/www/html/unbound-dashboard/data/` em substituição ao uso direto da partição `/tmp/`, para evitar bloqueios de diretórios isolados decorrentes da política padrão do `PrivateTmp=true` vigente no Apache.
-- **Proteção Antifraude e CSRF**: Implementação de barreira estrutural para bloqueio de vulnerabilidades CSRF em rotas administrativas (ex: `config.php`). A classe `Auth` forja e exige tokens dinâmicos encriptados por sessão para prever acessos indevidos e injeção de reconfigurações advindas de abas terceiras, validando todo envio `POST` antes de acionar executáveis do sistema.
-- **Sudoers e comandos exatos**: Os comandos `exec()` no PHP devem usar parâmetros **idênticos** aos registrados em `/etc/sudoers.d/unbound-dashboard`. Por exemplo, `tail -n 300` e `journalctl -n 300 --no-pager` são as formas autorizadas — qualquer variação (como `-n 40`) será rejeitada silenciosamente pelo `sudo`.
+### Autenticação
+
+- **JWT HS256** com 60min expiração + sliding refresh
+- **Denylist Redis** pra revogar tokens antes da expiração
+- **Lockout** 5 falhas → 15min de bloqueio
+- **Rate limit** via slowapi (10/min em `/login`, 200/min default)
+- **Timing-safe** bcrypt dummy quando user não existe
+- **2FA TOTP** opt-in por user; admin pode resetar
+- **OIDC SSO** com **PKCE S256** (RFC 7636) + group mapping com role rank (admin > readonly_admin > operator > viewer)
+
+### Secrets em DB
+
+- **`SECRETS_MASTER_KEY`** (Fernet 32-byte em env) cifra `oidc_config.client_secret`, `ha_peers.api_token_raw_encrypted`, `backup_destinations.secret_key`
+- Sem master key: fallback plaintext com warning no startup (NÃO recomendado em prod)
+- `secrets_migrator` cifra automaticamente secrets pré-existentes na primeira partida após master key ser configurada — idempotente
+
+### CSRF + sudoers
+
+- CSRF token dinâmico por sessão (`Auth::csrfToken()`) validado em todo POST
+- `/etc/sudoers.d/unbound-dashboard` com comandos exatos (`tail -n 300`, `journalctl -n 300 --no-pager`, etc) — qualquer variação é rejeitada silenciosamente
+- Shell allowlist em `infrastructure/shell.py` no api_service (só `/usr/sbin/unbound-control`, `/usr/bin/systemctl`, `/usr/bin/journalctl`)
+
+### Cluster HA (shared-secret-per-link)
+
+Cada par A↔B compartilha um token raw. Ambos os lados guardam: raw cifrado (pra mandar como `X-Api-Token`) + bcrypt hash (pra verificar). Endpoint `/api/v1/cluster/peer-ping` valida bcrypt contra todos hashes locais. Ver [docs/pages/cluster.md](docs/pages/cluster.md) pro setup em 3 passos.
 
 ---
 
-## 📊 Cálculo de Métricas do Dashboard
+## Observabilidade
+
+- **Prometheus** em `/metrics` (sem auth) — métricas custom: `unbound_queries_ingested_total{action}`, `unbound_worker_queue_size`, `unbound_worker_errors_total{worker}` + métricas FastAPI default
+- **Grafana** dashboards versionados em [docs/grafana/](docs/grafana/)
+- **Structlog JSON** em todos os workers e services
+- **`X-Request-ID`** injetado em todas requisições FastAPI
+- **Audit log persistente** em `admin_audit` (DuckDB) — todas as ações críticas registradas com snapshot do org
+
+---
+
+## Cálculo de Métricas
 
 ### Latência Efetiva (Ponderada)
-
-O Unbound reporta `total.recursion.time.avg` como o tempo médio de resolução **apenas para consultas recursivas** (cache miss). Consultas servidas do cache têm latência ≈ 0ms e não entram nessa estatística.
-
-Para evitar exibir um valor inflado, o sistema calcula a **latência efetiva ponderada**:
 
 ```
 latência_efetiva = latência_recursão × taxa_de_miss
 ```
 
-**Exemplo real**: Com latência de recursão de 177ms e cache hit de 55%:
-- Exibição antiga (incorreta): `177.3 ms`
-- Exibição atual (correta): `177.3 × 0.45 = 80.0 ms`
+Card no dashboard exibe: valor principal (efetiva), subtítulo 1 (recursão bruta em âmbar), subtítulo 2 (mediana em verde).
 
-O card de latência no dashboard exibe:
-- **Valor principal**: Latência Efetiva (ponderada)
-- **Subtítulo 1**: Recursão (tempo bruto do upstream, em âmbar)
-- **Subtítulo 2**: Mediana (mediana da recursão, em verde)
+### Live Sniffer
 
-### Live Sniffer (`api/live_log.php`)
-
-O Live Sniffer captura pacotes DNS em tempo real do Unbound via `journalctl` ou `/var/log/unbound.log`. As regex de parsing diferenciam dois tipos de linha:
-
-| Tipo | Formato Unbound | Regex |
-|---|---|---|
-| **Query** | `info: IP DOMAIN QTYPE IN` (linha termina após IN) | `/info:\s+IP\s+DOMAIN\s+QTYPE\s+IN\s*$/` |
-| **Reply** | `info: IP DOMAIN QTYPE IN RCODE TIME FLAGS TTL` | `/info:\s+IP\s+DOMAIN\s+QTYPE\s+IN\s+RCODE\s+TIME/` |
-
-> **Nota**: O Unbound **não** usa a palavra `reply` nas linhas de log (diferente do dnsmasq). A distinção é feita pela presença de campos extras (RCODE, tempo) após `IN`.
+Hoje via WebSocket `/api/v1/ws/queries` (broker em memória). Endpoint `api/live_log.php` legado mantido como fallback histórico.
 
 ---
 
-## 📝 Histórico de Correções
+## Histórico de Marcos
 
-### [2026-05-04] v2.2.0 — Tear-down do MariaDB
+| Marco | Versão | Data |
+|---|---|---|
+| Modernização v1 in-place (Strangler Fig: FastAPI/DuckDB/Redis em paralelo) | v2.1.0 | 2026-04-29 |
+| Tear-down do MariaDB (sistema 100% DuckDB) | v2.2.0 | 2026-05-04 |
+| Multi-host gerenciado | v2.21-v2.22 | 2026-05-09 |
+| Self-update via UI | v2.17.0 | 2026-05-15 |
+| Multi-source blocklist + 10 presets curados | v2.32.0 | 2026-05-25 |
+| Client policies split-horizon | v2.33.0 | 2026-05-25 |
+| RBAC + custom roles + 2FA TOTP | v2.16.3 | 2026-05-13 |
+| SECRETS_MASTER_KEY + PKCE + backup multi-S3 cache | v2.101.0 | 2026-05-28 |
+| Multi-tenant (orgs) — hosts/alerts/audit/policies/blocklist | v2.92-v2.102 | 2026-05-28 |
+| Cluster HA bidirecional autenticado | v2.103.0+ | 2026-05-28 |
 
-**Marco**: sistema migrado para 100% DuckDB. Modernização v1 in-place concluída.
+Detalhes em [CHANGELOG.md](CHANGELOG.md).
 
-**Alterações**:
-- Todos os 6 Managers PHP (`Blocklist`, `SourceBalance`, `Alert`, `Unbound`, `UnboundConfig`, `SystemCheck`) migrados para `App\ApiClient` (cURL → FastAPI).
-- `src/Database.php` neutralizado (stub que lança `PDOException` em vez de `die()`).
-- `AppMetricsManager` desacoplado do PDO; `getMariaDBStats()` retorna `offline` fixo.
-- `scripts/update_blacklist.php` reescrito sobre `ApiClient` + JWT via env var.
-- `health.php`: card MariaDB removido, novos checks de status systemd (`unbound-dashboard-api`, Redis, Apache, Unbound) e novos componentes (DuckDB, env file, backups dir).
-- `history.php`: removida dependência incondicional de `Database::getInstance()` que travava o loader.
-- `dns_benchmark.php`: 3 rounds com modal "Teste X de 3" e agregação cliente-side.
-- `tools/build-package.sh`, `install.sh`, `update.sh`, `build-update.sh` reescritos para a stack DuckDB+FastAPI+Redis.
-- `api_service/tools/create_admin.py` adicionado para bootstrap idempotente do admin no install.
+---
 
-### [2026-04-29] v2.1.0 — Modernização in-place (Strangler Fig)
+## Para entender o código
 
-**Backend**: `api_service/` (FastAPI/DuckDB/Redis) deployado em paralelo ao PHP+MariaDB. Workers asyncio (LogWatcher, StatsAggregator, AlertChecker, JsonExporter), métricas Prometheus em `/metrics`, rate limiting (slowapi), CORS, JWT (HS256) compartilhado entre PHP e FastAPI via sessão.
-
-**Auth**: `src/ApiClient.php` (cURL) com `get/post/put/delete/login/changePassword`. Login PHP delega para `/api/v1/auth/login` e guarda `api_jwt` em `$_SESSION`.
-
-**Páginas migradas**: Dashboard, Threats, History, Alerts, Blocklist, Config, Diagnostics, Service Control, Export.
-
-### [2026-04-04] Live Sniffer — Correção de Regex e Permissões
-
-**Problema**: O Live Sniffer ficava travado em "Inicializando interceptador de pacotes..." sem exibir dados.
-
-**Causas identificadas**:
-1. **Sudoers**: A API usava `tail -n 40` e `journalctl -n 40`, mas o sudoers só autoriza `-n 300`. O `sudo` rejeitava silenciosamente.
-2. **Regex incorreta**: A regex de reply procurava `info: reply ...` (formato dnsmasq), mas o Unbound não usa essa palavra. A regex de query casava com todas as linhas (queries e replies), gerando dados duplicados.
-
-**Correções aplicadas**:
-- `api/live_log.php`: Parâmetros alterados para `-n 300` (alinhado ao sudoers). Regex reescritas para formato real do Unbound.
-- `logs.php`: Template de reply atualizado para incluir IP do cliente.
-
-### [2026-04-04] Latência Média — Cálculo Ponderado
-
-**Problema**: O dashboard exibia ~177ms como "Latência Média", dando a impressão de resolução lenta, quando na verdade esse é o tempo apenas de consultas recursivas (cache miss).
-
-**Correções aplicadas**:
-- `scripts/aggregate_stats.php`: Novo cálculo de latência efetiva ponderada pela taxa de cache miss. Campo `latency_recursion` adicionado ao JSON de cache.
-- `index.php`: Card renomeado para "Latência Efetiva" com subtítulos de Recursão e Mediana.
-- `src/StatsManager.php`: Default do novo campo `latency_recursion` adicionado.
-
-### [2026-04-04] Central de Exportação & Backup — Nova Funcionalidade
-
-**Objetivo**: Permitir que administradores exportem dados do sistema para análise externa ou backup.
-
-**Arquivos criados**:
-- `exports.php`: Página visual com 5 cards de exportação + modal de restauração (design glassmorphism com cores únicas por tipo)
-- `api/export.php`: API backend que gera e transmite os arquivos sob demanda (GET) e processa restauração de backup (POST)
-
-**Tipos de exportação disponíveis**:
-
-| Tipo | Formato | Fonte | Descrição |
-|---|---|---|---|
-| Consultas DNS | CSV (`;`) | `query_logs` (DuckDB via `/api/v1/exports/query-logs`) | Histórico com IP, domínio, tipo e ação. Filtro por período (24h/7d/30d/tudo) |
-| Estatísticas | JSON | `latest_stats.json` + `daily_stats` (DuckDB via `/api/v1/exports/stats-report`) | Métricas atuais, histórico diário, top domínios e top clientes |
-| Log do Sistema | TXT | `journalctl` + `syslog` | Últimas 300 linhas do daemon Unbound e do syslog |
-| Backup Config | TAR.GZ | `/etc/unbound/` | Configs modulares + instâncias multicore + settings do dashboard |
-| Blacklist | CSV (`;`) | `blocklist_domains` (DuckDB via `/api/v1/exports/blocklist`) | Lista completa de domínios bloqueados com categoria |
-
-**Restauração de Backup (Backup Config)**:
-- O card de Backup inclui dois botões: **Exportar** e **Restaurar**
-- O botão Restaurar abre um modal com drag & drop para upload do `.tar.gz`
-- Aviso de confirmação explícito sobre sobrescrita de configurações
-- Fluxo de restauração:
-  1. Valida formato (`.tar.gz`, máx. 5MB) e conteúdo (apenas `.conf` e `.json`)
-  2. Extrai em diretório temporário (`src/data/tmp/`)
-  3. Copia cada `.conf` para `/etc/unbound/` via `sudo cp` (staging area)
-  4. Restaura settings do dashboard no DuckDB via `/api/v1/exports/settings/bulk`
-  5. Valida config com `unbound-checkconf`
-  6. Se válido, reinicia o Unbound automaticamente
-  7. Limpa todos os arquivos temporários
-- Três estados de retorno: **success** (verde), **warning** (validação falhou, âmbar), **error** (vermelho)
-
-**Detalhes técnicos**:
-- CSV usa BOM UTF-8 para compatibilidade com Excel
-- Backup exclui `blocked_domains.conf` (auto-gerado, 2.3MB) e certificados/chaves TLS
-- Downloads são via streaming direto (`php://output`), sem criar arquivos temporários (exceto TAR.GZ)
-- Link adicionado na sidebar sob seção **Ferramentas**
-
-### [2026-04-09] Busca Judicial ANATEL & Refatoração de Gestão
-
-**Objetivo**: Implementar consulta local à base de dados Anablock/ANATEL e corrigir redundâncias na UI.
-
-**Melhorias aplicadas**:
-- **`blocklist.php`**: Nova interface premium com busca em tempo real (debounce de 350ms), filtros dinâmicos de extensões (.bet, .com, etc) e paginação assíncrona via `api/blocklist_search.php`.
-- **Gestão de Usuários**: Consolidação da interface de criação e edição de usuários. A seção de gerenciamento agora é exclusiva da aba "Gestão de Usuários" para administradores, evitando a poluição visual em outras sub-abas de configuração.
-- **`config.php`**: Adicionado suporte para troca dinâmica de fontes de blacklist (StevenBlack vs Hagezi).
-
-### [2026-04-09] Upgrade do Script de Auto-Reparo (Health Fix)
-
-**Objetivo**: Tornar o script `/usr/local/bin/unbound-health-fix.sh` capaz de realizar uma auditoria completa e proativa no sistema.
-
-**Funcionalidades adicionadas**:
-- **Auditoria de Permissões**: Verificação recursiva e correção automática de `owner` e `chmod` nos diretórios `/etc/unbound` e `/data`.
-- **Integridade DNSSEC**: Verificação e regeneração automática de chaves DNSSEC caso detectada corrupção.
-- **Validação de TLS**: Checagem de validade e existência de certificados TLS configurados para DoT/DoH.
-- **Logs de Auditoria**: Registro detalhado de todas as ações de reparo em `/var/log/unbound-health-audit.log`.
-- **Integração com Dashboard**: O script agora pode ser acionado via API de diagnóstico para reparos rápidos em um clique.
-
+- **Backend Python**: comece por [api_service/app/main.py](api_service/app/main.py) (lifespan + workers + include_routers).
+- **Frontend PHP**: comece por [includes/head.php](includes/head.php) (theme, i18n, JWT meta) e [includes/sidebar.php](includes/sidebar.php) (mapa do menu).
+- **DB**: [api_service/migrations/duckdb/V*.sql](api_service/migrations/duckdb/) em ordem cronológica conta a história.
+- **Operação**: [MANUAL_INSTALACAO.md](MANUAL_INSTALACAO.md) + [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
