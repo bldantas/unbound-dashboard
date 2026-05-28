@@ -7,6 +7,14 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### Docs fix — inconsistências do MANUAL_INSTALACAO
+- **v2.104.1**: revisão crítica do manual após v2.104.0 — Bruno perguntou "tá tudo ok?" e fiz cruzamento com os scripts reais. 4 inconsistências:
+  - **Python 3.11+ → 3.13+** (corrigido em MANUAL + README): `pyproject.toml` exige `>=3.13`, mas o manual dizia 3.11+. Em Debian 12 (Python 3.11 default) o `uv` baixa Python 3.13 standalone automaticamente — documentado como overhead esperado.
+  - **"Stack atual (v2.2.x)"** (corrigido): trocado por referência genérica a `VERSION` + `CHANGELOG.md` — estávamos 75 releases à frente.
+  - **`GITHUB_TOKEN` ausente** na tabela do one-liner (corrigido): `install-from-git.sh` aceita pra repo privado, agora documentado.
+  - **Módulos Apache incompletos** (já estava OK no README; só ajustado MANUAL): faltava `mod_proxy_fcgi` (essencial pro PHP-FPM) e `mod_setenvif` na lista do Passo 6 — incluído.
+  - **SO mínimo recomendado** atualizado: Debian 13 / Ubuntu 24.04 (Python 3.13 nativo). Debian 12 / Ubuntu 22.04 ainda funcionam mas com overhead de download do Python 3.13 standalone na primeira instalação.
+
 ### Docs catch-up
 - **v2.104.0**: rodada de manutenção de documentação. Bruno apontou que as features acumularam de v2.32 até v2.103.x sem atualização nos manuais.
   - **`SISTEMA.md` reescrito** — listas reais de 37 routers, 33+ services, 18 workers, V1..V29 migrations, ~190+ testes (era V1..V5 e 4 workers, snapshot de v2.2.0). Novas seções: backend FastAPI categorizado, frontend agrupado por domínio (Operação / Multi-tenant / Cluster HA / Segurança / Notificações / Backup / i18n), segurança (PKCE, SECRETS_MASTER_KEY, shared-secret-per-link), observabilidade (Prometheus, Grafana, structlog, audit log), histórico de marcos linkando CHANGELOG.

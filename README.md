@@ -65,7 +65,7 @@ O Apache faz reverse proxy de `/api/v1/*` para o FastAPI; o restante das rotas (
 - **SO**: Debian 12+ (Bookworm/Trixie) ou Ubuntu 22.04 LTS+
 - **Servidor web**: Apache 2.4+ com `proxy`, `proxy_http`, `proxy_wstunnel`, `proxy_fcgi`, `setenvif`, `headers`
 - **PHP**: 8.1+ via PHP-FPM (`php-fpm` no apt) — `libapache2-mod-php` não é mais usado a partir de 2.2.10
-- **Python**: 3.11+ (com `uv` para gerenciar venv)
+- **Python**: 3.13+ (com `uv` para gerenciar venv) — `pyproject.toml` exige `>=3.13`. Em Debian 12/Ubuntu 22.04 o `uv` baixa 3.13 standalone automaticamente.
 - **Redis**: 7+
 - **DNS**: Unbound 1.17+
 - **Permissões**: acesso `sudo` para operações de sistema
@@ -105,7 +105,7 @@ ADMIN_USERNAME=admin ADMIN_EMAIL=admin@empresa.com ADMIN_PASSWORD='senhaSegura12
 
 O instalador:
 
-1. Detecta SO e instala dependências (Apache, PHP 8+, Redis, Python 3.11+, Unbound)
+1. Detecta SO e instala dependências (Apache, PHP 8.1+, Redis, Python 3.13+, Unbound)
 2. Instala `uv` em `/usr/local/bin/uv`
 3. Habilita módulos Apache (`proxy`, `proxy_http`, `proxy_wstunnel`, `proxy_fcgi`, `setenvif`, `headers`) e o conf do PHP-FPM detectado
 4. Sincroniza venv do `api_service` via `uv sync`

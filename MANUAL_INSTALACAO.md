@@ -1,24 +1,25 @@
 # 📖 Manual de Instalação — Unbound Dashboard
 
-Este manual descreve o procedimento para gerar um pacote de instalação e implantá-lo em um servidor novo (Debian 12/13 ou Ubuntu 22.04+).
+Este manual descreve o procedimento para gerar um pacote de instalação e implantá-lo em um servidor novo (Debian 13 ou Ubuntu 24.04+).
 
-> **Stack atual (v2.2.x):** PHP (frontend) + FastAPI/DuckDB/Redis (backend). MariaDB foi removido em 2026-05-04.
+> **Stack atual:** PHP (frontend) + FastAPI/DuckDB/Redis (backend). MariaDB foi removido em 2026-05-04. Versão atual em [VERSION](VERSION); histórico em [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
 ## 📋 Requisitos do Servidor de Destino
 
-* **Sistema operacional**: Debian 12 (Bookworm), Debian 13 (Trixie) ou Ubuntu 22.04 LTS+
+* **Sistema operacional**: **Debian 13 (Trixie)** ou **Ubuntu 24.04 LTS+** (Python 3.13 nativo).
+  * Em **Debian 12 (Bookworm)** ou **Ubuntu 22.04** *funciona*, mas o `uv` precisará **baixar Python 3.13 standalone** (~50 MB extras + ~30s no primeiro `uv sync`), porque o `python3` default desses SOs é 3.11. Pesa pouco em prod mas vale saber.
 * **Acesso**: superusuário (`root`) via `sudo`
-* **Internet**: conexão ativa para `apt-get` e instalação do `uv`
+* **Internet**: conexão ativa para `apt-get` e instalação do `uv` (+ Python 3.13 standalone se aplicável)
 * **Arquitetura**: x86_64 ou ARM64
 * **Recursos sugeridos**: 1 vCPU, 1 GB RAM, 5 GB de disco livre
 
 O `install.sh` cuida da instalação automática de:
 
-* Apache 2.4+ (com `mod_proxy`, `mod_proxy_http`, `mod_proxy_wstunnel`, `mod_headers`)
-* PHP 8.1+ + módulos comuns
-* Python 3.11+ + `uv` (gerenciador de venv)
+* Apache 2.4+ (com `mod_proxy`, `mod_proxy_http`, `mod_proxy_wstunnel`, `mod_proxy_fcgi`, `mod_headers`, `mod_setenvif`)
+* PHP 8.1+ via PHP-FPM (handler servido pelo `mod_proxy_fcgi`)
+* Python **3.13+** + `uv` (gerenciador de venv) — `pyproject.toml` exige `>=3.13`
 * Redis 7+
 * Unbound 1.17+
 * `rsyslog`, `dnsutils`, `traceroute`, `dns-root-data`
@@ -54,6 +55,7 @@ Variáveis aceitas:
 | `ADMIN_PASSWORD` | (prompt) | Senha (mín. 6 chars) |
 | `REPO_URL` | `https://github.com/bldantas/unbound-dashboard.git` | Repo de origem |
 | `REPO_BRANCH` | `main` | Branch a clonar |
+| `GITHUB_TOKEN` | _(vazio)_ | PAT do GitHub pra clonar **repo privado**. Quando setado, é injetado como `https://oauth2:<TOKEN>@github.com/…` na URL do clone. |
 | `WORK_DIR` | `/tmp/unbound-dashboard-install` | Diretório de trabalho |
 | `KEEP_WORK_DIR` | `false` | Preserva o WORK_DIR ao final |
 
