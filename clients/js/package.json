@@ -1,0 +1,30 @@
+{
+  "name": "unbound-dashboard-client",
+  "version": "0.1.0",
+  "description": "Cliente TypeScript/JavaScript pra API do Unbound Dashboard. Auto-gerado.",
+  "main": "index.ts",
+  "types": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc --declaration --outDir dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "index.ts",
+    "core/",
+    "models/",
+    "services/",
+    "UnboundDashboardClient.ts"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bldantas/unbound-dashboard.git",
+    "directory": "clients/js"
+  }
+}

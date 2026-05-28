@@ -7,6 +7,15 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### SDKs Python + TypeScript/JS gerados
+- **v2.111.0**: complemento da v2.110 — agora há **SDKs concretos** distribuídos no repo, prontos pra usar.
+  - **`clients/python/`** — Gerado via `openapi-python-client` a partir do `/api/v1/openapi.json` (190 endpoints, 25 schemas). Package `unbound_dashboard_client` instalável via `pip install -e .`. Suporta sync + asyncio. README com exemplo httpx, login JWT e snippets pra cada caso comum.
+  - **`clients/js/`** — Gerado via `openapi-typescript-codegen` (TypeScript fetch-based). Package `unbound-dashboard-client` com `package.json` mínimo (apenas typescript devDep). CancelablePromise em cada call, services por tag (AlertsService, AnalyticsService, BlocklistService, etc).
+  - **`clients/README.md`** — visão geral dos 2 SDKs + quando regenerar.
+  - **`tools/gen_sdk_python.sh`** + **`tools/gen_sdk_js.sh`** — scripts pra re-gerar a cada mudança de schema. Baixam openapi.json do api local, ajustam title pra package name limpo, rodam o gerador via `uvx` ou `npx --yes`, copiam preservando READMEs/package.json custom.
+  - **Distribuição**: NÃO publicamos no PyPI/npm (escopo interno). Users clonam o repo ou baixam o tarball da release; instalam local via `pip install -e .` ou importam diretamente do diretório `clients/js/`.
+  - **Trade-offs documentados**: errors 4xx/5xx não levantam exception por padrão no Python (check `result.parsed`); sem retry built-in em nenhum dos dois; sem versionamento independente — versão do SDK acompanha o VERSION global do dashboard.
+
 ### API tokens escopados + portal de docs revamped
 - **v2.110.0**: backend pra API pública. API tokens hoje davam role=admin global — agora podem ser restritos a capabilities específicas (least privilege).
   - **V30 migration**: `ALTER TABLE api_tokens ADD COLUMN capabilities JSON`. NULL/[] = admin global (backward-compat).
