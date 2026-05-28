@@ -7,6 +7,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### Hotfix update.sh
+- **v2.103.2**: `tools/update.sh` agora limpa `__pycache__` em `api_service/app/` depois do rsync e antes do restart. Bug descoberto no deploy do `dashboard.redeconexao.net` ao subir v2.103.1: VERSION foi escrito, `app/routers/cluster.py` chegou em disco, `app/main.py` foi atualizado com `app.include_router(cluster.router)` — mas o serviço reiniciou carregando uma versão antiga do `main.py` (provavelmente bytecode stale ou race entre escrita do .py e restart), resultando em `/api/v1/cluster/peer-ping → 404` apesar da rota estar registrada no source. Limpar `__pycache__` à força elimina a classe inteira de bug — uvicorn recompila em ms no startup. Workaround manual aplicado uma vez (`find ... -name __pycache__ -exec rm -rf {} +`); agora é parte do pipeline.
+
 ### Cluster fix da UX
 - **v2.103.1**: o esquema "shared secret" da v2.103.0 forçava o operador a seguir uma ordem específica (cria no A → copia → cria no B colando). Quem criasse os dois lados sem coordenar ficava sem opção: ambos os tokens distintos, nenhum dos lados conhece o do outro, **e não tinha como editar** o peer pra alinhar. Bruno reportou exatamente esse trava em deploy real.
   - **Novo endpoint `PUT /api/v1/ha/peers/{id}/token`**: substitui o token de um peer existente (atualiza `api_token_hash` + `api_token_raw_encrypted` na mesma transação). Audit log `ha.peer.token_replaced`.

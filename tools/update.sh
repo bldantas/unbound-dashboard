@@ -237,6 +237,14 @@ apply_apiservice() {
         --exclude='*.pyc' \
         "$src/" "$APISERVICE_DIR/"
 
+    # Limpa __pycache__ pré-existente no destino. Python *normalmente*
+    # recompila quando o .py é mais novo que o .pyc, mas houve cenário real
+    # (v2.103.0 → v2.103.1, dashboard.redeconexao.net) onde o serviço subiu
+    # carregando uma versão antiga do main.py em memória — provavelmente
+    # bytecode stale + race com o restart. Limpar é barato (uvicorn recompila
+    # em milissegundos no startup) e elimina a classe inteira de bug.
+    find "$APISERVICE_DIR/app" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+
     log "api_service atualizado"
 
     # uv sync INCONDICIONAL — antes só rodava se pyproject/uv.lock mudasse.
