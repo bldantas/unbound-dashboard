@@ -154,6 +154,9 @@ class Auth
             $_SESSION['user_id']      = (int) $me['data']['id'];
             $_SESSION['email']        = $me['data']['email'] ?? null;
             $_SESSION['totp_enabled'] = !empty($me['data']['totp_enabled']);
+            // org_id na sessão pra Auth::isGlobalAdmin() (v2.109+)
+            // NULL = system admin / global; int = org-scoped
+            $_SESSION['org_id']       = $me['data']['org_id'] ?? null;
         }
     }
 
@@ -538,6 +541,29 @@ class Auth
     public static function isAdmin(): bool
     {
         return isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
+    }
+
+    /**
+     * Admin global = role admin E sem org_id (system admin).
+     * Admin org-scoped (role=admin com org_id=N) retorna false.
+     *
+     * Usado pra esconder UI / endpoints que só admin global pode acessar:
+     * SMTP, webhooks, OIDC config, cluster HA, organizations CRUD,
+     * API tokens, backup destinations, secrets, Unbound config global.
+     *
+     * Backend faz enforce duplicado via `require_global_admin` em deps.py.
+     */
+    public static function isGlobalAdmin(): bool
+    {
+        if (!self::isAdmin()) return false;
+        return ($_SESSION['org_id'] ?? null) === null;
+    }
+
+    /** Retorna a org_id do user atual (null = system admin / global). */
+    public static function orgId(): ?int
+    {
+        $oid = $_SESSION['org_id'] ?? null;
+        return $oid === null ? null : (int) $oid;
     }
 
     /**

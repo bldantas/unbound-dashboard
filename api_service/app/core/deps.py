@@ -136,11 +136,57 @@ async def resolve_viewer_org_id(payload: dict) -> int | None:
 
 
 async def require_admin(payload: Annotated[dict, Depends(require_auth)]) -> dict:
-    """Exige role = 'admin' no payload do JWT."""
+    """Exige role = 'admin' no payload do JWT.
+
+    NOTE: não diferencia admin global de admin org-scoped (v2.109+).
+    Pra endpoints que devem ser exclusivos do admin global (infra, SMTP,
+    webhooks, OIDC, cluster, organizations CRUD, backup destinations,
+    secrets, API tokens), use `require_global_admin` abaixo.
+    """
     if payload.get("role") != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Acesso negado: requer privilégios de administrador",
+        )
+    return payload
+
+
+async def require_global_admin(
+    payload: Annotated[dict, Depends(require_auth)],
+) -> dict:
+    """Exige admin com `org_id` NULL (ou autenticação via API token).
+
+    "Admin global" = pode mexer em infra/configs que afetam o sistema todo
+    ou outras orgs. Admin org-scoped (role=admin, org_id=N) é negado aqui
+    com 403.
+
+    Usar em endpoints que NÃO devem ser acessíveis a admins de uma org:
+    - Webhooks, SMTP, OIDC config, API tokens
+    - Organizations CRUD
+    - Cluster HA peers + failover
+    - Backup destinations
+    - Secrets management
+    - Unbound config global (split-horizon de policies é OK pra admin
+      org-scoped via outros endpoints, mas mudar config.conf do daemon
+      todo é infra-level)
+
+    API tokens são tratados como admin global por design (multi-host).
+    """
+    if payload.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso negado: requer privilégios de administrador global",
+        )
+    # API token sempre passa (infra-level)
+    if payload.get("auth_kind") == "api_token":
+        return payload
+    # JWT path: olha org_id do user no DB
+    viewer_org = await resolve_viewer_org_id(payload)
+    if viewer_org is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso negado: este recurso é exclusivo do admin global "
+                   "(sem org_id). Admin org-scoped não tem permissão.",
         )
     return payload
 

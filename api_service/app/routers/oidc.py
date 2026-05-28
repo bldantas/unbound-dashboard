@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
 from app.core.config import settings
-from app.core.deps import require_admin, require_auth
+from app.core.deps import require_auth, require_global_admin as require_admin
 from app.core.security import create_access_token
 from app.services import admin_audit_service, oidc_service
 

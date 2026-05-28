@@ -8,8 +8,50 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core.deps import require_auth, require_capability
+from app.core.deps import require_auth, require_capability, resolve_viewer_org_id
 from app.services import approval_service, users_service
+
+
+async def _get_user_org(user_id: int) -> int | None:
+    """Lê org_id de users.id. Retorna None se user não existe ou é global."""
+    from app.repositories.duckdb.connection import db_fetchone
+    row = await db_fetchone("SELECT org_id FROM users WHERE id = ?", [int(user_id)])
+    if not row:
+        return None
+    oid = row.get("org_id")
+    return int(oid) if oid is not None else None
+
+
+async def _ensure_can_target_user(payload: dict, target_user_id: int) -> None:
+    """RBAC tenant-aware pra ações em users.
+
+    - System admin (viewer_org_id is None) → pode tudo.
+    - Admin org-scoped (viewer_org_id = N) → só pode mexer em users que:
+      * existem
+      * têm org_id == N (própria org)
+      * NÃO são system admin (target org_id NULL)
+    Retorna 403 caso contrário.
+    """
+    viewer_org = await resolve_viewer_org_id(payload)
+    if viewer_org is None:
+        return
+    target_org = await _get_user_org(target_user_id)
+    if target_org != viewer_org:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sem permissão pra alterar usuário fora da própria organização",
+        )
+
+
+def _ensure_create_org(payload_body_org: int | None, viewer_org_id: int | None) -> int | None:
+    """Resolve org_id na criação respeitando RBAC.
+
+    - System admin pode escolher qualquer org (body) ou deixar NULL (global).
+    - Admin org-scoped sempre força a própria org; ignora body.
+    """
+    if viewer_org_id is None:
+        return payload_body_org  # system admin pode ser qualquer
+    return viewer_org_id  # org-scoped: força própria
 
 
 async def _approval_handler_user_delete(payload: dict) -> dict:
@@ -36,6 +78,7 @@ class CreateUserRequest(BaseModel):
     password: str = Field(min_length=6, max_length=255)
     role: str = Field(default="viewer")
     email: str | None = None
+    org_id: int | None = None  # opcional; admin org-scoped sempre forçado pra própria org
 
 
 class UpdateEmailRequest(BaseModel):
@@ -47,8 +90,22 @@ class UpdateRoleRequest(BaseModel):
 
 
 @router.get("")
-async def list_users(_: Annotated[dict, Depends(require_capability("users.read"))]) -> list[dict]:
-    return await users_service.list_all()
+async def list_users(
+    payload: Annotated[dict, Depends(require_capability("users.read"))],
+) -> list[dict]:
+    rows = await users_service.list_all()
+    viewer_org = await resolve_viewer_org_id(payload)
+    if viewer_org is None:
+        return rows
+    # Admin org-scoped: filtra pra mostrar só users da própria org.
+    # Hoje users_service.list_all() não filtra por org — fazemos filter no router.
+    # (alternativa seria adicionar viewer_org_id no service, mais invasivo.)
+    from app.repositories.duckdb.connection import db_fetchall
+    own_rows = await db_fetchall(
+        "SELECT id FROM users WHERE org_id = ?", [viewer_org],
+    )
+    own_ids = {int(r["id"]) for r in own_rows}
+    return [r for r in rows if int(r["id"]) in own_ids]
 
 
 @router.get("/exists")
@@ -63,14 +120,17 @@ async def users_exist() -> dict:
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: CreateUserRequest,
-    _: Annotated[dict, Depends(require_capability("users.manage"))],
+    payload: Annotated[dict, Depends(require_capability("users.manage"))],
 ) -> dict:
+    viewer_org = await resolve_viewer_org_id(payload)
+    target_org = _ensure_create_org(body.org_id, viewer_org)
     try:
         new_id = await users_service.create(
             username=body.username,
             password=body.password,
             role=body.role,
             email=body.email,
+            org_id=target_org,
         )
     except users_service.WeakPassword:
         raise HTTPException(
@@ -97,6 +157,8 @@ async def update_email(
     is_self = int(payload.get("sub", 0)) == user_id
     if not (is_manager or is_self):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+    if is_manager and not is_self:
+        await _ensure_can_target_user(payload, user_id)
     try:
         await users_service.update_email(user_id, body.email)
     except users_service.EmailAlreadyExists:
@@ -111,6 +173,7 @@ async def toggle_active(
     user_id: Annotated[int, Path(ge=1)],
     payload: Annotated[dict, Depends(require_capability("users.manage"))],
 ) -> None:
+    await _ensure_can_target_user(payload, user_id)
     try:
         await users_service.toggle_active(user_id, requesting_user_id=int(payload["sub"]))
     except users_service.CannotTargetSelf:
@@ -131,6 +194,7 @@ async def delete_user(
     payload: Annotated[dict, Depends(require_capability("users.manage"))],
 ):
     requesting_id = int(payload["sub"])
+    await _ensure_can_target_user(payload, user_id)
     ip = request.client.host if request.client else None
     try:
         await approval_service.enforce_approval(
@@ -165,6 +229,7 @@ async def update_role(
     body: UpdateRoleRequest,
     payload: Annotated[dict, Depends(require_capability("users.manage"))],
 ) -> None:
+    await _ensure_can_target_user(payload, user_id)
     try:
         await users_service.update_role(
             user_id, body.role, requesting_user_id=int(payload["sub"])
@@ -195,6 +260,7 @@ async def admin_reset_password(
     UMA VEZ na resposta (texto plano) — admin deve entregar manualmente
     ao usuário e este deve trocar no primeiro acesso.
     """
+    await _ensure_can_target_user(payload, user_id)
     try:
         new_pass = await users_service.admin_reset_password(
             user_id, requesting_user_id=int(payload["sub"])

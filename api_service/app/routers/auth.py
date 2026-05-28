@@ -113,6 +113,7 @@ async def me(payload: Annotated[dict, Depends(require_auth)]) -> dict:
         "email": user.get("email"),
         "is_active": user["is_active"],
         "totp_enabled": bool(user.get("totp_enabled", False)),
+        "org_id": user.get("org_id"),  # None = system admin / global; N = org N (v2.109+)
     }
 
 

@@ -7,6 +7,38 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### RBAC per-org — admin de uma org gerencia só a própria
+- **v2.109.0**: fecha o último TODO real ("admin da org X" — abertos desde v2.80). Reuso do modelo `users.role` + `users.org_id` (sem schema novo):
+  - `role=admin` + `org_id=NULL` → **system admin (global)**, pode tudo (como antes)
+  - `role=admin` + `org_id=N` → **admin org-scoped**, gerencia só users/recursos da própria org N
+
+- **Backend** ([core/deps.py](api_service/app/core/deps.py)):
+  - **`require_global_admin`** novo: dep que exige role=admin E (`org_id NULL` OR API token). Admin org-scoped recebe 403 explícito.
+  - Wirado em endpoints infra-only: `webhooks`, `oidc`, `organizations` (POST/PUT/DELETE/assign), `cluster/ha` (peers/failover/token), `backup_offsite` (writes), `secrets`, `api_tokens`.
+  - GET `/api/v1/organizations/` continua acessível a qualquer admin (pra dropdowns na UI).
+
+- **Users** ([users.py](api_service/app/routers/users.py)):
+  - `CreateUserRequest` ganha `org_id` opcional. `_ensure_create_org()` força admin org-scoped a usar a própria org (ignora body se diferente).
+  - `_ensure_can_target_user()` em PUT/email (não-self), PUT/active, DELETE, PUT/role, POST/password-reset — bloqueia 403 se target.org_id != caller.org_id.
+  - `GET /api/v1/users` filtra: admin org-scoped vê só users da própria org (system admin vê tudo).
+  - `users_service.create()` e `user_repo.create()` aceitam `org_id`.
+
+- **Auth payload** ([auth.py](api_service/app/routers/auth.py)):
+  - `/api/v1/auth/me` retorna `org_id` (None = global; N = org).
+
+- **PHP** ([src/Auth.php](src/Auth.php)):
+  - **`Auth::isGlobalAdmin()`** novo — role=admin E session.org_id NULL.
+  - **`Auth::orgId()`** — retorna org_id do user atual.
+  - `_finalizeLogin()` salva `org_id` na sessão.
+
+- **UI sidebar** ([includes/sidebar.php](includes/sidebar.php)):
+  - `$sidebarIsGlobalAdmin` variável global.
+  - Itens escondidos pra admin org-scoped: **cluster, sso, organizations, backup_offsite, api_docs**. Defesa em profundidade — backend bloqueia mesmo se admin org-scoped chamar URL direto.
+
+- **Comportamento testável**:
+  - admin global: tudo como antes.
+  - admin org-scoped (criar user com `role=admin` + `org_id=5` via system admin): consegue listar/editar users da org 5, não vê SMTP/webhooks/OIDC/cluster/SSO/backup destinations/api tokens/orgs CRUD na sidebar, recebe 403 se tentar via API.
+
 ### Docs batch — 5 páginas críticas documentadas
 - **v2.108.0**: ataca o gap de docs deixado em v2.104.0 (29 páginas sem doc). 5 docs novos criados em [docs/pages/](docs/pages/), focados nas críticas pra operação + segurança + multi-tenant + backup:
   - [`sso.md`](docs/pages/sso.md) — OIDC SSO com PKCE S256, group mapping, role rank, secret cifrado

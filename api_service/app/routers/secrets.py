@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.core.deps import require_admin
+from app.core.deps import require_global_admin as require_admin
 from app.repositories.duckdb.connection import db_fetchone
 from app.services import cipher_service
 

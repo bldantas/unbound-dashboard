@@ -14,7 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 
-from app.core.deps import require_admin
+from app.core.deps import require_admin, require_global_admin
 from app.services import admin_audit_service, organizations_service
 
 router = APIRouter(prefix="/api/v1/organizations", tags=["organizations"])
@@ -38,7 +38,7 @@ async def list_orgs(
 @router.post("/", status_code=201)
 async def create_org(
     body: dict,
-    user: Annotated[dict, Depends(require_admin)],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     try:
@@ -64,7 +64,7 @@ async def create_org(
 async def update_org(
     org_id: Annotated[int, Path(ge=1)],
     body: dict,
-    user: Annotated[dict, Depends(require_admin)],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     try:
@@ -87,7 +87,7 @@ async def update_org(
 @router.delete("/{org_id}", status_code=204)
 async def delete_org(
     org_id: Annotated[int, Path(ge=1)],
-    user: Annotated[dict, Depends(require_admin)],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> None:
     out = await organizations_service.delete_org(org_id)
@@ -105,7 +105,7 @@ async def delete_org(
 @router.post("/assign-user")
 async def assign_user(
     body: dict,
-    user: Annotated[dict, Depends(require_admin)],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     user_id = int(body.get("user_id", 0))

@@ -17,7 +17,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse
 
-from app.core.deps import require_capability
+from app.core.deps import require_capability, require_global_admin
 from app.services import admin_audit_service, approval_service, ha_service
 
 router = APIRouter(prefix="/api/v1/ha", tags=["ha"])
@@ -69,7 +69,7 @@ async def list_peers(
 @router.post("/peers", status_code=201)
 async def create_peer(
     body: dict,
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     label = str(body.get("label", "")).strip()
@@ -103,7 +103,7 @@ async def create_peer(
 async def update_peer(
     peer_id: Annotated[int, Path(ge=1)],
     body: dict,
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     try:
@@ -129,7 +129,7 @@ async def update_peer(
 async def set_peer_token(
     peer_id: Annotated[int, Path(ge=1)],
     body: dict,
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     """Substitui o token de um peer (usado pra "fechar o link" quando
@@ -158,7 +158,7 @@ async def set_peer_token(
 @router.delete("/peers/{peer_id}", response_model=None)
 async def delete_peer(
     peer_id: Annotated[int, Path(ge=1)],
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ):
     ip = request.client.host if request.client else None
@@ -201,7 +201,7 @@ async def check_peer(
 @router.post("/failover", response_model=None)
 async def manual_failover(
     body: dict,
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ):
     promote_id = int(body.get("promote_id", 0))

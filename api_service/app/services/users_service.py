@@ -78,10 +78,20 @@ async def has_any_users() -> bool:
     return (await user_repo.count_total()) > 0
 
 
-async def create(username: str, password: str, role: str, email: str | None) -> int:
+async def create(
+    username: str,
+    password: str,
+    role: str,
+    email: str | None,
+    org_id: int | None = None,
+) -> int:
     """
     Cria usuário. Validações: senha >=6 chars, username não-vazio,
     username/email únicos. Lança exceções de domínio em violação.
+
+    `org_id` opcional:
+      - None → user global (system admin se role=admin, ou viewer global)
+      - N → user pertencente à org N
     """
     if not username.strip():
         raise UsernameAlreadyExists  # PHP usa msg genérica; aqui usa pra signal
@@ -92,6 +102,7 @@ async def create(username: str, password: str, role: str, email: str | None) -> 
         password_hash=hash_password(password),
         role=role,
         email=email,
+        org_id=org_id,
     )
     if new_id is None:
         raise UsernameAlreadyExists

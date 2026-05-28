@@ -129,8 +129,17 @@ async def count_total() -> int:
     return int(row["n"]) if row else 0
 
 
-async def create(username: str, password_hash: str, role: str, email: str | None) -> int | None:
-    """Cria usuário. Retorna o id gerado, ou None se username/email já existem."""
+async def create(
+    username: str,
+    password_hash: str,
+    role: str,
+    email: str | None,
+    org_id: int | None = None,
+) -> int | None:
+    """Cria usuário. Retorna o id gerado, ou None se username/email já existem.
+
+    `org_id`: None = system admin/global; N = org N.
+    """
     existing = await db_fetchone("SELECT id FROM users WHERE username = ?", [username])
     if existing:
         return None
@@ -139,8 +148,9 @@ async def create(username: str, password_hash: str, role: str, email: str | None
         if same_email:
             return None
     await db_execute(
-        "INSERT INTO users (username, password_hash, role, email) VALUES (?, ?, ?, ?)",
-        [username, password_hash, role, email],
+        "INSERT INTO users (username, password_hash, role, email, org_id) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [username, password_hash, role, email, org_id],
     )
     row = await db_fetchone("SELECT id FROM users WHERE username = ?", [username])
     return int(row["id"]) if row else None

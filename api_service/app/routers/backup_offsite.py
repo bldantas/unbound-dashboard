@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from app.core.deps import require_capability
+from app.core.deps import require_capability, require_global_admin
 from app.repositories.duckdb import settings_repo
 from app.services import backup_offsite_service as svc
 
@@ -48,7 +48,7 @@ async def get_settings(
 
 @router.put("/settings")
 async def update_settings(
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_admin)],
     body: dict = Body(...),
 ) -> dict:
     # Se secret_key vier vazio, preserva o anterior — UI evita re-tipar.
@@ -60,7 +60,7 @@ async def update_settings(
 
 @router.post("/test")
 async def test_connection(
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_admin)],
 ) -> dict:
     cfg = await svc.load_config()
     # Roda síncrono via executor
@@ -92,7 +92,7 @@ approval_service.register_action_handler("backup.upload_now", _approval_handler_
 @router.post("/upload-now", response_model=None)
 async def upload_now(
     request: Request,
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_admin)],
 ):
     ip = request.client.host if request.client else None
     try:
@@ -125,7 +125,7 @@ async def upload_now(
 
 @router.post("/restore-test")
 async def restore_test_endpoint(
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_admin)],
     body: dict | None = None,
 ) -> dict:
     """Baixa um backup recente (ou key específica se passada) e valida
@@ -166,7 +166,7 @@ async def list_destinations(
 @router.post("/destinations", status_code=201)
 async def create_destination(
     body: dict,
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     from app.services import backup_destinations_service as bd
@@ -189,7 +189,7 @@ async def create_destination(
 async def update_destination(
     dest_id: int,
     body: dict,
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     from app.services import backup_destinations_service as bd
@@ -210,7 +210,7 @@ async def update_destination(
 @router.delete("/destinations/{dest_id}", status_code=204)
 async def delete_destination(
     dest_id: int,
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> None:
     from app.services import backup_destinations_service as bd
@@ -229,7 +229,7 @@ async def delete_destination(
 @router.post("/destinations/{dest_id}/test")
 async def test_destination(
     dest_id: int,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_admin)],
 ) -> dict:
     from app.services import backup_destinations_service as bd
     return await bd.test_destination(dest_id)
@@ -237,7 +237,7 @@ async def test_destination(
 
 @router.post("/destinations/upload-all")
 async def upload_all_destinations(
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     from app.services import backup_destinations_service as bd

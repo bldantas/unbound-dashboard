@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.core.deps import require_capability
+from app.core.deps import require_global_admin
 from app.services import api_tokens
 
 router = APIRouter(prefix="/api/v1/api-tokens", tags=["api-tokens"])
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/v1/api-tokens", tags=["api-tokens"])
 
 @router.get("")
 async def list_tokens(
-    _: Annotated[dict, Depends(require_capability("tokens.manage"))],
+    _: Annotated[dict, Depends(require_global_admin)],
     include_revoked: bool = False,
 ) -> dict:
     items = await api_tokens.list_active(include_revoked=include_revoked)
@@ -29,7 +29,7 @@ class CreateTokenRequest(BaseModel):
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_token(
     body: CreateTokenRequest,
-    payload: Annotated[dict, Depends(require_capability("tokens.manage"))],
+    payload: Annotated[dict, Depends(require_global_admin)],
 ) -> dict:
     """
     Cria token novo. Retorna o **raw_token** UMA VEZ — admin tem que copiar
@@ -47,7 +47,7 @@ async def create_token(
 @router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_token(
     token_id: int,
-    _: Annotated[dict, Depends(require_capability("tokens.manage"))],
+    _: Annotated[dict, Depends(require_global_admin)],
 ) -> None:
     ok = await api_tokens.revoke(token_id)
     if not ok:
