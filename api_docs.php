@@ -50,7 +50,33 @@ $isAdmin = Auth::isAdmin();
                 </div>
                 <div class="p-6 text-sm text-slate-600 dark:text-slate-400 space-y-2">
                     <p><strong class="text-slate-900 dark:text-white">Autenticação:</strong> Bearer JWT (login humano) OU header <code class="text-xs bg-slate-100 dark:bg-white/5 px-1.5 py-0.5 rounded">X-Api-Token: &lt;raw&gt;</code> (token long-lived, recomendado p/ máquinas).</p>
-                    <p><strong class="text-slate-900 dark:text-white">Criar API tokens:</strong> Configurações → API Tokens (capability <code class="text-xs bg-slate-100 dark:bg-white/5 px-1.5 py-0.5 rounded">tokens.manage</code>).</p>
+                    <p><strong class="text-slate-900 dark:text-white">Criar API tokens:</strong> Configurações → API Tokens (admin global). Marque "🔒 Restringir capabilities" pra tokens escopados (recomendado pra SDKs/scripts externos).</p>
+                </div>
+            </div>
+
+            <!-- Tokens escopados por capabilities (v2.110+) -->
+            <div class="glass-panel border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-500/5 mb-6">
+                <div class="px-6 py-4 border-b border-emerald-200 dark:border-emerald-500/30">
+                    <h3 class="text-xs font-black text-emerald-700 dark:text-emerald-300 uppercase tracking-widest">🔒 Tokens escopados (v2.110+)</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Princípio do menor privilégio: integrações externas devem ter só as capabilities que precisam.</p>
+                </div>
+                <div class="p-6 text-sm text-slate-600 dark:text-slate-400 space-y-3">
+                    <p>Por padrão, API tokens dão <strong>acesso de admin global</strong> — equivalente a um user com role=admin sem org_id. Pra SDKs, scripts externos e integrações, isso geralmente é demais.</p>
+                    <p>Na criação do token (Configurações → API Tokens → "Gerar novo token"), marque <strong>"🔒 Restringir capabilities"</strong> e selecione apenas as caps necessárias.</p>
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Catálogo de capabilities</p>
+                        <code class="block bg-slate-900 text-emerald-400 px-4 py-3 rounded-lg font-mono text-xs">GET /api/v1/api-tokens/capabilities-catalog</code>
+                    </div>
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Receitas comuns</p>
+                        <ul class="list-disc list-inside space-y-1 text-xs">
+                            <li><strong>SDK read-only:</strong> <code class="text-[10px] bg-slate-100 dark:bg-white/5 px-1 rounded">dashboard.read</code>, <code class="text-[10px] bg-slate-100 dark:bg-white/5 px-1 rounded">alerts.read</code>, <code class="text-[10px] bg-slate-100 dark:bg-white/5 px-1 rounded">blocklist.read</code></li>
+                            <li><strong>Bot que gerencia allowlist:</strong> <code class="text-[10px] bg-slate-100 dark:bg-white/5 px-1 rounded">blocklist.read</code>, <code class="text-[10px] bg-slate-100 dark:bg-white/5 px-1 rounded">blocklist.write</code></li>
+                            <li><strong>Integração PagerDuty:</strong> <code class="text-[10px] bg-slate-100 dark:bg-white/5 px-1 rounded">alerts.read</code>, <code class="text-[10px] bg-slate-100 dark:bg-white/5 px-1 rounded">alerts.resolve</code></li>
+                            <li><strong>Multi-host master (compat legado):</strong> deixar vazio → token continua admin global</li>
+                        </ul>
+                    </div>
+                    <p class="text-[11px] text-slate-500 italic">Token escopado tentando capability fora da lista recebe <code>403 Forbidden</code> com explicação no detail.</p>
                 </div>
             </div>
 
@@ -125,6 +151,74 @@ curl -X POST -H "X-Api-Token: $TOKEN" \
                     <pre class="bg-slate-900 text-slate-300 px-4 py-3 rounded-lg overflow-x-auto"># Listar fontes de blocklist
 curl -H "X-Api-Token: $TOKEN" \
      https://&lt;dashboard&gt;/api/v1/blocklist/sources</pre>
+                </div>
+            </div>
+
+            <!-- Quick start Python -->
+            <div class="glass-panel border-slate-200 dark:border-white/5 mb-6">
+                <div class="px-6 py-4 border-b border-slate-900/10 dark:border-white/5 bg-slate-900/5 dark:bg-white/5">
+                    <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">🐍 Quick start Python</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Sem dependência externa — só <code>httpx</code> ou <code>requests</code>. SDK gerado em v2.111 (ver próxima seção).</p>
+                </div>
+                <div class="p-6 space-y-4 text-sm">
+                    <pre class="bg-slate-900 text-slate-300 px-4 py-3 rounded-lg font-mono text-[11px] overflow-x-auto">import httpx
+
+BASE = "https://&lt;dashboard&gt;/api/v1"
+TOKEN = "&lt;seu-token-escopado&gt;"  # criar com caps: dashboard.read, blocklist.read
+
+client = httpx.Client(base_url=BASE, headers={"X-Api-Token": TOKEN})
+
+# Snapshot de métricas
+snap = client.get("/grafana/snapshot").json()
+print(f"QPS={snap['qps']:.1f} hit_ratio={snap['hit_ratio']*100:.1f}%")
+
+# Top 5 domínios bloqueados nas últimas 24h
+top = client.get("/analytics/top-domains", params={"window": "24h", "limit": 5, "action": "blocked"}).json()
+for row in top["domains"]:
+    print(f"  {row['domain']}: {row['count']} bloqueios")
+
+# Adicionar exceção na allowlist
+r = client.post("/blocklist/exceptions", json={
+    "domain": "googletagmanager.com",
+    "reason": "Marketing precisa",
+})
+print(f"Added: {r.json()}")
+</pre>
+                </div>
+            </div>
+
+            <!-- SDKs gerados -->
+            <div class="glass-panel border-purple-200 dark:border-purple-500/30 bg-purple-50/30 dark:bg-purple-500/5 mb-6">
+                <div class="px-6 py-4 border-b border-purple-200 dark:border-purple-500/30">
+                    <h3 class="text-xs font-black text-purple-700 dark:text-purple-300 uppercase tracking-widest">📦 SDKs gerados (v2.111+)</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Clientes Python e TypeScript/JS gerados automaticamente do OpenAPI. Distribuídos com cada release no diretório <code>clients/</code> do repo.</p>
+                </div>
+                <div class="p-6 space-y-4 text-sm">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Python — <code>clients/python/</code></p>
+                        <pre class="bg-slate-900 text-slate-300 px-4 py-3 rounded-lg font-mono text-[11px] overflow-x-auto"># Clone do repo OR baixar o tarball da release
+cd clients/python
+pip install -e .
+
+from unbound_dashboard_client import Client
+from unbound_dashboard_client.api.blocklist import get_blocklist_search
+
+client = Client(base_url="https://&lt;dashboard&gt;", headers={"X-Api-Token": "..."})
+result = get_blocklist_search.sync(client=client, q="googleads")
+print(result)</pre>
+                    </div>
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">TypeScript/JS — <code>clients/js/</code></p>
+                        <pre class="bg-slate-900 text-slate-300 px-4 py-3 rounded-lg font-mono text-[11px] overflow-x-auto">// Importar do diretório clients/js/ do repo
+import { OpenAPI, AnalyticsService } from "./clients/js";
+
+OpenAPI.BASE = "https://&lt;dashboard&gt;";
+OpenAPI.HEADERS = { "X-Api-Token": "..." };
+
+const snap = await AnalyticsService.getSummary({ window: "24h" });
+console.log(snap.qps, snap.hit_ratio);</pre>
+                    </div>
+                    <p class="text-[11px] text-slate-500 italic">Gerados via <code>openapi-python-client</code> + <code>openapi-typescript-codegen</code>. Re-gerar a cada bump major se o schema mudar. Versão de geração tracked no <code>VERSION</code> do diretório.</p>
                 </div>
             </div>
 

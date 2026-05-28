@@ -12,7 +12,7 @@ def _set_env() -> None:
     os.environ.setdefault("JWT_SECRET", "test-only-not-for-prod-deadbeef")
 
 
-EXPECTED_VERSIONS = list(range(1, 30))  # V1..V29 — adicionar aqui a cada migration nova
+EXPECTED_VERSIONS = list(range(1, 31))  # V1..V30 — adicionar aqui a cada migration nova
 
 CORE_TABLES = {
     "users", "settings", "alerts", "query_logs", "daily_stats",

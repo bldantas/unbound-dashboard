@@ -1987,6 +1987,19 @@ function field($key, $label, $desc = '', $def = '')
                                 </p>
                                 <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Label</label>
                                 <input type="text" id="api-token-label-input" autocomplete="off" maxlength="100" class="glass-input w-full font-mono text-sm mb-4" placeholder="master-orchestrator">
+
+                                <!-- Capabilities (v2.110+) — token escopado vs admin global -->
+                                <label class="flex items-center gap-2 mb-3 cursor-pointer">
+                                    <input type="checkbox" id="api-token-scoped-toggle" class="w-4 h-4">
+                                    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">🔒 Restringir capabilities (recomendado pra SDK / scripts)</span>
+                                </label>
+                                <p class="text-[10px] text-slate-500 mb-3" id="api-token-scoped-hint" style="display:none">
+                                    Marque só as capabilities que esse token precisa. Sem checkbox marcado, o token tem acesso de admin global.
+                                </p>
+                                <div id="api-token-caps-list" class="space-y-1 max-h-48 overflow-y-auto p-2 bg-slate-100 dark:bg-slate-800/40 rounded-xl mb-4" style="display:none">
+                                    <p class="text-[10px] text-slate-500 italic">Carregando catálogo…</p>
+                                </div>
+
                                 <div class="flex justify-end gap-2">
                                     <button type="button" id="api-token-cancel-btn" class="glass-btn text-[10px] uppercase font-black">Cancelar</button>
                                     <button type="button" id="api-token-create-btn" class="glass-btn !bg-purple-600 !text-white text-[10px] uppercase font-black" disabled>Gerar</button>
@@ -3653,22 +3666,30 @@ function field($key, $label, $desc = '', $def = '')
                     list.innerHTML = '<p class="text-xs text-slate-500 italic py-4">Nenhum token criado ainda. Clique em "Gerar novo token" pra começar.</p>';
                     return;
                 }
-                list.innerHTML = tokens.map(t => `
+                list.innerHTML = tokens.map(t => {
+                    const scoped = t.is_scoped;
+                    const caps = (t.capabilities || []).join(', ');
+                    const scopeBadge = scoped
+                        ? `<span class="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" title="Caps: ${caps}">🔒 ${t.capabilities.length} cap${t.capabilities.length>1?'s':''}</span>`
+                        : `<span class="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400" title="Token tem acesso de admin global — sem restrições">🔓 admin global</span>`;
+                    return `
                     <div class="flex items-center justify-between gap-3 p-3 bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5">
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2">
                                 <p class="font-mono text-xs font-bold text-slate-900 dark:text-white">${t.label}</p>
                                 <span class="text-[9px] font-black uppercase tracking-widest text-slate-500">#${t.id}</span>
+                                ${scopeBadge}
                             </div>
                             <p class="text-[10px] text-slate-500">
                                 Criado ${fmtDate(t.created_at)}
                                 ${t.last_used_at ? ` · Último uso ${fmtDate(t.last_used_at)}` : ' · Nunca usado'}
                                 ${t.last_used_ip ? ` (${t.last_used_ip})` : ''}
                             </p>
+                            ${scoped ? `<p class="text-[10px] font-mono text-slate-500 mt-1 break-words">${caps}</p>` : ''}
                         </div>
                         <button type="button" data-id="${t.id}" data-label="${t.label}" class="revoke-btn glass-btn !py-1 !px-3 text-[10px] uppercase font-black bg-red-500/15 text-red-600 dark:text-red-400">Revogar</button>
-                    </div>
-                `).join('');
+                    </div>`;
+                }).join('');
                 list.querySelectorAll('.revoke-btn').forEach(btn => {
                     btn.addEventListener('click', () => revokeToken(btn.getAttribute('data-id'), btn.getAttribute('data-label')));
                 });
@@ -3716,13 +3737,26 @@ function field($key, $label, $desc = '', $def = '')
             createBtn.addEventListener('click', async () => {
                 const label = labelInp.value.trim();
                 if (!label) return;
+                const scopedToggle = document.getElementById('api-token-scoped-toggle');
+                const capsList = document.getElementById('api-token-caps-list');
+                let capabilities = null;
+                if (scopedToggle && scopedToggle.checked) {
+                    capabilities = Array.from(capsList.querySelectorAll('input[type=checkbox]:checked'))
+                        .map(cb => cb.value);
+                    if (capabilities.length === 0) {
+                        await window.customAlert('Sem capabilities', 'Marque pelo menos uma capability ou desabilite o modo escopado.', 'warning');
+                        return;
+                    }
+                }
                 createBtn.disabled = true;
                 cancelBtn.disabled = true;
                 try {
+                    const body = { label };
+                    if (capabilities) body.capabilities = capabilities;
                     const resp = await fetch('/api/v1/api-tokens', {
                         method: 'POST',
                         headers: HEADERS,
-                        body: JSON.stringify({ label }),
+                        body: JSON.stringify(body),
                     });
                     const data = await resp.json();
                     if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
@@ -3738,6 +3772,36 @@ function field($key, $label, $desc = '', $def = '')
                     cancelBtn.disabled = false;
                 }
             });
+
+            // Capabilities catalog — lazy-load no primeiro toggle
+            const scopedToggleEl = document.getElementById('api-token-scoped-toggle');
+            const capsListEl = document.getElementById('api-token-caps-list');
+            const scopedHintEl = document.getElementById('api-token-scoped-hint');
+            let capsLoaded = false;
+            if (scopedToggleEl) {
+                scopedToggleEl.addEventListener('change', async () => {
+                    const on = scopedToggleEl.checked;
+                    capsListEl.style.display = on ? 'block' : 'none';
+                    scopedHintEl.style.display = on ? 'block' : 'none';
+                    if (on && !capsLoaded) {
+                        try {
+                            const r = await fetch('/api/v1/api-tokens/capabilities-catalog', { headers: HEADERS });
+                            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                            const data = await r.json();
+                            const caps = data.capabilities || [];
+                            capsListEl.innerHTML = caps.map(c => `
+                                <label class="flex items-center gap-2 cursor-pointer text-[11px] font-mono">
+                                    <input type="checkbox" value="${c}" class="w-3 h-3">
+                                    <span class="text-slate-700 dark:text-slate-300">${c}</span>
+                                </label>
+                            `).join('');
+                            capsLoaded = true;
+                        } catch (err) {
+                            capsListEl.innerHTML = `<p class="text-xs text-red-500">Erro carregando catálogo: ${err.message}</p>`;
+                        }
+                    }
+                });
+            }
             copyBtn.addEventListener('click', () => {
                 const txt = revealValue.textContent;
                 if (!txt) return;

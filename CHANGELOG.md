@@ -7,6 +7,17 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### API tokens escopados + portal de docs revamped
+- **v2.110.0**: backend pra API pública. API tokens hoje davam role=admin global — agora podem ser restritos a capabilities específicas (least privilege).
+  - **V30 migration**: `ALTER TABLE api_tokens ADD COLUMN capabilities JSON`. NULL/[] = admin global (backward-compat).
+  - **`api_tokens.create()`**: aceita `capabilities` opcional. Normaliza pra JSON ordenado sem duplicatas. Verify retorna a lista.
+  - **`require_capability`** ([core/deps.py](api_service/app/core/deps.py)): bypassa o role check pra api_token com caps setadas. Cap requerida tem que estar na lista do token; senão 403 com detail explicando os scopes do token. Tokens sem caps continuam admin global (compat).
+  - **`/api/v1/api-tokens/capabilities-catalog`** novo: lista todas as caps + roles que normalmente as têm. Usado pela UI pra montar checkboxes.
+  - **`/api/v1/api-tokens` POST**: aceita `capabilities` no body. Valida contra catálogo (400 em caps desconhecidas — evita typo). Retorno inclui `is_scoped`.
+  - **UI `/config.php` tab API Tokens**: modal de criação ganha checkbox "🔒 Restringir capabilities" + lista lazy-load do catálogo. Tabela de tokens existentes mostra badge "🔒 N caps" (verde, com tooltip listando) ou "🔓 admin global" (âmbar). Card expande lista de caps quando escopado.
+  - **`/api_docs.php` revamped**: nova seção destacada "🔒 Tokens escopados (v2.110+)" com receitas comuns (SDK read-only, bot allowlist, integração PagerDuty). Nova seção "🐍 Quick start Python" com exemplo httpx. Nova seção "📦 SDKs gerados (v2.111+)" anunciando os clients gerados (próxima release).
+  - **Tests** (`test_migrate.py`): EXPECTED_VERSIONS bumped pra V1..V30.
+
 ### RBAC per-org — admin de uma org gerencia só a própria
 - **v2.109.0**: fecha o último TODO real ("admin da org X" — abertos desde v2.80). Reuso do modelo `users.role` + `users.org_id` (sem schema novo):
   - `role=admin` + `org_id=NULL` → **system admin (global)**, pode tudo (como antes)

@@ -53,12 +53,16 @@ async def require_auth(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="API token inválido ou revogado",
             )
+        # Capabilities (v2.110+): vazias = admin global (backward-compat).
+        # Não-vazias = token restrito a essas caps; require_capability vai
+        # validar via api_token_capabilities em vez do role.
         return {
             "sub": "api-token",
             "role": "admin",
             "auth_kind": "api_token",
             "api_token_id": meta["id"],
             "api_token_label": meta["label"],
+            "api_token_capabilities": meta.get("capabilities", []),
         }
 
     # === JWT path (header Authorization: Bearer ...) ===
@@ -202,10 +206,33 @@ def require_capability(capability: str):
         async def foo(payload: dict = Depends(require_capability("alerts.resolve"))):
 
     Capability inexistente = 403 (deny by default).
+
+    Lógica de avaliação (v2.110+):
+    - JWT path → checa via role (CAPABILITIES dict no rbac.py)
+    - API token sem capabilities (= [] ou ausente) → role=admin, passa tudo
+      (backward-compat com tokens pré-v2.110)
+    - API token com capabilities → SÓ a cap requerida estar na lista do
+      token, role=admin no payload é ignorado pra essa decisão. Princípio
+      do menor privilégio pra integrações externas.
     """
     from app.core.rbac import can
 
     async def _dep(payload: Annotated[dict, Depends(require_auth)]) -> dict:
+        # API token com capabilities restritas: bypassa o role check
+        if payload.get("auth_kind") == "api_token":
+            token_caps = payload.get("api_token_capabilities") or []
+            if token_caps:
+                # Token escopado: só passa se cap está nas caps do token
+                if capability not in token_caps:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Acesso negado: API token sem capability '{capability}' "
+                               f"(scopes: {sorted(token_caps)})",
+                    )
+                return payload
+            # Token sem capabilities = admin global (backward-compat)
+
+        # JWT path ou api_token admin global: avalia por role
         role = payload.get("role")
         if not can(role, capability):
             raise HTTPException(

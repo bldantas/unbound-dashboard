@@ -1,9 +1,11 @@
 """
-API tokens — long-lived bearer credentials pra autenticação master → agent.
+API tokens — long-lived bearer credentials pra autenticação master → agent
+e integrações externas (SDKs, scripts, dashboards de terceiros).
 
 Diferente do JWT (token de sessão de user, curto, sliding refresh), API
 tokens são gerados pelo admin na UI e vinculam-se a uma label. Master
-usa esses tokens em todas chamadas pro agent.
+usa esses tokens em todas chamadas pro agent. Integrações externas usam
+tokens com capabilities limitadas (v2.110+).
 
 Storage: SHA256 do token bruto. Token bruto só é mostrado uma vez (na
 geração). Compromisso entre conveniência e segurança — análogo a
@@ -11,12 +13,17 @@ GitHub PATs.
 
 Validação: agent aceita Authorization: Bearer <jwt> OU X-Api-Token: <token>.
 JWT continua sendo o caminho preferido pra users humanos; api_token é
-exclusivo do master.
+exclusivo do master e de integrações.
+
+Capabilities (v2.110+): coluna `capabilities` JSON na V30 migration.
+- NULL ou [] → admin global (backward-compat com tokens pré-v2.110)
+- ["cap", ...] → token tem APENAS essas caps (sem fallback admin)
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
 import time
 from typing import Any
@@ -40,27 +47,67 @@ def generate_raw_token() -> str:
     return secrets.token_urlsafe(_TOKEN_BYTES)
 
 
-async def create(label: str, created_by: int | None) -> tuple[int, str]:
+def _normalize_capabilities(caps: list[str] | None) -> str | None:
+    """Normaliza lista de capabilities pra JSON gravado em DB.
+    Vazio/None → None (= admin global, backward-compat).
+    Lista de strings → JSON serializado, sem duplicatas, ordenado.
+    """
+    if not caps:
+        return None
+    valid = sorted({str(c).strip() for c in caps if str(c).strip()})
+    if not valid:
+        return None
+    return json.dumps(valid, ensure_ascii=False)
+
+
+async def create(
+    label: str,
+    created_by: int | None,
+    capabilities: list[str] | None = None,
+) -> tuple[int, str]:
     """
     Cria novo API token. Retorna `(id, raw_token)`. Raw token é
     mostrado UMA vez ao caller — depois disso só fica o hash.
+
+    `capabilities` opcional (v2.110+):
+    - None/[] → token é admin global (default, backward-compat)
+    - ["cap", ...] → token tem APENAS essas caps (zero acesso a tudo mais)
     """
     raw = generate_raw_token()
     token_hash = _hash_token(raw)
+    caps_json = _normalize_capabilities(capabilities)
     await db_execute(
         """
-        INSERT INTO api_tokens (label, token_hash, created_by)
-        VALUES (?, ?, ?)
+        INSERT INTO api_tokens (label, token_hash, created_by, capabilities)
+        VALUES (?, ?, ?, ?)
         """,
-        [label[:100], token_hash, created_by],
+        [label[:100], token_hash, created_by, caps_json],
     )
     row = await db_fetchone(
         "SELECT id FROM api_tokens WHERE token_hash = ?",
         [token_hash],
     )
     new_id = int(row["id"]) if row else 0
-    log.info("api_tokens.created", id=new_id, label=label, by=created_by)
+    log.info(
+        "api_tokens.created", id=new_id, label=label,
+        by=created_by, scoped=caps_json is not None,
+    )
     return new_id, raw
+
+
+def _decode_caps(raw: Any) -> list[str]:
+    """Aceita JSON string, list já desserializada, ou None. Retorna list[str]."""
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    try:
+        parsed = json.loads(str(raw))
+        if isinstance(parsed, list):
+            return [str(x) for x in parsed]
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return []
 
 
 async def list_active(include_revoked: bool = False) -> list[dict[str, Any]]:
@@ -69,7 +116,7 @@ async def list_active(include_revoked: bool = False) -> list[dict[str, Any]]:
     rows = await db_fetchall(
         f"""
         SELECT id, label, created_by, created_at, last_used_at,
-               last_used_ip, revoked_at
+               last_used_ip, revoked_at, capabilities
         FROM api_tokens
         {where}
         ORDER BY created_at DESC
@@ -85,6 +132,8 @@ async def list_active(include_revoked: bool = False) -> list[dict[str, Any]]:
             "last_used_ip": r.get("last_used_ip"),
             "revoked_at": r["revoked_at"].isoformat() if r.get("revoked_at") else None,
             "is_active": r.get("revoked_at") is None,
+            "capabilities": _decode_caps(r.get("capabilities")),
+            "is_scoped": bool(_decode_caps(r.get("capabilities"))),
         }
         for r in rows
     ]
@@ -94,13 +143,16 @@ async def verify(raw_token: str, source_ip: str | None = None) -> dict[str, Any]
     """
     Valida token bruto. Se válido, retorna metadata + atualiza
     last_used_at/last_used_ip. Se inválido/revogado, retorna None.
+
+    Metadata inclui `capabilities` (lista) — vazia = admin global
+    (backward-compat com tokens pré-v2.110).
     """
     if not raw_token or len(raw_token) < 20:
         return None
     token_hash = _hash_token(raw_token)
     row = await db_fetchone(
         """
-        SELECT id, label, created_by, revoked_at
+        SELECT id, label, created_by, revoked_at, capabilities
         FROM api_tokens
         WHERE token_hash = ?
         """,
@@ -122,6 +174,7 @@ async def verify(raw_token: str, source_ip: str | None = None) -> dict[str, Any]
         "id": int(row["id"]),
         "label": row["label"],
         "created_by": row.get("created_by"),
+        "capabilities": _decode_caps(row.get("capabilities")),
     }
 
 

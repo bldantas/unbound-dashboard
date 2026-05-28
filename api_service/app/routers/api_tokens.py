@@ -24,6 +24,30 @@ async def list_tokens(
 
 class CreateTokenRequest(BaseModel):
     label: str = Field(min_length=1, max_length=100, description="Identificação do token, ex: 'master-orchestrator'")
+    capabilities: list[str] | None = Field(
+        default=None,
+        description="Lista de capabilities concedidas. Vazio/None = admin global "
+                    "(backward-compat). Lista não vazia = token restrito a essas caps. "
+                    "Caps válidas: ver /api/v1/api-tokens/capabilities-catalog",
+    )
+
+
+@router.get("/capabilities-catalog")
+async def list_capabilities(
+    _: Annotated[dict, Depends(require_global_admin)],
+) -> dict:
+    """Lista capabilities disponíveis pra atribuir a tokens.
+
+    Usado pela UI pra montar checkboxes na criação de token escopado.
+    """
+    from app.core.rbac import CAPABILITIES
+    return {
+        "capabilities": sorted(CAPABILITIES.keys()),
+        "details": {
+            cap: {"allowed_roles": sorted(roles)}
+            for cap, roles in CAPABILITIES.items()
+        },
+    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -34,14 +58,36 @@ async def create_token(
     """
     Cria token novo. Retorna o **raw_token** UMA VEZ — admin tem que copiar
     agora. Subsequentes calls só mostram o hash + metadata.
+
+    `capabilities` (v2.110+):
+    - Omitido/null/[] → admin global (sem restrições)
+    - Lista de strings → token só pode chamar endpoints que pedem essas caps
     """
     user_id_raw = payload.get("sub", 0)
     try:
         user_id = int(user_id_raw)
     except (TypeError, ValueError):
         user_id = None
-    new_id, raw = await api_tokens.create(body.label, created_by=user_id)
-    return {"id": new_id, "label": body.label, "raw_token": raw}
+    # Valida caps contra o catálogo conhecido pra evitar typos
+    if body.capabilities:
+        from app.core.rbac import CAPABILITIES
+        unknown = set(body.capabilities) - set(CAPABILITIES.keys())
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Capabilities desconhecidas: {sorted(unknown)}. "
+                       f"Catálogo em /api/v1/api-tokens/capabilities-catalog",
+            )
+    new_id, raw = await api_tokens.create(
+        body.label, created_by=user_id, capabilities=body.capabilities,
+    )
+    return {
+        "id": new_id,
+        "label": body.label,
+        "raw_token": raw,
+        "capabilities": body.capabilities or [],
+        "is_scoped": bool(body.capabilities),
+    }
 
 
 @router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
