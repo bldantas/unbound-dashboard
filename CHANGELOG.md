@@ -7,6 +7,15 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### Docs batch — 5 páginas críticas documentadas
+- **v2.108.0**: ataca o gap de docs deixado em v2.104.0 (29 páginas sem doc). 5 docs novos criados em [docs/pages/](docs/pages/), focados nas críticas pra operação + segurança + multi-tenant + backup:
+  - [`sso.md`](docs/pages/sso.md) — OIDC SSO com PKCE S256, group mapping, role rank, secret cifrado
+  - [`orgs.md`](docs/pages/orgs.md) — Multi-tenant: modelo conceitual, tabelas com `org_id`, split-horizon de blocklist (v2.105), limitações conhecidas
+  - [`hosts.md`](docs/pages/hosts.md) — Multi-host gerenciado: setup em 5 passos, comparação com cluster HA, batch ops, multi-tenant
+  - [`backup_offsite.md`](docs/pages/backup_offsite.md) — Backup S3 multi-destination (AWS/MinIO/Wasabi/R2/B2): conteúdo do tarball, cache compartilhado, restore manual vs UI, restore test runner
+  - [`notifications.md`](docs/pages/notifications.md) — Notificações + digest diário: prefs por user, DigestSender com paginação (v2.106), webhook+SMTP, pruning
+  - `docs/README.md` atualizado — separa "Concluídas ✅" de "Pendentes (na ordem de prioridade)". Restam ~14 páginas pra próximas rodadas.
+
 ### CI/CD + smoke staging — GitHub Actions
 - **v2.107.0**: fecha #6 (canary/staging) + #8 (CI/CD) numa só rodada. Antes não havia CI configurado — testes só rodavam manualmente, primeiro reporter de bug era prod (deu causa pra v2.101.1, v2.101.2, v2.103.2).
   - **`.github/workflows/ci.yml`**: roda em todo push pra main + PRs. 3 jobs paralelos com timeout total ~10min.

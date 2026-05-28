@@ -42,23 +42,25 @@
 
 ### Páginas sem doc
 
-- `cluster.php` ✅ (feito em [pages/cluster.md](pages/cluster.md))
-- `client_policies.php` — split-horizon DNS
-- `dns_security.php` — DNSSEC + QNAME minimization
-- `doh_inbound.php` — TLS inbound do Unbound
-- `geo_blocking.php` — bloqueio por país
-- `external_health.php` — probes externos
-- `notifications.php` — preferências de digest
+Concluídas:
+- `cluster.php` ✅ [pages/cluster.md](pages/cluster.md)
+- `sso.php` ✅ [pages/sso.md](pages/sso.md)
+- `orgs.php` ✅ [pages/orgs.md](pages/orgs.md)
+- `hosts.php` ✅ [pages/hosts.md](pages/hosts.md)
+- `backup_offsite.php` ✅ [pages/backup_offsite.md](pages/backup_offsite.md)
+- `notifications.php` ✅ [pages/notifications.md](pages/notifications.md)
+
+Pendentes (na ordem aproximada de prioridade):
+- `client_policies.php` — split-horizon DNS por CIDR/IP
+- `dns_security.php` — DNSSEC + QNAME minimization + harden
+- `doh_inbound.php` — TLS inbound (DoH) do Unbound
+- `geo_blocking.php` — bloqueio por país (MaxMind CIDRs)
+- `external_health.php` — probes externos (CDN, DoH público)
 - `observability.php` — workers + Prometheus + Grafana
-- `orgs.php` — multi-tenant
-- `hosts.php` — multi-host gerenciado
-- `sso.php` — OIDC com PKCE + group mapping
-- `audit.php` — admin audit log
-- `approvals.php` — workflow de aprovação
-- `secrets.php` — gestão de SECRETS_MASTER_KEY
-- `backups.php` — destinos S3 múltiplos + restore
-- `updates.php` — self-update + histórico
-- `webhooks.php`, `sessions.php`, `performance.php`, `recover.php`, `reset.php`, `compliance.php`
+- `audit.php` — admin audit log + LGPD report
+- `approvals.php` — workflow de aprovação multi-admin
+- `updates.php` — self-update + histórico + auditoria
+- `webhooks.php`, `sessions.php`, `performance.php`, `recover.php`, `reset.php`, `compliance.php`, `analytics.php`, `anomalies.php`
 
 ### Features transversais
 
