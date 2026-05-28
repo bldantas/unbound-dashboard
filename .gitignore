@@ -41,6 +41,9 @@ src/data/
 # === VS Code (opcional, remova se quiser versionar) ===
 .vscode/
 
+# === Claude Code (settings locais por máquina) ===
+.claude/
+
 # === Sistema operacional ===
 .DS_Store
 Thumbs.db
