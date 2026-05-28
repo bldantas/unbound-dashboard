@@ -1,0 +1,35 @@
+name: Smoke (Docker install.sh)
+
+# Smoke test do install.sh dentro de um container Debian 13. Usa o
+# tools/docker/smoke-test.sh que já existia (manual). Cobre o cenário
+# que pegou a gente em prod: install.sh + uv sync + healthz.
+#
+# Roda em:
+#   - workflow_dispatch (manual via aba Actions)
+#   - schedule semanal (cron domingo 03:00 UTC) pra pegar drift
+#   - quando tools/install.sh ou install-from-git.sh mudam
+#
+# Levam ~5min em GitHub Actions Ubuntu runner.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 0'  # domingo 03:00 UTC
+  push:
+    paths:
+      - 'tools/install.sh'
+      - 'tools/install-from-git.sh'
+      - 'tools/build-package.sh'
+      - 'tools/docker/**'
+
+jobs:
+  smoke:
+    name: install.sh em Debian 13 container
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build pacote local
+        run: sudo bash tools/build-package.sh
+      - name: Smoke test via Docker
+        run: sudo bash tools/docker/smoke-test.sh

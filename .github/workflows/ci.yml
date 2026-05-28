@@ -1,0 +1,90 @@
+name: CI
+
+# Roda em PR e push pra main. Cobre lint + testes da api_service.
+# Smoke test do install.sh roda em workflow separado (smoke.yml) por ser
+# mais lento (~5min) e exigir Docker.
+#
+# Trigger manual: workflow_dispatch (botão "Run workflow" na aba Actions).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Cancela runs antigos do mesmo PR/branch quando novo commit chega
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Ruff (Python lint + format check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install uv
+        run: curl -fsSL https://astral.sh/uv/install.sh | sh
+      - name: Sync .venv
+        working-directory: api_service
+        run: $HOME/.local/bin/uv sync --quiet
+      - name: ruff check
+        working-directory: api_service
+        run: .venv/bin/ruff check app tests
+      - name: ruff format --check
+        working-directory: api_service
+        run: .venv/bin/ruff format --check app tests
+
+  tests:
+    name: Pytest (api_service)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    env:
+      JWT_SECRET: ci-only-secret-not-for-prod-deadbeef
+      DB_PATH: /tmp/ci-test.duckdb
+      REDIS_URL: redis://127.0.0.1:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install uv
+        run: curl -fsSL https://astral.sh/uv/install.sh | sh
+      - name: Sync .venv
+        working-directory: api_service
+        run: $HOME/.local/bin/uv sync --quiet
+      - name: Run pytest
+        working-directory: api_service
+        run: .venv/bin/python -m pytest -q --tb=short
+
+  php-syntax:
+    name: PHP syntax check
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - name: php -l em todos os .php
+        run: |
+          # Falha se qualquer .php tiver erro de sintaxe
+          find . -path ./.git -prune -o -name '*.php' -print | xargs -I {} php -l {} | (! grep -v 'No syntax errors')

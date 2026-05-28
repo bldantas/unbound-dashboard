@@ -1,5 +1,8 @@
 # Unbound Dashboard
 
+[![CI](https://github.com/bldantas/unbound-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/bldantas/unbound-dashboard/actions/workflows/ci.yml)
+[![Smoke](https://github.com/bldantas/unbound-dashboard/actions/workflows/smoke.yml/badge.svg)](https://github.com/bldantas/unbound-dashboard/actions/workflows/smoke.yml)
+
 Painel de administração web para o servidor DNS **Unbound**, com monitoramento em tempo real, gerenciamento de blocklists, diagnósticos, alertas e histórico de consultas.
 
 ## Arquitetura

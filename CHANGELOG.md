@@ -7,6 +7,17 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-05-28
 
+### CI/CD + smoke staging — GitHub Actions
+- **v2.107.0**: fecha #6 (canary/staging) + #8 (CI/CD) numa só rodada. Antes não havia CI configurado — testes só rodavam manualmente, primeiro reporter de bug era prod (deu causa pra v2.101.1, v2.101.2, v2.103.2).
+  - **`.github/workflows/ci.yml`**: roda em todo push pra main + PRs. 3 jobs paralelos com timeout total ~10min.
+    - `lint`: ruff check + ruff format --check em `api_service/app` e `tests`.
+    - `tests`: pytest (~190+ testes) com Redis 7 service container. Python 3.13 + uv sync.
+    - `php-syntax`: `php -l` em todos os `.php` do repo, falha se qualquer um tem erro.
+    - `concurrency` cancela runs antigos quando novo commit chega no mesmo PR/branch.
+  - **`.github/workflows/smoke.yml`**: roda `tools/docker/smoke-test.sh` em runner Ubuntu (Docker disponível nativo). Triggers: manual via `workflow_dispatch`, semanal em domingo 03:00 UTC, e em push que toca `tools/install.sh` ou `install-from-git.sh` ou `tools/docker/**`. Cobre o cenário que pegou a gente em prod (install.sh + uv sync + healthz em Debian 13 isolado).
+  - **README badges**: CI + Smoke no topo, linkando direto pra aba Actions.
+  - Triggers escolhidos pra não queimar minutos do plano gratuito: PR + push em main pra CI rápido; smoke (mais lento, ~5min) só sob demanda + 1x/semana + quando install scripts mudam.
+
 ### DigestSender paginação + i18n batch
 - **v2.106.0**: 2 itens da lista de pendências.
   - **DigestSender paginação multi-email** ([digest_sender.py](api_service/app/workers/digest_sender.py)): quando o digest tem > 500 eventos, divide em chunks de `DIGEST_ITEMS_CAP=500` e envia 1 email por chunk. Subject ganha sufixo `(parte X/Y)`. Header do body indica a parte. Banner azul "Continua na parte X+1 de Y (próximo email)" entre partes. Se uma parte falhar no SMTP, as seguintes são abortadas e o user é contado como `failed`. Counter `parts_sent` no retorno. Validado: 1200 eventos → 3 emails (500+500+200). Antes truncava silenciosamente acima de 500 — agora cobre 100% dos eventos do digest, sem perda.
