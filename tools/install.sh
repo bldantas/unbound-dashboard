@@ -38,7 +38,7 @@ pkg_installed() {
 # de cabeçalho que versões anteriores duplicavam a cada instalação.
 install_dashboard_cron() {
     local src="$1"
-    install -m 0644 -o root -g root "$src" /etc/cron.d/unbound-dashboard
+    install -m 0644 -o root -g root "$src" /etc/cron.d/unbound-dashboard || return 1
     local cur new
     cur=$(crontab -l 2>/dev/null || true)
     [ -n "$cur" ] || return 0
@@ -479,18 +479,20 @@ else
     err "Apache conf ausente em $SYSTEM_SRC/apache/"
 fi
 
-# Health-fix + setup-unbound-logs
-for sh in unbound-health-fix.sh setup-unbound-logs.sh; do
-    if [ -f "$SYSTEM_SRC/bin/$sh" ]; then
-        cp "$SYSTEM_SRC/bin/$sh" /usr/local/bin/
-        chmod +x "/usr/local/bin/$sh"
-        log "$sh instalado em /usr/local/bin/"
-    fi
+# Scripts de sistema (health-fix, logs, e os executados via sudo: update,
+# restore, apparmor). root:root 755 em /usr/local/bin — fora da árvore web.
+for src_sh in "$SYSTEM_SRC"/bin/*.sh; do
+    [ -f "$src_sh" ] || continue
+    install -m 0755 -o root -g root "$src_sh" "/usr/local/bin/$(basename "$src_sh")"
+    log "$(basename "$src_sh") instalado em /usr/local/bin/"
 done
 
+# Logs de update/restore: escritos pelos scripts root, lidos pela API (SSE).
+install -d -o root -g www-data -m 750 /var/log/unbound-dashboard-update
+
 # Crons (/etc/cron.d, como www-data) + limpeza das entradas antigas do root
-if [ -f "$SYSTEM_SRC/cron/unbound-dashboard-crons" ]; then
-    install_dashboard_cron "$SYSTEM_SRC/cron/unbound-dashboard-crons"
+if [ -f "$SYSTEM_SRC/cron/unbound-dashboard.cron" ]; then
+    install_dashboard_cron "$SYSTEM_SRC/cron/unbound-dashboard.cron"
     log "Cron instalado em /etc/cron.d/unbound-dashboard (www-data)"
 fi
 

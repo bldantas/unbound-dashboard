@@ -6,8 +6,10 @@
 # unbound-dashboard/. Wrapper standalone — não depende do contexto de
 # update em andamento.
 #
-# Usado pela UI (aba Sistema / Atualizações → Histórico de Backups)
-# via api_service spawnando: sudo bash restore-backup.sh <job_id> <ts>
+# Instalado em /usr/local/bin (root:root 755), fora da árvore web que
+# www-data escreve. Usado pela UI (aba Sistema / Atualizações → Histórico de
+# Backups) via api_service spawnando:
+#   sudo /usr/local/bin/unbound-dashboard-restore-backup.sh <job_id> <ts>
 #
 # Args:
 #   $1 = job_id (12 hex chars, valida pela API + regex aqui)
@@ -26,8 +28,11 @@
 #   1 = erro (backup não encontrado, falha de tar, etc)
 #   2 = restore aplicado mas health check falhou
 #
-# Stdout/stderr são redirecionados pelo SHELL pro log file pra SSE
-# consumir (mesma estratégia do run-update.sh).
+# Re-executa a si mesmo num scope systemd próprio: sem isso o
+# `systemctl stop unbound-dashboard-api` abaixo mata este processo, que nasce
+# no cgroup da API. Stdout/stderr vão para
+# /var/log/unbound-dashboard-update/update-<job_id>.log (dir do root; www-data
+# só lê, para o SSE).
 # ============================================================
 
 set -euo pipefail
@@ -40,7 +45,7 @@ DASHBOARD_DIR="/var/www/html/unbound-dashboard"
 DUCKDB_PATH="/var/lib/unbound-dashboard/unbound_dash.duckdb"
 ENV_FILE="/etc/unbound-dashboard/api-v1.env"
 
-if [ -z "$JOB_ID" ] || [ -z "$TIMESTAMP" ]; then
+if [ "$#" -ne 2 ] || [ -z "$JOB_ID" ] || [ -z "$TIMESTAMP" ]; then
     echo "Uso: $0 <job_id> <timestamp>" >&2
     exit 1
 fi
@@ -59,10 +64,16 @@ fi
 CODE_BACKUP="$BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz"
 DB_BACKUP="$BACKUP_DIR/duckdb-$TIMESTAMP.duckdb"
 ENV_BACKUP="$BACKUP_DIR/api-v1.env-$TIMESTAMP"
-LOG="/var/log/unbound-dashboard/update-${JOB_ID}.log"
-mkdir -p "$(dirname "$LOG")"
+if [ -z "${UDASH_IN_SCOPE:-}" ]; then
+    exec /usr/bin/systemd-run --scope --slice=system.slice --quiet \
+        --description="Unbound Dashboard restore job $JOB_ID" \
+        /usr/bin/env UDASH_IN_SCOPE=1 "$0" "$JOB_ID" "$TIMESTAMP"
+fi
 
-# Redirect tudo pro log (igual run-update.sh)
+LOG_DIR="/var/log/unbound-dashboard-update"
+install -d -o root -g www-data -m 750 "$LOG_DIR"
+LOG="$LOG_DIR/update-${JOB_ID}.log"
+install -o root -g www-data -m 640 /dev/null "$LOG"
 exec >> "$LOG" 2>&1
 
 GREEN='\033[0;32m'
@@ -152,6 +163,15 @@ fi
 # ============================================================
 if [ -f "$DB_BACKUP" ]; then
     info "Restaurando DuckDB..."
+    # O .wal atual pertence ao banco que está sendo substituído: reproduzido
+    # sobre o snapshot corrompe ou impede a abertura. Restaura o WAL do
+    # snapshot (se houver) ou tira o atual do caminho.
+    if [ -f "${DUCKDB_PATH}.wal" ]; then
+        mv -f "${DUCKDB_PATH}.wal" "${DUCKDB_PATH}.wal.pre-restore-$SAFETY_TS" || true
+    fi
+    if [ -f "${DB_BACKUP}.wal" ]; then
+        cp -a "${DB_BACKUP}.wal" "${DUCKDB_PATH}.wal" || warn "Falha ao restaurar o WAL do backup"
+    fi
     if cp -a "$DB_BACKUP" "$DUCKDB_PATH"; then
         log "DuckDB restaurado"
     else

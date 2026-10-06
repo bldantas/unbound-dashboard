@@ -3,7 +3,8 @@ Self-update via UI — núcleo do orquestrador.
 
 Responsabilidades:
   - Consultar GitHub Releases / API REST pra última versão disponível
-  - Baixar tarball + .sha256, validar checksum
+  - Baixar tarball + .sha256 + .sig, validar checksum (a assinatura é
+    verificada pelo lado root, em unbound-dashboard-run-update.sh)
   - Spawnar `sudo bash tools/update.sh <tarball>` via subprocess
   - Manter estado do job em Redis (status, log_path, exit_code)
   - Lock global pra impedir 2 updates simultâneos
@@ -48,10 +49,12 @@ log = structlog.get_logger(__name__)
 GITHUB_REPO = "bldantas/unbound-dashboard"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATES_DIR = Path("/var/lib/unbound-dashboard/updates")
-LOG_DIR = Path("/var/log/unbound-dashboard")
+# Dir do root (root:www-data 750): os scripts root criam os logs, a API só lê.
+LOG_DIR = Path("/var/log/unbound-dashboard-update")
 UPDATE_SCRIPT = "/var/www/html/unbound-dashboard/tools/update.sh"
-RUN_UPDATE_WRAPPER = "/var/www/html/unbound-dashboard/tools/run-update.sh"
-RESTORE_SCRIPT = "/var/www/html/unbound-dashboard/tools/restore-backup.sh"
+# Scripts root-owned em /usr/local/bin — fora da árvore que www-data escreve.
+RUN_UPDATE_WRAPPER = "/usr/local/bin/unbound-dashboard-run-update.sh"
+RESTORE_SCRIPT = "/usr/local/bin/unbound-dashboard-restore-backup.sh"
 VERSION_FILE = Path("/var/www/html/unbound-dashboard/VERSION")
 BACKUP_DIR = Path("/var/backups/unbound-dashboard")
 BACKUPS_LIST_LIMIT = 10
@@ -242,19 +245,27 @@ async def check_for_updates() -> dict[str, Any]:
 # ============================================================
 
 
-def _find_assets(release: dict[str, Any]) -> tuple[dict, dict] | tuple[None, None]:
-    """Encontra (tarball_asset, sha256_asset). Ambos precisam existir."""
+def _find_assets(
+    release: dict[str, Any],
+) -> tuple[dict, dict, dict] | tuple[None, None, None]:
+    """Encontra (tarball, .sha256, .sig). Os três precisam existir, e o .sig
+    precisa ser do mesmo tarball (`<tarball>.sig`) — o lado root procura
+    exatamente esse nome ao verificar a assinatura."""
     tarball = None
     sha = None
+    sigs: dict[str, dict] = {}
     for a in release.get("assets", []):
         name = a.get("name", "")
         if name.endswith(".tar.gz") and "unbound-dashboard-update" in name:
             tarball = a
         elif name.endswith(".tar.gz.sha256"):
             sha = a
-    if tarball is None or sha is None:
-        return None, None
-    return tarball, sha
+        elif name.endswith(".tar.gz.sig"):
+            sigs[name] = a
+    sig = sigs.get(f"{tarball['name']}.sig") if tarball else None
+    if tarball is None or sha is None or sig is None:
+        return None, None, None
+    return tarball, sha, sig
 
 
 async def _download(url: str, dest: Path) -> None:
@@ -311,30 +322,34 @@ async def download_and_verify(release: dict[str, Any]) -> Path:
     funciona com Bearer token. `browser_download_url` redireciona pra S3
     descartando o header de Authorization.
     """
-    tarball_asset, sha_asset = _find_assets(release)
-    if tarball_asset is None or sha_asset is None:
+    tarball_asset, sha_asset, sig_asset = _find_assets(release)
+    if tarball_asset is None or sha_asset is None or sig_asset is None:
         raise TarballDownloadFailed(
-            "Release não tem tarball+sha256 — release malformada"
+            "Release não tem tarball + .sha256 + .sig — release malformada ou sem assinatura"
         )
 
     UPDATES_DIR.mkdir(parents=True, exist_ok=True)
     tarball_path = UPDATES_DIR / tarball_asset["name"]
     sha_path = UPDATES_DIR / sha_asset["name"]
+    sig_path = UPDATES_DIR / sig_asset["name"]
 
     has_token = bool(
         settings.github_token and settings.github_token.get_secret_value()
     )
     tarball_url = tarball_asset["api_url"] if has_token else tarball_asset["browser_download_url"]
     sha_url = sha_asset["api_url"] if has_token else sha_asset["browser_download_url"]
+    sig_url = sig_asset["api_url"] if has_token else sig_asset["browser_download_url"]
 
     log.info("updater.downloading", tarball=tarball_asset["name"], size=tarball_asset.get("size"))
     await _download(tarball_url, tarball_path)
     await _download(sha_url, sha_path)
+    await _download(sig_url, sig_path)
 
     if not _verify_sha256(tarball_path, sha_path):
         # Limpa arquivos suspeitos pra evitar reuso acidental
         tarball_path.unlink(missing_ok=True)
         sha_path.unlink(missing_ok=True)
+        sig_path.unlink(missing_ok=True)
         raise ChecksumMismatch(
             f"SHA256 do tarball ({tarball_asset['name']}) não bate com .sha256"
         )
@@ -410,9 +425,9 @@ _EXIT_TO_STATUS = {
 
 def _spawn_update_process(tarball_path: Path, job_id: str, log_path: Path) -> int:
     """
-    Spawna `sudo bash tools/run-update.sh <job_id> <tarball>` detachado.
+    Spawna `sudo unbound-dashboard-run-update.sh <job_id> <tarball>` detachado.
 
-    O wrapper `run-update.sh` faz `exec >> $LOG 2>&1` internamente, então
+    O wrapper faz `exec >> $LOG 2>&1` internamente, então
     o fd do log é aberto pelo SHELL DO FILHO — não herdado do Python.
     Isso é crítico: quando `restart_and_smoke()` reinicia o api_service
     (que é parent deste subprocess), o fd herdado do Python sumia e o log
@@ -420,16 +435,11 @@ def _spawn_update_process(tarball_path: Path, job_id: str, log_path: Path) -> in
     o fd nasce no session group novo (criado por start_new_session) e
     sobrevive ao restart.
 
-    Garantimos `log_path` exista ANTES de spawnar pra o SSE não retornar
-    erro "Job não encontrado" se o frontend abrir o stream antes do
-    wrapper rodar.
+    O log é criado pelo wrapper (root) num dir em que a API não escreve; o
+    SSE espera alguns segundos o arquivo aparecer.
     """
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    # Toca o arquivo pra o SSE encontrar imediatamente
-    log_path.touch()
-
     proc = subprocess.Popen(  # noqa: S603
-        ["sudo", "-n", "/usr/bin/bash", RUN_UPDATE_WRAPPER, job_id, str(tarball_path)],
+        ["sudo", "-n", RUN_UPDATE_WRAPPER, job_id, str(tarball_path)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL,
@@ -690,11 +700,10 @@ class InvalidTimestamp(UpdaterError):
 
 
 def _spawn_restore_process(timestamp: str, job_id: str, log_path: Path) -> int:
-    """Spawna `sudo bash restore-backup.sh <job_id> <timestamp>` detachado."""
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.touch()
+    """Spawna `sudo unbound-dashboard-restore-backup.sh <job_id> <timestamp>`
+    detachado. O log é criado pelo script (root)."""
     proc = subprocess.Popen(  # noqa: S603
-        ["sudo", "-n", "/usr/bin/bash", RESTORE_SCRIPT, job_id, timestamp],
+        ["sudo", "-n", RESTORE_SCRIPT, job_id, timestamp],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL,

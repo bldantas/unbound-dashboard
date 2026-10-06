@@ -59,6 +59,11 @@ ReadWritePaths=/etc/unbound-dashboard
 ReadWritePaths=/etc/unbound
 ReadWritePaths=/usr/local/bin
 ReadWritePaths=/var/spool/cron
+# Prefixo "-": caminho ausente não impede o start (no 1º update para esta
+# versão o update.sh anterior instala esta unit mas não cria o dir de log).
+ReadWritePaths=-/etc/cron.d
+ReadWritePaths=-/etc/logrotate.d
+ReadWritePaths=-/var/log/unbound-dashboard-update
 ReadWritePaths=/tmp
 
 [Install]

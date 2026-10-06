@@ -3,11 +3,12 @@
 # Unbound Dashboard — Release Script
 #
 # Publica uma release no GitHub a partir da VERSION atual:
-#   1. Roda tools/build-update.sh (gera tarball + .sha256 em dist/)
+#   1. Roda tools/build-update.sh (gera tarball + .sha256 em dist/) e assina
+#      o tarball (Ed25519, .sig) — os servidores recusam pacote sem assinatura
 #   2. Extrai notas do CHANGELOG.md — tenta 2 formatos em ordem:
 #      a) OLD (pré-2026-05-26): seção `## vX.Y.Z — Title`
 #      b) NEW (date-grouped):    `- **vX.Y.Z**: ...` dentro de `### Title`
-#   3. `gh release create vX.Y.Z` com tarball+sha256 como assets
+#   3. `gh release create vX.Y.Z` com tarball + .sha256 + .sig como assets
 #   4. Notifica o usuário com URL da release
 #
 # Uso:
@@ -17,6 +18,10 @@
 #
 # Requisitos:
 #   - `gh` CLI autenticado com escopo `repo` (gh auth login)
+#   - Chave privada de assinatura em $RELEASE_SIGNING_KEY
+#     (default ~/.config/unbound-dashboard/release-signing.key). A pública
+#     correspondente está embutida em tools/system/bin/unbound-dashboard-run-update.sh.
+#     Guarde um backup da chave privada fora desta máquina.
 #   - Working tree limpo OU commits pendentes já pushed (avisamos se sujo)
 #   - Tag vX.Y.Z não pode existir ainda (refuse, exit 1)
 # ============================================================
@@ -29,6 +34,8 @@ CHANGELOG_FILE="${DASHBOARD_DIR}/CHANGELOG.md"
 DIST_DIR="${DASHBOARD_DIR}/dist"
 DRAFT="${DRAFT:-false}"
 PRERELEASE="${PRERELEASE:-false}"
+SIGNING_KEY="${RELEASE_SIGNING_KEY:-$HOME/.config/unbound-dashboard/release-signing.key}"
+RUN_UPDATE_SCRIPT="${DASHBOARD_DIR}/tools/system/bin/unbound-dashboard-run-update.sh"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -51,6 +58,17 @@ step "Pré-voo"
 # 1. gh CLI presente + autenticado
 command -v gh >/dev/null 2>&1 || { error "gh CLI não encontrado. Instale: https://cli.github.com/"; exit 1; }
 gh auth status >/dev/null 2>&1 || { error "gh CLI não autenticado. Rode: gh auth login"; exit 1; }
+
+# Chave de assinatura: precisa existir e bater com a pública embutida no
+# script root dos servidores — senão a release seria recusada por todos.
+[ -f "$SIGNING_KEY" ] || { error "Chave de assinatura não encontrada: $SIGNING_KEY (defina RELEASE_SIGNING_KEY)"; exit 1; }
+EMBEDDED_PUB=$(sed -n '/BEGIN PUBLIC KEY/,/END PUBLIC KEY/p' "$RUN_UPDATE_SCRIPT" | tr -d "'" | sed 's/^RELEASE_PUBKEY=//')
+KEY_PUB=$(openssl pkey -in "$SIGNING_KEY" -pubout 2>/dev/null) \
+    || { error "Não consegui ler a chave $SIGNING_KEY"; exit 1; }
+if [ "$EMBEDDED_PUB" != "$KEY_PUB" ]; then
+    error "A chave $SIGNING_KEY não corresponde à pública embutida em $(basename "$RUN_UPDATE_SCRIPT")"
+    exit 1
+fi
 log "gh CLI autenticado"
 
 # 2. VERSION válida
@@ -160,9 +178,16 @@ SHA256_FILE="${TARBALL}.sha256"
 [ -f "$TARBALL" ] || { error "Tarball não encontrado em $DIST_DIR"; exit 1; }
 [ -f "$SHA256_FILE" ] || { error "Checksum $SHA256_FILE ausente"; exit 1; }
 
+SIG_FILE="${TARBALL}.sig"
+openssl pkeyutl -sign -inkey "$SIGNING_KEY" -rawin -in "$TARBALL" -out "$SIG_FILE"
+openssl pkeyutl -verify -pubin -inkey <(printf '%s\n' "$KEY_PUB") -rawin \
+    -in "$TARBALL" -sigfile "$SIG_FILE" >/dev/null \
+    || { error "Assinatura gerada não verifica — abortando"; exit 1; }
+
 TARBALL_SIZE=$(du -h "$TARBALL" | cut -f1)
 log "Tarball: $(basename "$TARBALL") ($TARBALL_SIZE)"
 log "SHA256:  $(basename "$SHA256_FILE")"
+log "Assin.:  $(basename "$SIG_FILE")"
 
 # ============================================================
 # CRIA A RELEASE
@@ -172,6 +197,7 @@ step "Criando release no GitHub"
 GH_ARGS=("release" "create" "$TAG"
     "$TARBALL"
     "$SHA256_FILE"
+    "$SIG_FILE"
     --title "$TAG"
     --notes "$NOTES"
     --target main)

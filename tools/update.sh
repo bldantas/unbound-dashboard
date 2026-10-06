@@ -53,7 +53,7 @@ debug() { [ "$VERBOSE" = "true" ] && echo "[??] $1" || true; }
 # de cabeçalho que versões anteriores duplicavam a cada instalação.
 install_dashboard_cron() {
     local src="$1"
-    install -m 0644 -o root -g root "$src" /etc/cron.d/unbound-dashboard
+    install -m 0644 -o root -g root "$src" /etc/cron.d/unbound-dashboard || return 1
     local cur new
     cur=$(crontab -l 2>/dev/null || true)
     [ -n "$cur" ] || return 0
@@ -376,6 +376,12 @@ apply_system() {
     local sys="$EXTRACTED_DIR/system"
     [ -d "$sys" ] || { warn "system/ ausente no pacote — pulando configs"; return 0; }
 
+    # Logs de update/restore (scripts root escrevem, API lê via SSE)
+    if [ "$DRY_RUN" != "true" ]; then
+        install -d -o root -g www-data -m 750 /var/log/unbound-dashboard-update 2>/dev/null \
+            || warn "Não foi possível criar /var/log/unbound-dashboard-update"
+    fi
+
     info "Atualizando configurações do sistema..."
 
     # --- Sudoers
@@ -429,11 +435,16 @@ apply_system() {
         if [ "$DRY_RUN" = "true" ]; then
             info "[DRY-RUN] /etc/logrotate.d/unbound-dashboard"
         else
-            install -m 0644 -o root -g root "$sys/logrotate/unbound-dashboard" /etc/logrotate.d/unbound-dashboard
-            if command -v logrotate >/dev/null 2>&1 && ! logrotate -d /etc/logrotate.d/unbound-dashboard >/dev/null 2>&1; then
+            # Self-update pela UI herda o sandbox da API (ProtectSystem=strict):
+            # com um unit anterior a esta versão /etc/logrotate.d é read-only.
+            # Não aborta o update por isso — o próximo update instala.
+            if ! install -m 0644 -o root -g root "$sys/logrotate/unbound-dashboard" /etc/logrotate.d/unbound-dashboard 2>/dev/null; then
+                warn "Não foi possível gravar /etc/logrotate.d (read-only no sandbox da API) — rode o update de novo após este"
+            elif command -v logrotate >/dev/null 2>&1 && ! logrotate -d /etc/logrotate.d/unbound-dashboard >/dev/null 2>&1; then
                 warn "logrotate -d acusou erro em /etc/logrotate.d/unbound-dashboard — revise"
+            else
+                log "Logrotate do log do Unbound instalado"
             fi
-            log "Logrotate do log do Unbound instalado"
             # copytruncate copia o arquivo antes de truncar: na 1ª rotação de
             # um log que cresceu sem limite (instalações antigas) a cópia pode
             # não caber e encher o disco. Não truncamos sozinhos (o log pode
@@ -549,13 +560,20 @@ APACHE_PHP_FPM
     fi
 
     # --- Crontabs
-    if [ -f "$sys/cron/unbound-dashboard-crons" ]; then
+    # Nome novo de propósito: o update.sh de versões anteriores procura
+    # "unbound-dashboard-crons" e colaria este arquivo (formato /etc/cron.d,
+    # com coluna de usuário) no crontab do root. Com o nome novo ele pula.
+    if [ -f "$sys/cron/unbound-dashboard.cron" ]; then
         if [ "$DRY_RUN" = "true" ]; then
             info "[DRY-RUN] crontab"
         else
             install -d -o www-data -g www-data -m 750 /var/log/unbound-dashboard
-            install_dashboard_cron "$sys/cron/unbound-dashboard-crons"
-            log "Cron instalado em /etc/cron.d/unbound-dashboard (www-data)"
+            # Mesmo caso do logrotate: /etc/cron.d pode ser read-only no sandbox.
+            if ( install_dashboard_cron "$sys/cron/unbound-dashboard.cron" ) 2>/dev/null; then
+                log "Cron instalado em /etc/cron.d/unbound-dashboard (www-data)"
+            else
+                warn "Não foi possível gravar /etc/cron.d (read-only no sandbox da API) — rode o update de novo após este"
+            fi
         fi
     fi
 }

@@ -170,12 +170,16 @@ copy_system() {
     [ -f /usr/local/bin/unbound-health-fix.sh ] && cp /usr/local/bin/unbound-health-fix.sh "$BUILD_DIR/system/bin/"
 
     # Setup-unbound-logs script
-    [ -f "$DASHBOARD_DIR/tools/system/bin/setup-unbound-logs.sh" ] && \
-        cp "$DASHBOARD_DIR/tools/system/bin/setup-unbound-logs.sh" "$BUILD_DIR/system/bin/"
+    # Scripts versionados (setup-unbound-logs e os executados via sudo).
+    # O update.sh de versões anteriores já instala system/bin/*.sh em
+    # /usr/local/bin — é assim que os scripts root chegam no 1º update.
+    for src_sh in "$DASHBOARD_DIR"/tools/system/bin/*.sh; do
+        [ -f "$src_sh" ] && cp "$src_sh" "$BUILD_DIR/system/bin/"
+    done
 
     # Crons
-    [ -f "$DASHBOARD_DIR/tools/system/cron/unbound-dashboard-crons" ] && \
-        cp "$DASHBOARD_DIR/tools/system/cron/unbound-dashboard-crons" "$BUILD_DIR/system/cron/"
+    [ -f "$DASHBOARD_DIR/tools/system/cron/unbound-dashboard.cron" ] && \
+        cp "$DASHBOARD_DIR/tools/system/cron/unbound-dashboard.cron" "$BUILD_DIR/system/cron/"
 
     log "system/ pronto"
 }
