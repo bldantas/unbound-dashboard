@@ -103,6 +103,23 @@ def _checksum(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _checkpoint(conn: duckdb.DuckDBPyConnection) -> None:
+    """
+    Força a gravação do WAL no arquivo principal.
+
+    Contorna um bug do DuckDB (reproduzido de 1.5.2 até 1.5.6): quando o WAL contém
+    `ALTER TABLE ... ADD COLUMN` numa tabela que tem DEFAULT com função
+    (`nextval(...)`, `now()`), o replay na próxima abertura falha com
+    "INTERNAL Error: Failure while replaying WAL file ... Calling
+    DatabaseManager::GetDefaultDatabase with no default database set"
+    e o banco não abre mais. O caso típico é o instalador: o api_service aplica
+    as migrations, é parado sem fechar o banco de forma limpa e depois o
+    create_admin.py não consegue abrir o arquivo. Com o checkpoint, DDL nunca
+    fica pendente no WAL.
+    """
+    conn.execute("CHECKPOINT")
+
+
 def run_migrations(db_path: str | None = None) -> list[int]:
     """
     Aplica migrations pendentes. Retorna a lista de versões aplicadas nesta
@@ -117,6 +134,7 @@ def run_migrations(db_path: str | None = None) -> list[int]:
 
     with duckdb.connect(target) as conn:
         _ensure_schema_migrations(conn)
+        _checkpoint(conn)
         existing = {
             row[0]: row[1]
             for row in conn.execute("SELECT version, checksum FROM schema_migrations").fetchall()
@@ -149,6 +167,10 @@ def run_migrations(db_path: str | None = None) -> list[int]:
                 conn.execute("ROLLBACK")
                 log.error("migration.failed", version=version, name=name)
                 raise
+            # Checkpoint por migration: se o processo morrer no meio da sequência
+            # (falha na V(N+1), SIGKILL, stop do systemd), os ALTERs já aplicados
+            # não ficam no WAL — ver _checkpoint().
+            _checkpoint(conn)
             applied.append(version)
             log.info("migration.applied", version=version, name=name, checksum=checksum[:12])
 

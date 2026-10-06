@@ -351,9 +351,18 @@ else
     fi
     JWT_SECRET=$(openssl rand -hex 32)
     sed -i "s|JWT_SECRET=.*|JWT_SECRET=${JWT_SECRET}|" "$ENV_FILE"
+    # Chave Fernet = 32 bytes em base64 urlsafe. Só em env novo: num env
+    # existente, trocar/adicionar a chave muda como os secrets já gravados são lidos.
+    SECRETS_MASTER_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
+    if grep -q '^SECRETS_MASTER_KEY=' "$ENV_FILE"; then
+        sed -i "s|^SECRETS_MASTER_KEY=.*|SECRETS_MASTER_KEY=${SECRETS_MASTER_KEY}|" "$ENV_FILE"
+    else
+        echo "SECRETS_MASTER_KEY=${SECRETS_MASTER_KEY}" >> "$ENV_FILE"
+    fi
     chown root:www-data "$ENV_FILE"
     chmod 640 "$ENV_FILE"
-    log "Env file criado em $ENV_FILE com JWT_SECRET aleatório"
+    log "Env file criado em $ENV_FILE com JWT_SECRET e SECRETS_MASTER_KEY aleatórios"
+    warn "Guarde uma cópia de $ENV_FILE: sem o SECRETS_MASTER_KEY os secrets cifrados não são recuperáveis"
 fi
 
 # Sudoers
@@ -584,6 +593,52 @@ Ou crie o admin manualmente após o install:
     # aplicadas no startup que ocorreu na Etapa 7, então a tabela `users` existe.
     info "Parando api_service temporariamente (libera lock do DuckDB)..."
     systemctl stop unbound-dashboard-api 2>/dev/null || true
+
+    # Recuperação de WAL que não reproduz (bug do DuckDB 1.5.x: replay de ALTER
+    # ADD COLUMN em tabela com DEFAULT nextval()/now() falha com "Calling
+    # DatabaseManager::GetDefaultDatabase with no default database set").
+    # Só é automática em instalação NOVA (sem data/.installed): aí o WAL contém
+    # no máximo o schema das migrations. Movemos o WAL para um backup (não
+    # apagamos) e subimos o api_service uma vez: as migrations idempotentes
+    # refazem o schema e fazem CHECKPOINT; o stop seguinte deixa o arquivo limpo.
+    # Em reinstalação o WAL pode ter dados reais (users, configs, query logs) —
+    # nesse caso abortamos com instruções em vez de descartá-lo.
+    DUCK_DB_FILE="$( set -a; source "$ENV_FILE" 2>/dev/null; echo "${DB_PATH:-$DUCKDB_DIR/unbound_dash.duckdb}" )"
+    if [ -f "${DUCK_DB_FILE}.wal" ]; then
+        # `|| true`: com o WAL quebrado o python sai com 1 e, sob pipefail, a
+        # atribuição abortaria o script (set -e) antes da recuperação.
+        DUCK_OPEN_ERR="$(sudo -u www-data "$APISERVICE_DIR/.venv/bin/python" -c \
+            'import sys, duckdb; duckdb.connect(sys.argv[1]).close()' "$DUCK_DB_FILE" 2>&1 >/dev/null | head -c 600 || true)"
+        # Here-string em vez de `echo | grep -q`: com pipefail, o SIGPIPE do
+        # echo quando o grep sai cedo daria falso negativo.
+        if grep -q "Failure while replaying WAL" <<<"$DUCK_OPEN_ERR"; then
+            if [ -f "$INSTALL_DIR/data/.installed" ]; then
+                err "WAL do DuckDB não reproduz (bug conhecido do DuckDB 1.5.x) e esta instalação já tem dados.
+    O WAL (${DUCK_DB_FILE}.wal) pode conter gravações recentes — não foi alterado.
+    Restaure o último backup de /var/backups/unbound-dashboard/ ou, aceitando perder
+    as gravações recentes, mova o WAL manualmente e rode o install.sh de novo:
+      sudo mv ${DUCK_DB_FILE}.wal ${DUCK_DB_FILE}.wal.broken-\$(date +%Y%m%d%H%M%S)"
+            fi
+            WAL_BACKUP="${DUCK_DB_FILE}.wal.broken-$(date +%Y%m%d%H%M%S)"
+            warn "WAL do DuckDB não reproduz (bug conhecido do DuckDB). Movendo para $WAL_BACKUP"
+            mv "${DUCK_DB_FILE}.wal" "$WAL_BACKUP"
+            info "Reaplicando migrations (start/stop do api_service)..."
+            systemctl start unbound-dashboard-api 2>/dev/null || true
+            WAL_RECOVERY_OK="false"
+            for _ in $(seq 1 30); do
+                if curl -sf --max-time 2 http://127.0.0.1:8001/api/v1/healthz >/dev/null 2>&1; then
+                    WAL_RECOVERY_OK="true"
+                    break
+                fi
+                sleep 1
+            done
+            systemctl stop unbound-dashboard-api 2>/dev/null || true
+            if [ "$WAL_RECOVERY_OK" != "true" ]; then
+                err "api_service não respondeu /api/v1/healthz após mover o WAL — migrations não foram reaplicadas.
+    Veja a causa com: journalctl -u unbound-dashboard-api -n 100"
+            fi
+        fi
+    fi
 
     info "Criando admin '$ADMIN_USERNAME'..."
     (

@@ -84,6 +84,11 @@ from app.workers import (
 log = structlog.get_logger()
 
 _background_tasks: list[asyncio.Task] = []
+
+# Orçamento do shutdown — somado fica bem abaixo do TimeoutStopSec=30 do unit
+# (deployments/systemd/unbound-dashboard-api.service).
+_SHUTDOWN_DRAIN_TIMEOUT_S = 10
+_SHUTDOWN_CHECKPOINT_ATTEMPTS = 3
 _SUPERVISOR_BACKOFF_INITIAL = 1.0
 _SUPERVISOR_BACKOFF_MAX = 60.0
 
@@ -262,8 +267,34 @@ async def lifespan(app: FastAPI):
     await digest_sender.stop()
     for task in _background_tasks:
         task.cancel()
-    await asyncio.gather(*_background_tasks, return_exceptions=True)
+    # Drenagem limitada: um worker preso não pode consumir o TimeoutStopSec do
+    # systemd — se estourar, o SIGKILL chega antes do CHECKPOINT abaixo.
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*_background_tasks, return_exceptions=True),
+            timeout=_SHUTDOWN_DRAIN_TIMEOUT_S,
+        )
+    except TimeoutError:
+        log.warning("workers.drain_timeout", timeout_s=_SHUTDOWN_DRAIN_TIMEOUT_S)
     _background_tasks.clear()
+
+    # Grava o WAL no arquivo principal antes de sair. Sem isso, o próximo
+    # processo que abrir o banco (ex.: create_admin.py no install.sh, logo após
+    # `systemctl stop`) precisa reproduzir o WAL, e o DuckDB 1.5.x falha nesse
+    # replay quando há DDL com DEFAULT nextval()/now() (ver app/db/migrate.py::_checkpoint).
+    # Retry: threads de executor que ainda terminam uma escrita fazem o
+    # CHECKPOINT falhar com "other write transactions active".
+    from app.repositories.duckdb.connection import db_execute
+
+    for attempt in range(1, _SHUTDOWN_CHECKPOINT_ATTEMPTS + 1):
+        try:
+            await db_execute("CHECKPOINT")
+            log.info("duckdb.checkpoint_on_shutdown.ok", attempt=attempt)
+            break
+        except Exception as exc:  # noqa: BLE001
+            log.warning("duckdb.checkpoint_on_shutdown.failed", attempt=attempt, error=str(exc))
+            if attempt < _SHUTDOWN_CHECKPOINT_ATTEMPTS:
+                await asyncio.sleep(1)
 
     # Fecha conexão Redis singleton (denylist JWT, etc)
     from app.infrastructure.redis_client import close_redis

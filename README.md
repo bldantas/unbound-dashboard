@@ -5,6 +5,24 @@
 
 Painel de administração web para o servidor DNS **Unbound**, com monitoramento em tempo real, gerenciamento de blocklists, diagnósticos, alertas e histórico de consultas.
 
+## Início rápido
+
+Em um servidor Debian 12+/Ubuntu 22.04+ limpo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bldantas/unbound-dashboard/main/tools/install-from-git.sh \
+  | sudo ADMIN_USERNAME=admin ADMIN_EMAIL=admin@empresa.com ADMIN_PASSWORD='senhaSegura123' bash
+```
+
+Depois acesse `http://<servidor>/unbound-dashboard/login.php` e entre com o admin criado. Para conferir se a API subiu:
+
+```bash
+curl -s http://127.0.0.1:8001/api/v1/healthz
+systemctl status unbound-dashboard-api
+```
+
+Detalhes, variações e atualização nas seções [Instalação](#instalação) e [Atualização](#atualização).
+
 ## Arquitetura
 
 | Camada | Tecnologia |
@@ -14,7 +32,7 @@ Painel de administração web para o servidor DNS **Unbound**, com monitoramento
 | Banco | DuckDB (arquivo único em `/var/lib/unbound-dashboard/unbound_dash.duckdb`) |
 | Cache / Queue / Pub-Sub | Redis 7+ |
 | Resolver | Unbound 1.17+ |
-| Workers | 18 asyncio supervisionados (LogWatcher, StatsAggregator, AlertChecker, UnboundCollector, UpdateChecker, HostPoller, BlocklistSyncer, AnomalyDetector, BackupUploader, QueryLogPruner, NotificationPruner, AuditPruner, PrometheusExporter, HAPeerMonitor, ExternalHealthPruner, RestoreTestRunner, BaselineLearner, GeoBlockUpdater, DigestSender) |
+| Workers | 19 asyncio supervisionados (LogWatcher, StatsAggregator, AlertChecker, UnboundCollector, UpdateChecker, HostPoller, BlocklistSyncer, AnomalyDetector, BackupUploader, QueryLogPruner, NotificationPruner, AuditPruner, PrometheusExporter, HAPeerMonitor, ExternalHealthPruner, RestoreTestRunner, BaselineLearner, GeoBlockUpdater, DigestSender) |
 
 O Apache faz reverse proxy de `/api/v1/*` para o FastAPI; o restante das rotas (páginas PHP, AJAX legado) é servido por PHP-FPM via `mod_proxy_fcgi`. JWT (HS256) é compartilhado entre PHP e FastAPI via sessão.
 
@@ -173,17 +191,96 @@ versões. Cada update faz **3 backups automáticos** em
 `/var/backups/unbound-dashboard/`: tarball do código, snapshot do `.duckdb`
 e cópia do `api-v1.env`.
 
+## Configuração
+
+A API lê `/etc/unbound-dashboard/api-v1.env` (chmod 640, `root:www-data`), carregado pelo systemd unit `unbound-dashboard-api.service`. O instalador gera esse arquivo; o template completo está em [api_service/deployments/api-v1.env.example](api_service/deployments/api-v1.env.example).
+
+| Variável | Para quê |
+|---|---|
+| `JWT_SECRET` | **Obrigatória.** Gerada pelo instalador (`openssl rand -hex 32`). A API não sobe com o valor `CHANGE_ME`. |
+| `DB_PATH` | Arquivo DuckDB (default `/var/lib/unbound-dashboard/unbound_dash.duckdb`). |
+| `REDIS_URL` | Default `redis://127.0.0.1:6379/0`. |
+| `SECRETS_MASTER_KEY` | Chave Fernet que cifra secrets no banco (SMTP, destinos S3, OIDC, peers do cluster). Gerada pelo instalador só em instalação nova; instalações antigas podem não ter — sem ela os secrets ficam em texto plano (warning no log). Para adicionar: `openssl rand -base64 32 \| tr '+/' '-_'`, gravar no env e reiniciar a API (OIDC e destinos S3 já gravados são cifrados no startup; os demais quando forem salvos de novo). **Faça backup:** sem ela os secrets cifrados não são recuperáveis. |
+| `UNBOUND_CONTROL`, `UNBOUND_LOG` | Caminhos do `unbound-control` e do log de queries. |
+| `GITHUB_TOKEN` | Opcional (repo público). Usado pelo checador de updates. |
+| `RATE_LIMIT_DEFAULT`, `RATE_LIMIT_AUTH`, `CORS_ORIGINS`, `LOG_LEVEL` | Ajustes finos. |
+
+Após editar: `sudo systemctl restart unbound-dashboard-api`.
+
+> O `.env.example` na raiz é legado da era MariaDB e não é mais lido.
+
+## Desenvolvimento
+
+### API (FastAPI)
+
+```bash
+cd api_service
+uv sync                                    # cria .venv com deps de dev
+
+export JWT_SECRET=dev-only-secret DB_PATH=/tmp/dev.duckdb REDIS_URL=redis://127.0.0.1:6379/0
+.venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+# Swagger: http://127.0.0.1:8001/api/v1/docs
+```
+
+As migrations em [api_service/migrations/duckdb/](api_service/migrations/duckdb/) (`V1`..`V30`) rodam automaticamente no startup. Para uma mudança de schema, crie o próximo `V<N>__descricao.sql` — nunca edite uma migration já aplicada (o runner valida checksum) — e atualize `EXPECTED_VERSIONS` em `tests/test_migrate.py`.
+
+### Testes e lint (o mesmo que o CI roda)
+
+```bash
+cd api_service
+.venv/bin/ruff check app tests
+.venv/bin/ruff format --check app tests
+.venv/bin/python -m pytest -q              # precisa de Redis local
+
+# Sintaxe PHP (na raiz do repo)
+find . -path ./.git -prune -o -name '*.php' -print | xargs -I {} php -l {} | grep -v 'No syntax errors'
+```
+
+O workflow [ci.yml](.github/workflows/ci.yml) roda isso em todo push/PR para `main`. O [smoke.yml](.github/workflows/smoke.yml) executa o `install.sh` num container Debian 13 (semanal e quando os scripts de instalação mudam); localmente:
+
+```bash
+sudo bash tools/build-package.sh && sudo bash tools/docker/smoke-test.sh
+```
+
+### Frontend (PHP)
+
+As páginas `*.php` da raiz são renderizadas pelo Apache + PHP-FPM e chamam a API via [src/ApiClient.php](src/ApiClient.php) (server-side) ou `fetch('/api/v1/...')` (client-side). Partials compartilhados ficam em [includes/](includes/) e textos traduzíveis em [lang/](lang/) — use `t('chave')` no PHP e `window.t('js.chave')` no JS.
+
+### SDKs
+
+Após mudar schemas/rotas da API, regenere os clients com a API rodando localmente:
+
+```bash
+bash tools/gen_sdk_python.sh
+bash tools/gen_sdk_js.sh
+```
+
+## Release
+
+1. Atualize [VERSION](VERSION) e adicione a entrada no [CHANGELOG.md](CHANGELOG.md) — agrupada sob o dia (`## AAAA-MM-DD` → `### Título` → `- **vX.Y.Z**: ...`).
+2. Commit + push para `main`.
+3. `bash tools/release.sh` — builda o pacote de update, extrai as notas do CHANGELOG e cria a release no GitHub (`gh` autenticado). Use `DRAFT=true` para rascunho.
+
+Servidores instalados detectam a release nova pelo worker `UpdateChecker` e podem aplicar pela UI.
+
 ## Estrutura do Projeto
 
 ```
 .
-├── api/             # Endpoints PHP (AJAX/Fetch) — em transição para FastAPI
-├── api_service/     # FastAPI app: workers, repositories, routers, migrations DuckDB
-├── docs/            # Documentação de componentes, APIs e páginas
-├── includes/        # Partials HTML (sidebar, topbar, etc.)
-├── scripts/         # Scripts utilitários (cron, blacklist update, etc.)
-├── src/             # Classes PHP da aplicação
-├── tools/           # build-package.sh, install.sh, update.sh, build-update.sh
+├── api/             # Endpoints PHP (AJAX/Fetch) residuais — em transição para FastAPI
+├── api_service/     # FastAPI app
+│   ├── app/         #   routers, services, repositories/duckdb, workers, core (auth/RBAC)
+│   ├── migrations/  #   schema DuckDB versionado (V1..V30)
+│   ├── deployments/ #   systemd unit, conf Apache, template do api-v1.env
+│   └── tests/       #   pytest
+├── clients/         # SDKs gerados (python/, js/)
+├── docs/            # Documentação de páginas e componentes (parte legada — ver docs/README.md)
+├── includes/        # Partials HTML (sidebar, topbar, head, command palette…)
+├── lang/            # Traduções pt-BR e en
+├── scripts/         # Scripts utilitários (update de blacklist)
+├── src/             # Classes PHP (Auth, ApiClient, I18n…)
+├── system/          # Arquivos de sistema instalados (sudoers, AppArmor, Let's Encrypt)
+├── tools/           # install, update, build-package, build-update, release, gen_sdk_*, docker/
 ├── data/            # Dados de runtime (gitignored)
 └── *.php            # Páginas da interface web
 ```
@@ -200,13 +297,17 @@ e cópia do `api-v1.env`.
 
 > Os arquivos em [docs/components/](docs/components/) e [docs/api/](docs/api/) descrevem código pré-modernização v2.2 (classes PHP/endpoints PHP que foram removidos ou migrados). Mantidos por histórico; ver os headers `[DEPRECATED]`.
 
-## Changelog
+## Problemas comuns
 
-Consulte [CHANGELOG.md](CHANGELOG.md) para o histórico completo de versões.
+- **API não sobe** — `journalctl -u unbound-dashboard-api -n 100`. Causas frequentes: `JWT_SECRET` ainda `CHANGE_ME`, Redis parado, permissão do arquivo DuckDB (owner deve ser `www-data`).
+- **Painel abre mas sem dados** — confira se o Unbound grava log de queries em `UNBOUND_LOG`; o instalador aplica o drop-in `unbound.service.d/logfile.conf` para isso.
+- **DuckDB não abre com `Failure while replaying WAL file`** — bug do DuckDB 1.5.x ao reproduzir `ALTER TABLE ... ADD COLUMN`. A API faz `CHECKPOINT` após cada migration e no shutdown, e o `install.sh` move um WAL quebrado para `*.wal.broken-<timestamp>` numa instalação nova. Em instalação com dados, restaure do backup em `/var/backups/unbound-dashboard/`.
 
-## Versão atual
+Mais casos em [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
-Veja o arquivo [VERSION](VERSION).
+## Versão e changelog
+
+Versão atual em [VERSION](VERSION); histórico completo em [CHANGELOG.md](CHANGELOG.md).
 
 ## Licença
 
