@@ -151,6 +151,13 @@ copy_system() {
         cp -r "$src_dropin_dir/." "$BUILD_DIR/system/systemd/unbound.service.d/"
     fi
 
+    # Logrotate do log de queries do Unbound
+    local src_logrotate="$DASHBOARD_DIR/api_service/deployments/logrotate/unbound-dashboard"
+    if [ -f "$src_logrotate" ]; then
+        mkdir -p "$BUILD_DIR/system/logrotate"
+        cp "$src_logrotate" "$BUILD_DIR/system/logrotate/"
+    fi
+
     # Apache conf-available
     local src_conf="$DASHBOARD_DIR/api_service/deployments/apache/unbound-dashboard-api.conf"
     [ -f "$src_conf" ] && cp "$src_conf" "$BUILD_DIR/system/apache/"

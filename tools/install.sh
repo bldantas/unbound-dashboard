@@ -397,6 +397,19 @@ if [ -d "$SYSTEM_SRC/systemd/unbound.service.d" ]; then
         systemctl restart unbound || warn "Falha ao reiniciar unbound após drop-in"
     fi
     log "Unbound drop-in instalado (stderr→logfile pra LogWatcher)"
+else
+    warn "Drop-in do Unbound ausente no pacote — Live Stream e histórico ficarão vazios"
+fi
+
+# Rotação do log de queries do Unbound — sem ela o arquivo enche o disco.
+if [ -f "$SYSTEM_SRC/logrotate/unbound-dashboard" ]; then
+    install -m 0644 -o root -g root "$SYSTEM_SRC/logrotate/unbound-dashboard" /etc/logrotate.d/unbound-dashboard
+    if command -v logrotate >/dev/null 2>&1 && ! logrotate -d /etc/logrotate.d/unbound-dashboard >/dev/null 2>&1; then
+        warn "logrotate -d acusou erro em /etc/logrotate.d/unbound-dashboard — revise"
+    fi
+    log "Logrotate do log do Unbound instalado (/etc/logrotate.d/unbound-dashboard)"
+else
+    warn "Config de logrotate ausente no pacote — /var/log/unbound/unbound.log não será rotacionado"
 fi
 
 # Apache conf-available + a2enconf

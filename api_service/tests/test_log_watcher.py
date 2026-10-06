@@ -174,3 +174,36 @@ def test_parse_line_emits_nxdomain_upstream_when_no_match() -> None:
     entry = _parse_line(line, now=1, matcher=_NeverBlockedMatcher())
     assert entry is not None
     assert entry[4] == "nxdomain_upstream"
+
+
+def test_tail_follows_in_place_truncation(tmp_path) -> None:
+    """logrotate copytruncate / `truncate -s 0` mantêm o inode: o tail precisa
+    voltar ao início em vez de ficar parado além do novo EOF."""
+    import threading
+    import time
+
+    from app.workers.log_watcher import LogWatcher
+
+    log_file = tmp_path / "unbound.log"
+    log_file.write_text("linha antiga sem query\n" * 1000)
+
+    watcher = LogWatcher(log_path=str(log_file), matcher=_FakeMatcher())
+    watcher._running = True
+    t = threading.Thread(target=watcher._sync_tail, daemon=True)
+    t.start()
+    try:
+        time.sleep(0.3)  # abre e posiciona no fim do conteúdo antigo
+        log_file.write_text("")  # trunca no lugar (mesmo inode)
+        with log_file.open("a") as fh:
+            fh.write(
+                "mai 04 10:56:07 unbound unbound[123:0]: [123:1] info: "
+                "10.0.0.5 novo.example.com. A IN NOERROR 0 0 0\n"
+            )
+        deadline = time.time() + 3
+        while watcher._queue.empty() and time.time() < deadline:
+            time.sleep(0.05)
+        assert not watcher._queue.empty(), "linha escrita após o truncate não foi lida"
+        assert watcher._queue.get_nowait()[2] == "novo.example.com"
+    finally:
+        watcher._running = False
+        t.join(timeout=2)
