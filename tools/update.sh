@@ -28,6 +28,9 @@ ENV_FILE="$ETC_DIR/api-v1.env"
 DUCKDB_PATH="/var/lib/unbound-dashboard/unbound_dash.duckdb"
 BACKUP_DIR="/var/backups/unbound-dashboard"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+# Quantos conjuntos de backup (código + DuckDB + env) manter, contando o
+# deste update. Cada snapshot do DuckDB pode ter GBs — sem limite o disco enche.
+BACKUP_KEEP="${BACKUP_KEEP:-3}"
 UPDATE_PACKAGE="${1:-}"
 DRY_RUN="${DRY_RUN:-false}"
 VERBOSE="${VERBOSE:-false}"
@@ -146,11 +149,48 @@ validate_package_files() {
 # ============================================================
 # BACKUP PRÉ-UPDATE
 # ============================================================
+# Remove conjuntos antigos (dashboard-/duckdb-/api-v1.env-<TS>), deixando
+# BACKUP_KEEP-1 para que, com o deste update, fiquem BACKUP_KEEP. Roda ANTES
+# do backup novo para liberar espaço. Arquivos com outros nomes (dumps
+# manuais, legado MariaDB) não são tocados.
+prune_old_backups() {
+    local keep=$((BACKUP_KEEP - 1))
+    [ "$keep" -lt 1 ] && keep=1
+    local old_ts
+    old_ts=$(find "$BACKUP_DIR" -maxdepth 1 -type f \
+                -regextype posix-extended \
+                -regex '.*/(dashboard|duckdb|api-v1\.env)-[0-9]{8}_[0-9]{6}.*' -printf '%f\n' \
+             | grep -oE '[0-9]{8}_[0-9]{6}' | sort -u | head -n -"$keep" || true)
+    local ts
+    for ts in $old_ts; do
+        rm -f -- "$BACKUP_DIR/dashboard-$ts.tar.gz" \
+                 "$BACKUP_DIR/duckdb-$ts.duckdb" "$BACKUP_DIR/duckdb-$ts.duckdb.wal" \
+                 "$BACKUP_DIR/api-v1.env-$ts"
+        info "Backup antigo removido: *-$ts (BACKUP_KEEP=$BACKUP_KEEP)"
+    done
+}
+
+# Aborta antes de começar se não couber o snapshot do DuckDB + 512MB de folga.
+# Disco cheio no meio do update deixa o DuckDB com WAL que não reproduz.
+check_backup_space() {
+    [ -f "$DUCKDB_PATH" ] || return 0
+    local need avail
+    need=$(( $(stat -c %s "$DUCKDB_PATH") + 512 * 1024 * 1024 ))
+    avail=$(df -B1 --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ')
+    if [ "$avail" -lt "$need" ]; then
+        error "Espaço insuficiente em $BACKUP_DIR: livre $((avail / 1048576))MB, necessário $((need / 1048576))MB"
+        error "Libere espaço (ex.: /var/log/unbound/unbound.log, backups antigos) e rode de novo"
+        exit 1
+    fi
+}
+
 create_backup() {
     info "Criando backup pré-update..."
     [ "$DRY_RUN" = "true" ] && { info "[DRY-RUN] Pulando backup"; return 0; }
 
     mkdir -p "$BACKUP_DIR"
+    prune_old_backups
+    check_backup_space
 
     # Garante dir de updates pro pipeline UI (idempotente — install.sh já cria,
     # mas updates aplicados manualmente também precisam dele depois)
@@ -176,7 +216,20 @@ create_backup() {
     # DuckDB
     if [ -f "$DUCKDB_PATH" ]; then
         local db_backup="$BACKUP_DIR/duckdb-$TIMESTAMP.duckdb"
+        # Snapshot consistente: com a API rodando o arquivo muda durante o cp
+        # e as escritas recentes estão no .wal. Parar a API faz o DuckDB
+        # gravar o WAL no arquivo (CHECKPOINT no shutdown). restart_and_smoke
+        # sobe de novo no fim.
+        if [ "$AUTO_RESTART" = "true" ]; then
+            info "Parando unbound-dashboard-api para snapshot consistente do DuckDB..."
+            systemctl stop unbound-dashboard-api 2>/dev/null || true
+        else
+            warn "AUTO_RESTART=false — api_service segue rodando; snapshot do DuckDB pode ficar inconsistente"
+        fi
         cp -a "$DUCKDB_PATH" "$db_backup"
+        if [ -f "${DUCKDB_PATH}.wal" ]; then
+            cp -a "${DUCKDB_PATH}.wal" "${db_backup}.wal"
+        fi
         log "DuckDB: $db_backup ($(du -h "$db_backup" | cut -f1))"
     else
         warn "DuckDB não encontrado em $DUCKDB_PATH — backup do banco pulado"
@@ -335,6 +388,34 @@ apply_system() {
                 systemctl restart unbound || warn "Falha ao reiniciar unbound após drop-in"
             fi
             log "Unbound drop-in instalado (stderr→logfile pra LogWatcher)"
+        fi
+    fi
+
+    # --- Logrotate do log de queries do Unbound
+    if [ -f "$sys/logrotate/unbound-dashboard" ]; then
+        if [ "$DRY_RUN" = "true" ]; then
+            info "[DRY-RUN] /etc/logrotate.d/unbound-dashboard"
+        else
+            install -m 0644 -o root -g root "$sys/logrotate/unbound-dashboard" /etc/logrotate.d/unbound-dashboard
+            if command -v logrotate >/dev/null 2>&1 && ! logrotate -d /etc/logrotate.d/unbound-dashboard >/dev/null 2>&1; then
+                warn "logrotate -d acusou erro em /etc/logrotate.d/unbound-dashboard — revise"
+            fi
+            log "Logrotate do log do Unbound instalado"
+            # copytruncate copia o arquivo antes de truncar: na 1ª rotação de
+            # um log que cresceu sem limite (instalações antigas) a cópia pode
+            # não caber e encher o disco. Não truncamos sozinhos (o log pode
+            # ser a única cópia das queries) — só avisamos.
+            local ulog=/var/log/unbound/unbound.log
+            if [ -f "$ulog" ]; then
+                local ulog_size ulog_avail
+                ulog_size=$(stat -c %s "$ulog")
+                ulog_avail=$(df -B1 --output=avail "$(dirname "$ulog")" | tail -1 | tr -d ' ')
+                if [ "$ulog_size" -gt "$ulog_avail" ]; then
+                    warn "$ulog tem $((ulog_size / 1073741824))GB e só há $((ulog_avail / 1073741824))GB livres:"
+                    warn "  a 1ª rotação (copytruncate) não cabe e pode encher o disco."
+                    warn "  Guarde o log se precisar e rode: truncate -s 0 $ulog"
+                fi
+            fi
         fi
     fi
 
@@ -551,6 +632,15 @@ rollback_from_backup() {
 
     if [ -f "$db_backup" ]; then
         info "Restaurando DuckDB a partir de $db_backup..."
+        # O .wal atual é da versão nova: reproduzido sobre o snapshot antigo
+        # corrompe ou impede a abertura. Restaura o WAL do snapshot (se havia)
+        # ou tira o atual do caminho (preservado para diagnóstico).
+        if [ -f "${DUCKDB_PATH}.wal" ]; then
+            mv -f "${DUCKDB_PATH}.wal" "${DUCKDB_PATH}.wal.rollback-$TIMESTAMP" || rollback_ok=0
+        fi
+        if [ -f "${db_backup}.wal" ]; then
+            cp -a "${db_backup}.wal" "${DUCKDB_PATH}.wal" || rollback_ok=0
+        fi
         if cp -a "$db_backup" "$DUCKDB_PATH"; then
             log "DuckDB restaurado"
         else

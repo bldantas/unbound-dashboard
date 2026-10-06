@@ -1,0 +1,21 @@
+# Rotação do log de queries do Unbound (instalado em /etc/logrotate.d/).
+#
+# O Unbound escreve neste arquivo via drop-in do systemd
+# (StandardError=append:..., ver systemd/unbound.service.d/logfile.conf): o fd
+# é do systemd e o Unbound não sabe reabrir o arquivo. Por isso copytruncate
+# em vez de create + postrotate. O LogWatcher detecta o truncate e volta ao
+# início do arquivo.
+#
+# Sem esta rotação o arquivo cresce sem limite (~300MB/dia num resolver médio)
+# até encher o disco, e com disco cheio o DuckDB pode ficar sem abrir.
+/var/log/unbound/unbound.log {
+    daily
+    maxsize 1G
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su unbound unbound
+}

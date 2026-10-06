@@ -141,6 +141,14 @@ class LogWatcher:
 
                 line = fh.readline()
                 if not line:
+                    # Truncado no lugar (logrotate copytruncate, `truncate -s 0`):
+                    # o inode não muda, mas a posição fica além do novo EOF e
+                    # nada mais seria lido. O Unbound escreve via
+                    # StandardError=append:, então volta a crescer do zero.
+                    if stat.st_size < fh.tell():
+                        fh.seek(0)
+                        log.info("log_watcher.truncated", path=str(self._path))
+                        continue
                     time.sleep(0.1)
                     continue
 

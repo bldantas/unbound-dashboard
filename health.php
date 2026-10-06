@@ -84,10 +84,24 @@ foreach ($systemdServices as $svc) {
     \App\ShellHelper::exec('/usr/bin/systemctl', ['show', $svc['unit'], '--property=ActiveEnterTimestamp', '--value'], $upOut, $tmpRet, false);
     $upSince = trim($upOut[0] ?? '');
 
+    // Loop de crash: com Restart=on-failure o systemd mostra "active" entre um
+    // crash e o próximo. Muitos restarts automáticos + uptime curto = serviço
+    // que não consegue ficar de pé (ex.: DuckDB com WAL que não reproduz).
+    $active = $state === 'active';
+    $nrOut = [];
+    \App\ShellHelper::exec('/usr/bin/systemctl', ['show', $svc['unit'], '--property=NRestarts', '--value'], $nrOut, $tmpRet, false);
+    $nRestarts = (int) trim($nrOut[0] ?? '0');
+    $upTs = $upSince !== '' ? strtotime($upSince) : false;
+    $uptimeSec = $upTs !== false ? time() - $upTs : PHP_INT_MAX;
+    if ($nRestarts >= 5 && $uptimeSec < 120) {
+        $active = false;
+        $state = "crash-loop ({$nRestarts} reinícios)";
+    }
+
     $serviceResults[] = [
         'name' => $svc['name'],
         'unit' => $svc['unit'],
-        'active' => $state === 'active',
+        'active' => $active,
         'state' => $state,
         'since' => $upSince,
     ];

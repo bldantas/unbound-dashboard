@@ -143,6 +143,24 @@ else
     err "Template systemd do api_service ausente: $SRC_API_UNIT"
 fi
 
+# --- Drop-in do Unbound (stderr → logfile, pro LogWatcher) + logrotate do log
+SRC_UNBOUND_DROPIN="$DASHBOARD_DIR/api_service/deployments/systemd/unbound.service.d"
+if [ -d "$SRC_UNBOUND_DROPIN" ]; then
+    mkdir -p "$STAGING/system/systemd/unbound.service.d"
+    cp "$SRC_UNBOUND_DROPIN/"*.conf "$STAGING/system/systemd/unbound.service.d/"
+    log "Drop-in do Unbound incluído"
+else
+    err "Drop-in do Unbound ausente: $SRC_UNBOUND_DROPIN"
+fi
+SRC_LOGROTATE="$DASHBOARD_DIR/api_service/deployments/logrotate/unbound-dashboard"
+if [ -f "$SRC_LOGROTATE" ]; then
+    mkdir -p "$STAGING/system/logrotate"
+    cp "$SRC_LOGROTATE" "$STAGING/system/logrotate/unbound-dashboard"
+    log "Config logrotate incluída"
+else
+    err "Config logrotate ausente: $SRC_LOGROTATE"
+fi
+
 # --- Apache reverse-proxy /api/v1 → FastAPI
 SRC_APACHE_CONF="$DASHBOARD_DIR/api_service/deployments/apache/unbound-dashboard-api.conf"
 if [ -f "$SRC_APACHE_CONF" ]; then
@@ -234,7 +252,8 @@ Conteúdo do pacote:
   dashboard/                       → Frontend PHP
   api_service/                     → FastAPI + DuckDB + workers
   system/sudoers/                  → /etc/sudoers.d/unbound-dashboard
-  system/systemd/                  → unit do api_service (FastAPI)
+  system/systemd/                  → unit do api_service (FastAPI) + drop-in do Unbound
+  system/logrotate/                → rotação do log de queries do Unbound
   system/apache/                   → conf-available proxy /api/v1
   system/etc/api-v1.env.example    → template do EnvironmentFile
   system/bin/                      → unbound-health-fix.sh, setup-unbound-logs.sh
