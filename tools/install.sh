@@ -491,7 +491,13 @@ systemctl is-active --quiet apache2 && log "Apache ativo" || warn "Apache não e
 SMOKE_PHP_FILE="/var/www/html/.smoke-php-$$.php"
 SMOKE_TOKEN="UDASH_SMOKE_$$_$(date +%s)"
 echo "<?php echo '${SMOKE_TOKEN}'; ?>" > "$SMOKE_PHP_FILE"
-SMOKE_BODY=$(curl -sf "http://127.0.0.1/.smoke-php-$$.php" 2>/dev/null || echo "FAIL")
+# Retry: logo após o reload o Apache ainda pode estar trocando os workers.
+SMOKE_BODY="FAIL"
+for _ in 1 2 3 4 5; do
+    SMOKE_BODY=$(curl -sf "http://127.0.0.1/.smoke-php-$$.php" 2>/dev/null || echo "FAIL")
+    [ "$SMOKE_BODY" = "$SMOKE_TOKEN" ] && break
+    sleep 1
+done
 rm -f "$SMOKE_PHP_FILE"
 if [ "$SMOKE_BODY" = "$SMOKE_TOKEN" ]; then
     log "Apache+PHP-FPM smoke test OK (interpretador ativo)"
@@ -669,8 +675,15 @@ Ou crie o admin manualmente após o install:
 
     info "Religando api_service..."
     systemctl start unbound-dashboard-api
-    sleep 2
-    if curl -sf http://127.0.0.1:8001/api/v1/healthz >/dev/null 2>&1; then
+    API_HEALTHY="false"
+    for _ in $(seq 1 60); do
+        if curl -sf --max-time 2 http://127.0.0.1:8001/api/v1/healthz >/dev/null 2>&1; then
+            API_HEALTHY="true"
+            break
+        fi
+        sleep 1
+    done
+    if [ "$API_HEALTHY" = "true" ]; then
         log "api_service religado e respondendo"
     else
         warn "api_service não respondeu pós-religar — checar journalctl -u unbound-dashboard-api"
