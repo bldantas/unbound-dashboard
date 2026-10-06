@@ -27,6 +27,45 @@ err()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 info() { echo -e "${CYAN}[i]${NC} $1"; }
 step() { echo -e "\n${BOLD}── $1 ──${NC}"; }
 
+# `dpkg -l` também retorna 0 para pacote removido sem purge (estado "rc"),
+# o que faria uma reinstalação pular dependências que não estão instaladas.
+pkg_installed() {
+    dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q '^install ok installed$'
+}
+
+# Instala o cron em /etc/cron.d (como www-data) e remove do crontab do root as
+# entradas antigas do dashboard: linhas com a tag UNBOUND-DASHBOARD e as linhas
+# de cabeçalho que versões anteriores duplicavam a cada instalação.
+install_dashboard_cron() {
+    local src="$1"
+    install -m 0644 -o root -g root "$src" /etc/cron.d/unbound-dashboard
+    local cur new
+    cur=$(crontab -l 2>/dev/null || true)
+    [ -n "$cur" ] || return 0
+    new=$(printf '%s\n' "$cur" | grep -v 'UNBOUND-DASHBOARD' | grep -vxF \
+        -e '# Unbound Dashboard — Crontabs' \
+        -e '# Instalar com: crontab -l | cat - system/cron/unbound-dashboard-crons | crontab -' \
+        -e '#' \
+        -e '# Os crons de agregação de estatísticas e monitoramento de alertas foram' \
+        -e '# cutovered para os workers Python do api_service em 2026-04-29:' \
+        -e '#   - stats_aggregator.py  (substitui aggregate_stats.php)' \
+        -e '#   - alert_checker.py     (substitui cron_alerts.php)' \
+        -e '#   - log_watcher.py       (substitui log_ingester.php)' \
+        -e '# Eles rodam dentro do unbound-dashboard-api.service.' \
+        -e '# Sincronização de blacklist principal (a cada hora)' \
+        -e '# Spawned por api/service_control.php com JWT via env, mas mantido também aqui' \
+        -e '# como fallback caso o admin queira agendar sincronização periódica automática.' \
+        -e '# Sincronização de lista judicial ANATEL (diário às 04:30)' \
+        -e '# Agregação de estatísticas (a cada minuto)' \
+        -e '# Monitoramento de alertas (a cada minuto)' \
+        | cat -s || true)
+    if [ -z "$(printf '%s' "$new" | tr -d '[:space:]')" ]; then
+        crontab -r 2>/dev/null || true
+    else
+        printf '%s\n' "$new" | crontab -
+    fi
+}
+
 if [ "$EUID" -ne 0 ]; then
     err "Execute como root: sudo bash install.sh"
 fi
@@ -125,7 +164,7 @@ EXTRA_PACKAGES=(
 
 info "Instalando pacotes críticos..."
 for pkg in "${CORE_PACKAGES[@]}"; do
-    if dpkg -l "$pkg" &>/dev/null; then
+    if pkg_installed "$pkg"; then
         :  # já instalado
     else
         info "  → $pkg"
@@ -136,7 +175,7 @@ done
 
 info "Instalando pacotes auxiliares..."
 for pkg in "${EXTRA_PACKAGES[@]}"; do
-    if dpkg -l "$pkg" &>/dev/null; then
+    if pkg_installed "$pkg"; then
         :
     else
         info "  → $pkg"
@@ -251,11 +290,30 @@ log "uv $(uv --version 2>/dev/null | awk '{print $2}') instalado"
 # ============================================================
 step "Etapa 5/8 — Deploy (dashboard + api_service)"
 
-# Backup defensivo se já existir
+# Backup defensivo se já existir. Fica em /var/backups (fora do DocumentRoot:
+# cópias em /var/www/html eram servidas pelo Apache) como tarball sem .venv,
+# mantendo os 3 mais recentes.
+INSTALL_BACKUP_DIR="/var/backups/unbound-dashboard"
 if [ -d "$INSTALL_DIR" ]; then
-    BACKUP="${INSTALL_DIR}.backup.$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$INSTALL_BACKUP_DIR"
+    chown root:root "$INSTALL_BACKUP_DIR"
+    chmod 750 "$INSTALL_BACKUP_DIR"
+    BACKUP="$INSTALL_BACKUP_DIR/install-$(date +%Y%m%d_%H%M%S).tar.gz"
     info "Backup do install anterior em $BACKUP"
-    cp -a "$INSTALL_DIR" "$BACKUP"
+    tar czf "$BACKUP" --exclude='api_service/.venv' --exclude='__pycache__' \
+        -C "$(dirname "$INSTALL_DIR")" "$(basename "$INSTALL_DIR")"
+    chmod 640 "$BACKUP"
+    find "$INSTALL_BACKUP_DIR" -maxdepth 1 -name 'install-*.tar.gz' -printf '%f\n' \
+        | sort | head -n -3 | while read -r old_backup; do
+            rm -f -- "$INSTALL_BACKUP_DIR/$old_backup"
+        done
+fi
+LEGACY_WEB_BACKUPS=$(find "$(dirname "$INSTALL_DIR")" -maxdepth 1 -type d \
+    -name "$(basename "$INSTALL_DIR").backup.*" 2>/dev/null || true)
+if [ -n "$LEGACY_WEB_BACKUPS" ]; then
+    warn "Cópias antigas do painel dentro do DocumentRoot (servidas pelo Apache):"
+    printf '    %s\n' $LEGACY_WEB_BACKUPS
+    warn "Remova-as (ou rode tools/uninstall.sh --legacy-only)."
 fi
 
 mkdir -p "$INSTALL_DIR"
@@ -408,13 +466,10 @@ for sh in unbound-health-fix.sh setup-unbound-logs.sh; do
     fi
 done
 
-# Crons
+# Crons (/etc/cron.d, como www-data) + limpeza das entradas antigas do root
 if [ -f "$SYSTEM_SRC/cron/unbound-dashboard-crons" ]; then
-    crontab -l 2>/dev/null | grep -v 'UNBOUND-DASHBOARD' > /tmp/cron_clean 2>/dev/null || true
-    cat "$SYSTEM_SRC/cron/unbound-dashboard-crons" >> /tmp/cron_clean
-    crontab /tmp/cron_clean
-    rm -f /tmp/cron_clean
-    log "Crontabs configurados"
+    install_dashboard_cron "$SYSTEM_SRC/cron/unbound-dashboard-crons"
+    log "Cron instalado em /etc/cron.d/unbound-dashboard (www-data)"
 fi
 
 # ============================================================
@@ -464,19 +519,22 @@ systemctl is-active --quiet unbound && log "Unbound ativo" || warn "Unbound não
 systemctl enable unbound-dashboard-api >/dev/null 2>&1 || true
 info "Iniciando api_service..."
 systemctl restart unbound-dashboard-api
-sleep 3
-if systemctl is-active --quiet unbound-dashboard-api; then
-    log "api_service (FastAPI) ativo em 127.0.0.1:8001"
+# Espera o /healthz (migrations na 1ª subida podem levar dezenas de segundos).
+# `is-active` sozinho não basta: com Type=exec o unit fica active antes do
+# startup do app falhar.
+API_HEALTHY="false"
+for _ in $(seq 1 60); do
+    if curl -sf --max-time 2 http://127.0.0.1:8001/api/v1/healthz >/dev/null 2>&1; then
+        API_HEALTHY="true"
+        break
+    fi
+    sleep 1
+done
+if [ "$API_HEALTHY" = "true" ]; then
+    log "api_service (FastAPI) ativo e /api/v1/healthz OK em 127.0.0.1:8001"
 else
-    journalctl -u unbound-dashboard-api -n 20 --no-pager
-    err "api_service não iniciou — veja log acima"
-fi
-
-# Smoke /healthz
-if curl -sf http://127.0.0.1:8001/api/v1/healthz >/dev/null; then
-    log "/api/v1/healthz responde OK"
-else
-    warn "/api/v1/healthz não respondeu — verifique systemctl status unbound-dashboard-api"
+    journalctl -u unbound-dashboard-api -n 30 --no-pager
+    err "api_service não respondeu /api/v1/healthz em 60s — veja log acima"
 fi
 
 # ============================================================

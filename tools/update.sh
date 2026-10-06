@@ -45,6 +45,39 @@ warn()  { echo "[!!] $1"; }
 error() { echo "[XX] $1" >&2; }
 debug() { [ "$VERBOSE" = "true" ] && echo "[??] $1" || true; }
 
+# Instala o cron em /etc/cron.d (como www-data) e remove do crontab do root as
+# entradas antigas do dashboard: linhas com a tag UNBOUND-DASHBOARD e as linhas
+# de cabeçalho que versões anteriores duplicavam a cada instalação.
+install_dashboard_cron() {
+    local src="$1"
+    install -m 0644 -o root -g root "$src" /etc/cron.d/unbound-dashboard
+    local cur new
+    cur=$(crontab -l 2>/dev/null || true)
+    [ -n "$cur" ] || return 0
+    new=$(printf '%s\n' "$cur" | grep -v 'UNBOUND-DASHBOARD' | grep -vxF \
+        -e '# Unbound Dashboard — Crontabs' \
+        -e '# Instalar com: crontab -l | cat - system/cron/unbound-dashboard-crons | crontab -' \
+        -e '#' \
+        -e '# Os crons de agregação de estatísticas e monitoramento de alertas foram' \
+        -e '# cutovered para os workers Python do api_service em 2026-04-29:' \
+        -e '#   - stats_aggregator.py  (substitui aggregate_stats.php)' \
+        -e '#   - alert_checker.py     (substitui cron_alerts.php)' \
+        -e '#   - log_watcher.py       (substitui log_ingester.php)' \
+        -e '# Eles rodam dentro do unbound-dashboard-api.service.' \
+        -e '# Sincronização de blacklist principal (a cada hora)' \
+        -e '# Spawned por api/service_control.php com JWT via env, mas mantido também aqui' \
+        -e '# como fallback caso o admin queira agendar sincronização periódica automática.' \
+        -e '# Sincronização de lista judicial ANATEL (diário às 04:30)' \
+        -e '# Agregação de estatísticas (a cada minuto)' \
+        -e '# Monitoramento de alertas (a cada minuto)' \
+        | cat -s || true)
+    if [ -z "$(printf '%s' "$new" | tr -d '[:space:]')" ]; then
+        crontab -r 2>/dev/null || true
+    else
+        printf '%s\n' "$new" | crontab -
+    fi
+}
+
 cleanup_extracted() {
     if [ -n "$EXTRACTED_DIR" ] && [[ "$EXTRACTED_DIR" == /tmp/unbound-dashboard-update-* ]]; then
         rm -rf "$EXTRACTED_DIR"
@@ -439,13 +472,9 @@ APACHE_PHP_FPM
         if [ "$DRY_RUN" = "true" ]; then
             info "[DRY-RUN] crontab"
         else
-            local tmp_cron="/tmp/unbound-dashboard-cron-$$"
-            crontab -l 2>/dev/null | grep -v 'UNBOUND-DASHBOARD' > "$tmp_cron" || true
-            cat "$sys/cron/unbound-dashboard-crons" >> "$tmp_cron"
-            sed -i -e '$a\' "$tmp_cron"
-            crontab "$tmp_cron"
-            rm -f "$tmp_cron"
-            log "Crontabs atualizadas"
+            install -d -o www-data -g www-data -m 750 /var/log/unbound-dashboard
+            install_dashboard_cron "$sys/cron/unbound-dashboard-crons"
+            log "Cron instalado em /etc/cron.d/unbound-dashboard (www-data)"
         fi
     fi
 }
