@@ -14,6 +14,11 @@ ExecStart=/var/www/html/unbound-dashboard/api_service/.venv/bin/uvicorn app.main
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
+# Explícito (default do systemd é 90s): o lifespan limita a drenagem dos
+# workers a 10s + até 3 tentativas de CHECKPOINT no DuckDB (app/main.py).
+# Se o SIGKILL chegar antes do CHECKPOINT, o WAL fica no disco e o próximo
+# processo que abrir o banco cai no bug de replay do DuckDB 1.5.x.
+TimeoutStopSec=30
 StandardOutput=journal
 StandardError=journal
 
