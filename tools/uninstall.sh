@@ -145,8 +145,6 @@ fi
 # ------------------------------------------------------------
 if [ "$LEGACY_ONLY" != "true" ] && [ "$DO_ARCHIVE" = "true" ]; then
     step "Arquivando dados"
-    # Para a API: snapshot consistente do DuckDB (CHECKPOINT no shutdown).
-    systemctl stop unbound-dashboard-api 2>/dev/null || true
     ARCHIVE_SRC=()
     for p in "$DUCKDB_DIR" "$ETC_DIR" "$INSTALL_DIR/data" "$INSTALL_DIR/src/data"; do
         [ -e "$p" ] && ARCHIVE_SRC+=("$p")
@@ -158,6 +156,9 @@ if [ "$LEGACY_ONLY" != "true" ] && [ "$DO_ARCHIVE" = "true" ]; then
             err "Espaço insuficiente em $ARCHIVE_DIR para o arquivo: livre $((AVAIL / 1048576))MB, dados $((NEED / 1048576))MB.
     Libere espaço, use ARCHIVE_DIR=<outro disco> ou --no-archive. Nada foi removido."
         fi
+        # Só depois da checagem de espaço: se abortar, o painel segue no ar.
+        # Parar a API dá um snapshot consistente do DuckDB (CHECKPOINT no shutdown).
+        systemctl stop unbound-dashboard-api 2>/dev/null || true
         ARCHIVE="$ARCHIVE_DIR/unbound-dashboard-archive-$TIMESTAMP.tar.gz"
         # Caminhos relativos a / (sem o aviso "Removing leading /" e sem esconder erros)
         tar czf "$ARCHIVE" -C / --exclude="${DUCKDB_DIR#/}/updates" "${ARCHIVE_SRC[@]#/}"
