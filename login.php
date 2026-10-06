@@ -38,20 +38,9 @@ if (isset($_GET['reason']) && isset($reasonMessages[$_GET['reason']])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // OIDC callback: o frontend recebe #oidc=<jwt> e re-posta pra cá
     if (!empty($_POST['oidc_jwt'])) {
-        $jwt = $_POST['oidc_jwt'];
-        // Decodifica claims sem verificar (a API já validou ao emitir)
-        $parts = explode('.', $jwt);
-        if (count($parts) === 3) {
-            $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
-            if ($payload && isset($payload['sub'], $payload['role'])) {
-                $_SESSION['logged_in'] = true;
-                $_SESSION['user_id']   = (int)$payload['sub'];
-                $_SESSION['username']  = $payload['username'] ?? 'sso-user';
-                $_SESSION['role']      = $payload['role'];
-                $_SESSION['api_jwt']   = $jwt;
-                header('Location: index.php');
-                exit;
-            }
+        if (\App\Auth::loginWithSsoJwt((string) $_POST['oidc_jwt'])) {
+            header('Location: index.php');
+            exit;
         }
         $error = 'JWT SSO inválido.';
     } else {

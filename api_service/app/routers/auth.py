@@ -14,7 +14,8 @@ from app.core.deps import require_auth
 from app.core.rate_limit import limiter
 from app.core.security import create_access_token
 from app.repositories.duckdb import user_repo
-from app.services import auth_service
+from app.services import auth_service, sessions
+from app.services.jwt_denylist import is_token_hash_revoked, is_user_revoked
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -167,9 +168,25 @@ async def refresh(
             detail=f"Token expirado há mais de {_REFRESH_GRACE_MINUTES}min — re-login necessário",
         )
 
+    # Challenge de 2FA não pode virar JWT completo (pularia o segundo fator).
+    if payload.get("totp_pending"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Login incompleto — confirme o código 2FA",
+        )
+
     sub = payload.get("sub")
     if not sub:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token malformado")
+
+    # Mesma denylist de require_auth: sessão encerrada ou conta revogada não renova.
+    if await is_user_revoked(int(sub), payload.get("iat")) or await is_token_hash_revoked(
+        sessions.hash_token(token)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sessão encerrada — faça login novamente",
+        )
 
     # Re-valida conta no banco — pode ter sido desativada entre login e refresh.
     user = await user_repo.find_by_id(int(sub))
@@ -300,6 +317,18 @@ async def change_password(
 # ---------------------------------------------------------------------------
 
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
+_PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-server", "forwarded")
+
+
+def _is_direct_local_request(request: Request) -> bool:
+    """True só pra chamada feita no próprio host sem passar pelo Apache."""
+    host = request.client.host if request.client else ""
+    if host not in _LOOPBACK_HOSTS:
+        return False
+    return not any(h in request.headers for h in _PROXY_HEADERS)
+
+
 class PasswordResetRequest(BaseModel):
     email: str
 
@@ -316,8 +345,19 @@ async def request_password_reset(request: Request, body: PasswordResetRequest) -
     Gera token de reset se email pertence a user ativo. Retorna o token (cru)
     pra o caller (PHP) enviar por email — Python NÃO envia email diretamente.
     Resposta sempre 200 (timing-safe; não revela se email existe).
+
+    Só para uso interno: o token na resposta permite trocar a senha de
+    qualquer conta, então a rota recusa o que não vier direto do loopback
+    (o PHP chama 127.0.0.1:8001 via Auth::_unauthedPost; tudo que passa pelo
+    Apache chega com X-Forwarded-For).
     """
     from app.services import users_service
+
+    if not _is_direct_local_request(request):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Rota interna — use a página recover.php",
+        )
 
     raw_token = await users_service.request_password_reset(body.email)
     return {"token": raw_token, "valid_for_minutes": 10 if raw_token else 0}
