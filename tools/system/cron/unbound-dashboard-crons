@@ -1,17 +1,13 @@
-# Unbound Dashboard — Crontabs
-# Instalar com: crontab -l | cat - system/cron/unbound-dashboard-crons | crontab -
+# Unbound Dashboard — cron (instalado em /etc/cron.d/unbound-dashboard)
 #
-# Os crons de agregação de estatísticas e monitoramento de alertas foram
-# cutovered para os workers Python do api_service em 2026-04-29:
-#   - stats_aggregator.py  (substitui aggregate_stats.php)
-#   - alert_checker.py     (substitui cron_alerts.php)
-#   - log_watcher.py       (substitui log_ingester.php)
-# Eles rodam dentro do unbound-dashboard-api.service.
+# Formato /etc/cron.d: 6ª coluna é o usuário. Roda como www-data — os scripts
+# ficam numa árvore que www-data escreve, então rodá-los como root daria root
+# a quem controla www-data. Privilégios pontuais vêm do sudoers, como na UI.
+#
+# Agregação de estatísticas, alertas, ingestão de log e sync de blocklists
+# multi-fonte rodam como workers do unbound-dashboard-api.service.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Sincronização de blacklist principal (a cada hora)
-# Spawned por api/service_control.php com JWT via env, mas mantido também aqui
-# como fallback caso o admin queira agendar sincronização periódica automática.
-0 * * * * /usr/bin/php /var/www/html/unbound-dashboard/scripts/update_blacklist.php >/dev/null 2>&1 # UNBOUND-DASHBOARD-BLACKLIST
-
-# Sincronização de lista judicial ANATEL (diário às 04:30)
-30 4 * * * /usr/bin/php /var/www/html/unbound-dashboard/src/scripts/sync_judicial_list.php >> /tmp/unbound_sync.log 2>&1 # UNBOUND-DASHBOARD-SYNC
+# Sincronização da lista judicial ANATEL/Anablock (diário às 04:30)
+30 4 * * * www-data /usr/bin/php /var/www/html/unbound-dashboard/src/scripts/sync_judicial_list.php >> /var/log/unbound-dashboard/sync_judicial.log 2>&1

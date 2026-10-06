@@ -214,6 +214,11 @@ if [ -f "$DASHBOARD_DIR/tools/install.sh" ]; then
     cp "$DASHBOARD_DIR/tools/install.sh" "$STAGING/install.sh"
     chmod +x "$STAGING/install.sh"
     log "Instalador incluído (install.sh)"
+    if [ -f "$DASHBOARD_DIR/tools/uninstall.sh" ]; then
+        cp "$DASHBOARD_DIR/tools/uninstall.sh" "$STAGING/uninstall.sh"
+        chmod +x "$STAGING/uninstall.sh"
+        log "Desinstalador incluído (uninstall.sh)"
+    fi
 else
     warn "install.sh não encontrado — pacote sai sem instalador"
 fi
