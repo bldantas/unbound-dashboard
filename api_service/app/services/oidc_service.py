@@ -373,6 +373,12 @@ async def handle_callback(code: str, state: str, redirect_uri: str) -> dict:
     email = claims.get("email", "").lower().strip()
     if not email:
         raise ValueError("id_token sem email — habilite scope 'email' no IdP")
+    # O usuário é casado pelo email: um email não verificado no IdP (ex.: conta
+    # self-service com email de outra pessoa) daria acesso à conta local dela.
+    # Só recusamos quando o IdP diz explicitamente false — alguns (Azure AD) não
+    # enviam o claim.
+    if claims.get("email_verified") in (False, "false"):
+        raise ValueError(f"email '{email}' não verificado no IdP")
 
     # Allowed domains
     if cfg["allowed_email_domains"]:

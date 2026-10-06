@@ -140,6 +140,24 @@ class Auth
      * Helper compartilhado entre login() e login2faSubmit() — popula
      * a sessão final após autenticação bem-sucedida.
      */
+    /**
+     * Login via SSO (OIDC): o callback da API devolve um JWT que o frontend
+     * re-posta em login.php. O JWT é validado pela própria API (/auth/me checa
+     * assinatura, expiração, denylist e 2FA pendente) — nada do payload é
+     * confiado sem essa validação.
+     */
+    public static function loginWithSsoJwt(string $jwt): bool
+    {
+        if ($jwt === '' || substr_count($jwt, '.') !== 2) return false;
+        $me = ApiClient::get('/api/v1/auth/me', $jwt);
+        if (!$me['ok'] || !isset($me['data']['id'], $me['data']['username'], $me['data']['role'])) {
+            return false;
+        }
+        if (empty($me['data']['is_active'])) return false;
+        self::_finalizeLogin((string) $me['data']['username'], $jwt, (string) $me['data']['role']);
+        return true;
+    }
+
     private static function _finalizeLogin(string $username, string $jwt, string $role): void
     {
         session_regenerate_id(true);

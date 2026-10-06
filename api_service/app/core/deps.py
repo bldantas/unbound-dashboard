@@ -82,6 +82,16 @@ async def require_auth(
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
 
+    # Challenge de 2FA (emitido por /login quando totp_enabled) é assinado com
+    # o mesmo segredo, mas só vale em /login/2fa-verify. Aceitá-lo aqui
+    # permitiria pular o segundo fator.
+    if payload.get("totp_pending"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Login incompleto — confirme o código 2FA",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     try:
         user_id = int(payload.get("sub", 0))
         iat = payload.get("iat")
@@ -152,7 +162,22 @@ async def require_admin(payload: Annotated[dict, Depends(require_auth)]) -> dict
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Acesso negado: requer privilégios de administrador",
         )
+    _deny_scoped_api_token(payload)
     return payload
+
+
+def _deny_scoped_api_token(payload: dict) -> None:
+    """API token com capabilities (v2.110+) recebe role=admin no payload, mas só
+    pode o que as capabilities dele dizem (ver `require_capability`). Rotas
+    protegidas só por role admin não declaram capability, então ficam fora do
+    escopo do token. Tokens sem capabilities continuam admin global (compat).
+    """
+    if payload.get("auth_kind") == "api_token" and payload.get("api_token_capabilities"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso negado: API token com escopo restrito não acessa "
+                   "rotas exclusivas de administrador",
+        )
 
 
 async def require_global_admin(
@@ -181,8 +206,9 @@ async def require_global_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Acesso negado: requer privilégios de administrador global",
         )
-    # API token sempre passa (infra-level)
+    # API token sem escopo passa (infra-level); com escopo é negado
     if payload.get("auth_kind") == "api_token":
+        _deny_scoped_api_token(payload)
         return payload
     # JWT path: olha org_id do user no DB
     viewer_org = await resolve_viewer_org_id(payload)
