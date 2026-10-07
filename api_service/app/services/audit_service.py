@@ -42,9 +42,16 @@ async def record_start(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)
             """,
             [
-                job_id, kind, user_id, username, ip[:64] if ip else None,
-                from_version, to_version, backup_timestamp,
-                bool(acknowledge_breaking), int(time.time()),
+                job_id,
+                kind,
+                user_id,
+                username,
+                ip[:64] if ip else None,
+                from_version,
+                to_version,
+                backup_timestamp,
+                bool(acknowledge_breaking),
+                int(time.time()),
             ],
         )
     except Exception as exc:  # noqa: BLE001
@@ -81,20 +88,22 @@ async def list_recent(limit: int = 50) -> list[dict[str, Any]]:
         finished = r.get("finished_at")
         finished = int(finished) if finished is not None else None
         duration = (finished - started) if finished else None
-        out.append({
-            "id": int(r["id"]),
-            "job_id": r["job_id"],
-            "kind": r["kind"],
-            "user_id": r.get("user_id"),
-            "username": r.get("username") or "?",
-            "ip": r.get("ip"),
-            "from_version": r.get("from_version"),
-            "to_version": r.get("to_version"),
-            "backup_timestamp": r.get("backup_timestamp"),
-            "acknowledge_breaking": bool(r.get("acknowledge_breaking", False)),
-            "status": r["status"],
-            "started_at": started,
-            "finished_at": finished,
-            "duration_seconds": duration,
-        })
+        out.append(
+            {
+                "id": int(r["id"]),
+                "job_id": r["job_id"],
+                "kind": r["kind"],
+                "user_id": r.get("user_id"),
+                "username": r.get("username") or "?",
+                "ip": r.get("ip"),
+                "from_version": r.get("from_version"),
+                "to_version": r.get("to_version"),
+                "backup_timestamp": r.get("backup_timestamp"),
+                "acknowledge_breaking": bool(r.get("acknowledge_breaking", False)),
+                "status": r["status"],
+                "started_at": started,
+                "finished_at": finished,
+                "duration_seconds": duration,
+            }
+        )
     return out

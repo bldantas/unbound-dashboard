@@ -28,10 +28,11 @@ def bucket_seconds(w: Window) -> int:
 
 
 async def summary(window: Window) -> dict:
-    """Totais e ratios na janela: total, blocked, cached, resolved, nxdomain, blocked_ratio, cache_ratio."""
+    """Totais e ratios na janela: total, blocked, cached, resolved, nxdomain,
+    blocked_ratio, cache_ratio."""
     secs = window_seconds(window)
     row = await db_fetchone(
-        f"""
+        """
         SELECT
             COUNT(*)                                                    AS total,
             COUNT(*) FILTER (WHERE action = 'blocked')                  AS blocked,
@@ -68,7 +69,7 @@ async def timeseries(window: Window) -> list[dict]:
     bucket = bucket_seconds(window)
     # DuckDB faz `/` como float — pra bucketing inteiro precisa FLOOR ou cast.
     rows = await db_fetchall(
-        f"""
+        """
         SELECT
             (CAST(timestamp / ? AS BIGINT)) * ?                          AS ts,
             COUNT(*)                                                     AS total,
@@ -98,7 +99,7 @@ async def by_query_type(window: Window) -> list[dict]:
     """Distribuição por query_type ordenado desc."""
     secs = window_seconds(window)
     rows = await db_fetchall(
-        f"""
+        """
         SELECT query_type, COUNT(*) AS n
         FROM query_logs
         WHERE timestamp >= epoch(NOW()) - ?
@@ -126,7 +127,7 @@ async def top_domains(window: Window, limit: int = 20, action: str | None = None
             COUNT(*)                                  AS total,
             COUNT(*) FILTER (WHERE action='blocked')  AS blocked
         FROM query_logs
-        WHERE {' AND '.join(conds)}
+        WHERE {" AND ".join(conds)}
         GROUP BY domain
         ORDER BY total DESC
         LIMIT ?
@@ -134,7 +135,11 @@ async def top_domains(window: Window, limit: int = 20, action: str | None = None
         args,
     )
     return [
-        {"domain": str(r["domain"] or ""), "total": int(r["total"] or 0), "blocked": int(r["blocked"] or 0)}
+        {
+            "domain": str(r["domain"] or ""),
+            "total": int(r["total"] or 0),
+            "blocked": int(r["blocked"] or 0),
+        }
         for r in rows
     ]
 

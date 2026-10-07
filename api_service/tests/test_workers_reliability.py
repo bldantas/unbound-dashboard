@@ -51,7 +51,9 @@ async def test_concurrent_wrong_passwords_trigger_lockout(fresh_db) -> None:
 
     await asyncio.gather(*[_try() for _ in range(8)])
     with duckdb.connect(fresh_db) as c:
-        failed, locked = c.execute("SELECT failed_logins, locked_until FROM users WHERE username = 'u'").fetchone()
+        failed, locked = c.execute(
+            "SELECT failed_logins, locked_until FROM users WHERE username = 'u'"
+        ).fetchone()
     assert failed == 8
     assert locked is not None
     with pytest.raises(auth_service.AccountLocked):
@@ -63,11 +65,24 @@ async def test_digest_collects_recent_alerts(monkeypatch) -> None:
     from app.workers import digest_sender
 
     now_local = datetime.now()
-    rows = {"items": [
-        {"id": 1, "type": "t", "severity": "warning", "message": "recente", "started_at": now_local},
-        {"id": 2, "type": "t", "severity": "warning", "message": "velho",
-         "started_at": now_local - timedelta(days=3)},
-    ]}
+    rows = {
+        "items": [
+            {
+                "id": 1,
+                "type": "t",
+                "severity": "warning",
+                "message": "recente",
+                "started_at": now_local,
+            },
+            {
+                "id": 2,
+                "type": "t",
+                "severity": "warning",
+                "message": "velho",
+                "started_at": now_local - timedelta(days=3),
+            },
+        ]
+    }
 
     async def _list_filtered(**kw):
         return rows
@@ -75,8 +90,16 @@ async def test_digest_collects_recent_alerts(monkeypatch) -> None:
     captured = {}
 
     async def _due(hour):
-        return [{"user_id": 1, "email": "a@b.c", "username": "a", "org_id": None,
-                 "severity_min": "info", "categories": []}]
+        return [
+            {
+                "user_id": 1,
+                "email": "a@b.c",
+                "username": "a",
+                "org_id": None,
+                "severity_min": "info",
+                "categories": [],
+            }
+        ]
 
     async def _cfg():
         return {"enabled": True, "host": "smtp", "from_addr": "x@y.z"}
@@ -101,7 +124,9 @@ async def test_digest_collects_recent_alerts(monkeypatch) -> None:
     assert out["sent"] == 1
 
 
-async def test_backup_archive_contains_consistent_duckdb_snapshot(fresh_db, monkeypatch, tmp_path) -> None:
+async def test_backup_archive_contains_consistent_duckdb_snapshot(
+    fresh_db, monkeypatch, tmp_path
+) -> None:
     from app.repositories.duckdb.connection import db_execute
     from app.services import backup_offsite_service
 
@@ -112,7 +137,8 @@ async def test_backup_archive_contains_consistent_duckdb_snapshot(fresh_db, monk
     )
 
     archive, size = await asyncio.get_running_loop().run_in_executor(
-        None, backup_offsite_service._create_archive  # noqa: SLF001
+        None,
+        backup_offsite_service._create_archive,  # noqa: SLF001
     )
     assert size > 0
     out = tmp_path / "x"
@@ -120,6 +146,8 @@ async def test_backup_archive_contains_consistent_duckdb_snapshot(fresh_db, monk
         tar.extractall(out, filter="data")
     restored = next(out.glob("duckdb/*.duckdb"))
     with duckdb.connect(str(restored), read_only=True) as c:
-        val = c.execute("SELECT setting_value FROM settings WHERE setting_key = 'marcador'").fetchone()
+        val = c.execute(
+            "SELECT setting_value FROM settings WHERE setting_key = 'marcador'"
+        ).fetchone()
     assert val == ("depois-do-checkpoint",)
     os.unlink(archive)

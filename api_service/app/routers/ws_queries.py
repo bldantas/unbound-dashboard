@@ -47,7 +47,9 @@ async def ws_queries(websocket: WebSocket, token: str = Query("")):
 
     try:
         # Envia frame de boas-vindas pra cliente saber que conectou
-        await websocket.send_text(json.dumps({"type": "hello", "subscribers": query_broker.subscriber_count()}))
+        await websocket.send_text(
+            json.dumps({"type": "hello", "subscribers": query_broker.subscriber_count()})
+        )
 
         while True:
             try:

@@ -14,7 +14,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
-from app.core.deps import require_auth, require_capability, require_global_capability, resolve_viewer_org_id
+from app.core.deps import (
+    require_auth,
+    require_capability,
+    require_global_capability,
+    resolve_viewer_org_id,
+)
 from app.repositories.duckdb import alert_repo, settings_repo
 from app.services import notification_prefs_service
 
@@ -25,8 +30,10 @@ def _format_row(r: dict) -> dict:
     t = str(r["type"] or "")
     category = "anomaly" if t.startswith("anomaly_") else "alert"
     url = "/anomalies.php" if category == "anomaly" else "/alerts.php"
+
     def to_iso(v):
         return v.isoformat() if isinstance(v, datetime) else (str(v) if v else None)
+
     return {
         "id": int(r["id"]),
         "category": category,
@@ -49,7 +56,10 @@ async def feed(
     """Bell payload — só ativos + não-dismissed, mais recente primeiro."""
     viewer_org = await resolve_viewer_org_id(payload)
     out = await alert_repo.list_filtered(
-        resolved=False, dismissed=False, limit=limit, offset=0,
+        resolved=False,
+        dismissed=False,
+        limit=limit,
+        offset=0,
         viewer_org_id=viewer_org,
     )
     items = [_format_row(r) for r in out["items"]]
@@ -121,9 +131,9 @@ async def update_retention(
     days = int(body.get("days", 30))
     if days < 1 or days > 365:
         raise HTTPException(status_code=400, detail="days must be 1..365")
-    await settings_repo.bulk_upsert([
-        {"setting_key": "notifications_retention_days", "setting_value": str(days)}
-    ])
+    await settings_repo.bulk_upsert(
+        [{"setting_key": "notifications_retention_days", "setting_value": str(days)}]
+    )
     return {"days": days}
 
 
@@ -148,7 +158,7 @@ def _resolve_user_id(payload: dict) -> int:
     try:
         return int(payload.get("sub", 0))
     except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="sub inválido no payload")
+        raise HTTPException(status_code=400, detail="sub inválido no payload") from None
 
 
 @router.get("/prefs")

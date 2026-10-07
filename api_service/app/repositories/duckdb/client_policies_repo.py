@@ -14,9 +14,11 @@ from app.repositories.duckdb.connection import db_execute, db_fetchall, db_fetch
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]{1,49}$")
 _CIDR_RE = re.compile(
     r"^("
-    r"(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?:/(?:3[0-2]|[12]?\d))?"  # IPv4 / opcional /N
+    # IPv4 / opcional /N
+    r"(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}"
+    r"(?:/(?:3[0-2]|[12]?\d))?"
     r"|"
-    r"[0-9a-fA-F:]+(?:/(?:1[01]\d|12[0-8]|\d{1,2}))?"                                              # IPv6 / opcional /N
+    r"[0-9a-fA-F:]+(?:/(?:1[01]\d|12[0-8]|\d{1,2}))?"  # IPv6 / opcional /N
     r")$"
 )
 
@@ -92,7 +94,13 @@ async def create(slug: str, name: str, description: str | None, org_id: int | No
     return row
 
 
-async def update(slug: str, *, name: str | None = None, description: str | None = None, enabled: bool | None = None) -> bool:
+async def update(
+    slug: str,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    enabled: bool | None = None,
+) -> bool:
     fields, args = [], []
     if name is not None:
         fields.append("name = ?")
@@ -290,9 +298,12 @@ async def summary(viewer_org_id: int | None = None) -> list[dict]:
             SELECT
                 p.id, p.slug, p.name, p.description, p.enabled, p.sort_order, p.created_at,
                 p.org_id, o.name AS org_name, o.slug AS org_slug,
-                COALESCE((SELECT COUNT(*) FROM client_policy_ranges  WHERE policy_id = p.id), 0) AS ranges_count,
-                COALESCE((SELECT COUNT(*) FROM client_policy_blocks  WHERE policy_id = p.id), 0) AS blocks_count,
-                COALESCE((SELECT COUNT(*) FROM client_policy_allows  WHERE policy_id = p.id), 0) AS allows_count
+                COALESCE((SELECT COUNT(*) FROM client_policy_ranges  WHERE policy_id = p.id), 0)
+                    AS ranges_count,
+                COALESCE((SELECT COUNT(*) FROM client_policy_blocks  WHERE policy_id = p.id), 0)
+                    AS blocks_count,
+                COALESCE((SELECT COUNT(*) FROM client_policy_allows  WHERE policy_id = p.id), 0)
+                    AS allows_count
             FROM client_policies p
             LEFT JOIN organizations o ON o.id = p.org_id
             ORDER BY p.sort_order, p.name
@@ -303,9 +314,12 @@ async def summary(viewer_org_id: int | None = None) -> list[dict]:
         SELECT
             p.id, p.slug, p.name, p.description, p.enabled, p.sort_order, p.created_at,
             p.org_id, o.name AS org_name, o.slug AS org_slug,
-            COALESCE((SELECT COUNT(*) FROM client_policy_ranges  WHERE policy_id = p.id), 0) AS ranges_count,
-            COALESCE((SELECT COUNT(*) FROM client_policy_blocks  WHERE policy_id = p.id), 0) AS blocks_count,
-            COALESCE((SELECT COUNT(*) FROM client_policy_allows  WHERE policy_id = p.id), 0) AS allows_count
+            COALESCE((SELECT COUNT(*) FROM client_policy_ranges  WHERE policy_id = p.id), 0) AS
+                ranges_count,
+            COALESCE((SELECT COUNT(*) FROM client_policy_blocks  WHERE policy_id = p.id), 0) AS
+                blocks_count,
+            COALESCE((SELECT COUNT(*) FROM client_policy_allows  WHERE policy_id = p.id), 0) AS
+                allows_count
         FROM client_policies p
         LEFT JOIN organizations o ON o.id = p.org_id
         WHERE p.org_id IS NULL OR p.org_id = ?

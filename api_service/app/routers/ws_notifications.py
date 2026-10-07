@@ -43,7 +43,9 @@ async def ws_notifications(websocket: WebSocket, token: str = Query("")):
     log.info("ws_notifications.connected", subs=alerts_broker.subscriber_count())
 
     try:
-        await websocket.send_text(json.dumps({"type": "hello", "subscribers": alerts_broker.subscriber_count()}))
+        await websocket.send_text(
+            json.dumps({"type": "hello", "subscribers": alerts_broker.subscriber_count()})
+        )
         while True:
             try:
                 event = await queue_get(q, 30.0)

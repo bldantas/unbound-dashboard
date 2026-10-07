@@ -46,10 +46,12 @@ class AuditPruner:
         days = max(30, min(3650, days))
         deleted = await admin_audit_service.prune_old(days)
         ts_iso = datetime.now(UTC).isoformat(timespec="seconds")
-        await settings_repo.bulk_upsert([
-            {"setting_key": "audit_pruner_last_run", "setting_value": ts_iso},
-            {"setting_key": "audit_pruner_last_deleted", "setting_value": str(deleted)},
-        ])
+        await settings_repo.bulk_upsert(
+            [
+                {"setting_key": "audit_pruner_last_run", "setting_value": ts_iso},
+                {"setting_key": "audit_pruner_last_deleted", "setting_value": str(deleted)},
+            ]
+        )
         log.info("audit_pruner.completed", deleted=deleted, retention_days=days)
         return {"deleted": deleted, "retention_days": days}
 

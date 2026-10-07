@@ -68,6 +68,7 @@ async def _ensure_global_viewer(payload: dict) -> None:
             detail="Operação em todos os hosts: exclusiva do admin global",
         )
 
+
 _ALLOWED_RESTART_SERVICES = {"api", "unbound"}
 
 
@@ -87,10 +88,16 @@ async def list_hosts(payload: Annotated[dict, Depends(require_capability("config
 
 class HostCreate(BaseModel):
     label: str = Field(min_length=1, max_length=100)
-    base_url: str = Field(min_length=8, max_length=255, description="https://host:port (sem /api/...)")
-    api_token: str = Field(min_length=20, max_length=255, description="Token gerado em Settings → API Tokens do agent")
+    base_url: str = Field(
+        min_length=8, max_length=255, description="https://host:port (sem /api/...)"
+    )
+    api_token: str = Field(
+        min_length=20, max_length=255, description="Token gerado em Settings → API Tokens do agent"
+    )
     notes: str | None = Field(default=None, max_length=500)
-    org_id: int | None = Field(default=None, description="Org dona do host. None = global (visível a todos os admins).")
+    org_id: int | None = Field(
+        default=None, description="Org dona do host. None = global (visível a todos os admins)."
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -156,13 +163,17 @@ async def set_host_org(
         )
     ok = await managed_hosts.set_org(host_id, body.org_id)
     if not ok:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host ou org não encontrados")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Host ou org não encontrados"
+        )
     return {"ok": True, "host_id": host_id, "org_id": body.org_id}
 
 
 class HostUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=100)
-    api_token: str | None = Field(default=None, max_length=255, description="Vazio = manter o atual")
+    api_token: str | None = Field(
+        default=None, max_length=255, description="Vazio = manter o atual"
+    )
     notes: str | None = Field(default=None, max_length=500)
 
 
@@ -196,8 +207,12 @@ async def delete_host(
 
 class UpgradeRequest(BaseModel):
     version: str = Field(
-        min_length=5, max_length=20,
-        description="Semver sem 'v' (ex: 2.21.4) OU sentinel 'latest' (cada agent resolve via seu próprio /updates/check — evita race entre caches de master/agent).",
+        min_length=5,
+        max_length=20,
+        description=(
+            "Semver sem 'v' (ex: 2.21.4) OU sentinel 'latest' (cada agent resolve via seu "
+            "próprio /updates/check — evita race entre caches de master/agent)."
+        ),
     )
 
 
@@ -261,7 +276,9 @@ async def poll_now(
     try:
         result = await managed_hosts.poll_host(host_id)
     except managed_hosts.HostNotFound:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado"
+        ) from None
     return result
 
 
@@ -275,7 +292,9 @@ async def host_info(
     try:
         return await managed_hosts.proxy_get(host_id, "/api/v1/host/info")
     except managed_hosts.HostNotFound:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado"
+        ) from None
 
 
 @router.get("/{host_id}/history")
@@ -308,7 +327,9 @@ async def restart_host_service(
     try:
         return await managed_hosts.restart_service(host_id, service)
     except managed_hosts.HostNotFound:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado"
+        ) from None
 
 
 @router.post("/{host_id}/upgrade", status_code=status.HTTP_202_ACCEPTED)
@@ -322,7 +343,9 @@ async def upgrade_host(
     try:
         return await managed_hosts.trigger_upgrade(host_id, body.version)
     except managed_hosts.HostNotFound:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado"
+        ) from None
 
 
 # ============================================================
@@ -362,7 +385,9 @@ async def batch_push_config(
             r = await managed_hosts.proxy_post(int(h["id"]), "/api/v1/host/apply-config", payload)
             results.append({"host_id": h["id"], "label": h["label"], **r})
         except Exception as exc:  # noqa: BLE001
-            results.append({"host_id": h["id"], "label": h["label"], "ok": False, "error": str(exc)})
+            results.append(
+                {"host_id": h["id"], "label": h["label"], "ok": False, "error": str(exc)}
+            )
     return {"sent": payload_summary(payload), "results": results, "count": len(results)}
 
 
@@ -394,7 +419,9 @@ async def push_config(
     try:
         result = await managed_hosts.proxy_post(host_id, "/api/v1/host/apply-config", payload)
     except managed_hosts.HostNotFound:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado") from None
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado"
+        ) from None
     return {"sent": payload_summary(payload), "result": result}
 
 

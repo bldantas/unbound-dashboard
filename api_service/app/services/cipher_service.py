@@ -15,7 +15,8 @@ Sem `SECRETS_MASTER_KEY` configurada:
 - `encrypt()` retorna plaintext (com warning log)
 - `decrypt()` continua funcionando pra plaintext
 
-Geração da chave: `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
+Geração da chave: `python -c
+    'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
 """
 
 from __future__ import annotations
@@ -43,7 +44,8 @@ def _load_key() -> Fernet | None:
         log.warning(
             "cipher_service.no_master_key",
             hint="Defina SECRETS_MASTER_KEY pra cifrar secrets em DB. "
-                 "Gere com: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'",
+            "Gere com: python -c "
+            "'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'",
         )
         return None
     try:
@@ -86,7 +88,7 @@ def decrypt(value: str | None) -> str:
     if cipher is None:
         log.error("cipher_service.decrypt_no_key", value_prefix="enc:v1:...")
         return ""
-    token = value[len(_PREFIX):]
+    token = value[len(_PREFIX) :]
     try:
         return cipher.decrypt(token.encode("utf-8")).decode("utf-8")
     except InvalidToken:

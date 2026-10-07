@@ -46,7 +46,9 @@ async def require_auth(
         from app.services import api_tokens
 
         xff = request.headers.get("x-forwarded-for", "")
-        source_ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
+        source_ip = (
+            xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
+        )
         meta = await api_tokens.verify(api_token, source_ip=source_ip)
         if meta is None:
             raise HTTPException(
@@ -192,6 +194,7 @@ async def resolve_viewer_org_id(payload: dict) -> int | None:
     if user_id < 1:
         return None
     from app.repositories.duckdb.connection import db_fetchone
+
     row = await db_fetchone("SELECT org_id FROM users WHERE id = ?", [user_id])
     if not row or row.get("org_id") is None:
         return None
@@ -225,7 +228,7 @@ def _deny_scoped_api_token(payload: dict) -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Acesso negado: API token com escopo restrito não acessa "
-                   "rotas exclusivas de administrador",
+            "rotas exclusivas de administrador",
         )
 
 
@@ -265,7 +268,7 @@ async def require_global_admin(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Acesso negado: este recurso é exclusivo do admin global "
-                   "(sem org_id). Admin org-scoped não tem permissão.",
+            "(sem org_id). Admin org-scoped não tem permissão.",
         )
     return payload
 
@@ -333,7 +336,7 @@ def require_capability(capability: str):
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail=f"Acesso negado: API token sem capability '{capability}' "
-                               f"(scopes: {sorted(token_caps)})",
+                        f"(scopes: {sorted(token_caps)})",
                     )
                 return payload
             # Token sem capabilities = admin global (backward-compat)

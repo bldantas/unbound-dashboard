@@ -45,8 +45,8 @@ def _passes_filter(item: dict, severity_min: str, categories: list[str]) -> bool
 
 _HTML_SEVERITY_STYLE = {
     "critical": ("#dc2626", "#fee2e2"),
-    "warning":  ("#d97706", "#fef3c7"),
-    "info":     ("#2563eb", "#dbeafe"),
+    "warning": ("#d97706", "#fef3c7"),
+    "info": ("#2563eb", "#dbeafe"),
 }
 
 
@@ -128,11 +128,13 @@ def _format_html_body(
     user_safe = esc(username)
     if not items:
         return (
-            "<html><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;\">"
+            "<html><body "
+            "style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
+            'color:#0f172a;">'
             f"<p>Olá <strong>{user_safe}</strong>,</p>"
             f"<p>Nas últimas {window_hours}h não houve nenhum alerta ou anomalia "
             "que atenda às suas preferências.</p>"
-            "<p style=\"color:#64748b;font-size:12px;\">— Unbound Dashboard</p>"
+            '<p style="color:#64748b;font-size:12px;">— Unbound Dashboard</p>'
             "</body></html>"
         )
     items_sorted = sorted(
@@ -152,25 +154,27 @@ def _format_html_body(
         msg = esc(str(it.get("message") or "(sem mensagem)")[:300])
         ts = esc(str(it.get("started_at") or "?"))
         badge = (
-            f"<span style=\"display:inline-block;padding:2px 8px;border-radius:8px;"
+            f'<span style="display:inline-block;padding:2px 8px;border-radius:8px;'
             f"background:{bg};color:{fg};font-size:10px;font-weight:700;"
-            f"text-transform:uppercase;letter-spacing:0.5px;\">{sev}</span>"
+            f'text-transform:uppercase;letter-spacing:0.5px;">{sev}</span>'
         )
         rows.append(
             "<tr>"
-            f"<td style=\"padding:8px;border-bottom:1px solid #e2e8f0;vertical-align:top;width:90px;\">{badge}</td>"
-            f"<td style=\"padding:8px;border-bottom:1px solid #e2e8f0;vertical-align:top;\">"
-            f"<div style=\"font-family:ui-monospace,'SF Mono',monospace;font-size:11px;color:#475569;\">{typ}</div>"
-            f"<div style=\"color:#0f172a;font-size:14px;margin-top:2px;\">{msg}</div>"
-            f"<div style=\"color:#94a3b8;font-size:11px;margin-top:4px;\">{ts}</div>"
+            '<td style="padding:8px;border-bottom:1px solid '
+            f'#e2e8f0;vertical-align:top;width:90px;">{badge}</td>'
+            f'<td style="padding:8px;border-bottom:1px solid #e2e8f0;vertical-align:top;">'
+            "<div style=\"font-family:ui-monospace,'SF "
+            f"Mono',monospace;font-size:11px;color:#475569;\">{typ}</div>"
+            f'<div style="color:#0f172a;font-size:14px;margin-top:2px;">{msg}</div>'
+            f'<div style="color:#94a3b8;font-size:11px;margin-top:4px;">{ts}</div>'
             "</td></tr>"
         )
     truncated = ""
     if parts > 1 and part < parts:
         truncated = (
-            "<div style=\"margin-top:16px;padding:12px 16px;background:#dbeafe;"
-            "border-left:3px solid #2563eb;border-radius:6px;\">"
-            f"<p style=\"margin:0;color:#1e3a8a;font-size:13px;\">"
+            '<div style="margin-top:16px;padding:12px 16px;background:#dbeafe;'
+            'border-left:3px solid #2563eb;border-radius:6px;">'
+            f'<p style="margin:0;color:#1e3a8a;font-size:13px;">'
             f"Continua na <strong>parte {part + 1} de {parts}</strong> "
             "(próximo email)."
             "</p></div>"
@@ -179,37 +183,39 @@ def _format_html_body(
         # Caso defensivo — não deveria mais acontecer com paginação
         extra = len(items) - DIGEST_ITEMS_CAP
         truncated = (
-            "<div style=\"margin-top:16px;padding:12px 16px;background:#fef3c7;"
-            "border-left:3px solid #d97706;border-radius:6px;\">"
-            f"<p style=\"margin:0;color:#78350f;font-size:13px;\">"
+            '<div style="margin-top:16px;padding:12px 16px;background:#fef3c7;'
+            'border-left:3px solid #d97706;border-radius:6px;">'
+            f'<p style="margin:0;color:#78350f;font-size:13px;">'
             f"+ <strong>{extra}</strong> eventos não estão listados acima. "
-            f"<a href=\"/alerts.php\" style=\"color:#92400e;text-decoration:underline;font-weight:600;\">"
+            '<a href="/alerts.php" '
+            'style="color:#92400e;text-decoration:underline;font-weight:600;">'
             "Ver lista completa no dashboard →</a>"
             "</p></div>"
         )
     cta = (
-        "<div style=\"margin-top:20px;text-align:center;\">"
-        "<a href=\"/alerts.php\" style=\"display:inline-block;padding:10px 24px;"
+        '<div style="margin-top:20px;text-align:center;">'
+        '<a href="/alerts.php" style="display:inline-block;padding:10px 24px;'
         "background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;"
-        "font-weight:600;font-size:13px;\">Abrir dashboard</a>"
+        'font-weight:600;font-size:13px;">Abrir dashboard</a>'
         "</div>"
     )
     return (
         "<html><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
-        "color:#0f172a;background:#f8fafc;margin:0;padding:24px;\">"
-        f"<div style=\"max-width:680px;margin:0 auto;background:#fff;border-radius:12px;"
-        "padding:24px;border:1px solid #e2e8f0;\">"
-        f"<h2 style=\"margin:0 0 8px;font-size:20px;\">Olá, <strong>{user_safe}</strong></h2>"
-        f"<p style=\"color:#475569;margin:0 0 16px;\">Digest das últimas {window_hours}h "
+        'color:#0f172a;background:#f8fafc;margin:0;padding:24px;">'
+        f'<div style="max-width:680px;margin:0 auto;background:#fff;border-radius:12px;'
+        'padding:24px;border:1px solid #e2e8f0;">'
+        f'<h2 style="margin:0 0 8px;font-size:20px;">Olá, <strong>{user_safe}</strong></h2>'
+        f'<p style="color:#475569;margin:0 0 16px;">Digest das últimas {window_hours}h '
         f"(<strong>{total_items if total_items is not None else len(items)}</strong> eventos"
         + (f" — parte {part}/{parts}" if parts > 1 else "")
         + "):</p>"
-        "<table style=\"width:100%;border-collapse:collapse;\">"
+        '<table style="width:100%;border-collapse:collapse;">'
         f"<tbody>{''.join(rows)}</tbody>"
         "</table>"
         f"{truncated}"
         f"{cta}"
-        "<p style=\"color:#94a3b8;font-size:11px;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:12px;\">"
+        '<p style="color:#94a3b8;font-size:11px;margin-top:24px;border-top:1px solid '
+        '#e2e8f0;padding-top:12px;">'
         "— Unbound Dashboard — Para alterar suas preferências, acesse /notifications.php"
         "</p></div></body></html>"
     )
@@ -254,7 +260,8 @@ class DigestSender:
         since_local = datetime.now() - timedelta(hours=24)
         since_utc = datetime.now(UTC) - timedelta(hours=24)
         rows = await alert_repo.list_filtered(
-            limit=500, offset=0,
+            limit=500,
+            offset=0,
         )
         # alert_repo.list_filtered não aceita time filter — filtramos aqui
         all_items = []
@@ -263,13 +270,17 @@ class DigestSender:
             if not isinstance(started, datetime):
                 continue
             if started >= (since_utc if started.tzinfo else since_local):
-                all_items.append({
-                    "id": r["id"],
-                    "type": r.get("type"),
-                    "severity": r.get("severity"),
-                    "message": r.get("message"),
-                    "started_at": started.isoformat() if isinstance(started, datetime) else started,
-                })
+                all_items.append(
+                    {
+                        "id": r["id"],
+                        "type": r.get("type"),
+                        "severity": r.get("severity"),
+                        "message": r.get("message"),
+                        "started_at": started.isoformat()
+                        if isinstance(started, datetime)
+                        else started,
+                    }
+                )
 
         sent = 0
         failed = 0
@@ -302,32 +313,48 @@ class DigestSender:
             user_ok = True
             for idx, chunk in enumerate(chunks, start=1):
                 part_suffix = f" (parte {idx}/{parts})" if parts > 1 else ""
-                subject = (
-                    f"[Unbound Dashboard] Digest diário — {total} eventos{part_suffix}"
-                )
+                subject = f"[Unbound Dashboard] Digest diário — {total} eventos{part_suffix}"
                 body = _format_body(
-                    uname, chunk, part=idx, parts=parts, total_items=total,
+                    uname,
+                    chunk,
+                    part=idx,
+                    parts=parts,
+                    total_items=total,
                 )
                 html_body = _format_html_body(
-                    uname, chunk, part=idx, parts=parts, total_items=total,
+                    uname,
+                    chunk,
+                    part=idx,
+                    parts=parts,
+                    total_items=total,
                 )
                 # smtplib é bloqueante: fora do event loop (senão trava API e workers)
                 ok, reason = await asyncio.to_thread(
                     email_notifier._send_via_smtp,  # noqa: SLF001
-                    cfg, email, subject, body, html_body=html_body,
+                    cfg,
+                    email,
+                    subject,
+                    body,
+                    html_body=html_body,
                 )
                 if ok:
                     parts_sent += 1
                     log.info(
                         "digest_sender.sent",
-                        to=email, user_id=user_id,
-                        part=idx, parts=parts, items_in_part=len(chunk),
+                        to=email,
+                        user_id=user_id,
+                        part=idx,
+                        parts=parts,
+                        items_in_part=len(chunk),
                     )
                 else:
                     user_ok = False
                     log.warning(
                         "digest_sender.failed",
-                        to=email, part=idx, parts=parts, reason=reason,
+                        to=email,
+                        part=idx,
+                        parts=parts,
+                        reason=reason,
                     )
                     break  # não envia partes seguintes se uma falhou
             if user_ok:
@@ -337,8 +364,10 @@ class DigestSender:
                 failed += 1
 
         return {
-            "sent": sent, "failed": failed,
-            "due": len(due), "parts_sent": parts_sent,
+            "sent": sent,
+            "failed": failed,
+            "due": len(due),
+            "parts_sent": parts_sent,
         }
 
     async def run_now(self) -> dict:

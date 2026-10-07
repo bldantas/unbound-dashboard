@@ -21,10 +21,9 @@ from typing import Any
 
 import structlog
 
-from app.repositories.duckdb import settings_repo
 from app.repositories.duckdb.connection import db_execute, db_fetchall, db_fetchone
 
-log = structlog.get_logger(__name__)
+_logger = structlog.get_logger(__name__)  # `log` é a função pública abaixo
 
 
 async def log(
@@ -73,7 +72,7 @@ async def log(
             ],
         )
     except Exception as exc:  # noqa: BLE001
-        log.warning("admin_audit.log_failed", action=action, error=str(exc))
+        _logger.warning("admin_audit.log_failed", action=action, error=str(exc))
 
 
 def _row_to_dict(r: dict) -> dict[str, Any]:
@@ -170,19 +169,38 @@ async def export_csv(**filters: Any) -> str:
     out = await list_filtered(limit=10000, offset=0, **filters)
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow([
-        "id", "created_at", "actor_id", "actor_username", "actor_ip",
-        "action", "category", "target_type", "target_id", "details",
-    ])
+    w.writerow(
+        [
+            "id",
+            "created_at",
+            "actor_id",
+            "actor_username",
+            "actor_ip",
+            "action",
+            "category",
+            "target_type",
+            "target_id",
+            "details",
+        ]
+    )
     for it in out["items"]:
         details = it.get("details")
         if isinstance(details, (dict, list)):
             details = json.dumps(details, ensure_ascii=False)
-        w.writerow([
-            it["id"], it["created_at"], it["actor_id"], it["actor_username"],
-            it["actor_ip"], it["action"], it["category"],
-            it["target_type"] or "", it["target_id"] or "", details or "",
-        ])
+        w.writerow(
+            [
+                it["id"],
+                it["created_at"],
+                it["actor_id"],
+                it["actor_username"],
+                it["actor_ip"],
+                it["action"],
+                it["category"],
+                it["target_type"] or "",
+                it["target_id"] or "",
+                details or "",
+            ]
+        )
     return buf.getvalue()
 
 
@@ -203,6 +221,7 @@ async def prune_old(days: int) -> int:
 
 # ---------- LGPD report ----------
 
+
 async def lgpd_report(client_ip: str, hours: int = 24, limit: int = 5000) -> dict:
     """Retorna queries DNS feitas por um IP cliente nas últimas N horas.
 
@@ -222,13 +241,15 @@ async def lgpd_report(client_ip: str, hours: int = 24, limit: int = 5000) -> dic
     )
     items = []
     for r in rows:
-        items.append({
-            "timestamp": int(r.get("timestamp") or 0),
-            "client_ip": r.get("client_ip"),
-            "query_type": r.get("query_type"),
-            "domain": r.get("domain"),
-            "action": r.get("action"),
-        })
+        items.append(
+            {
+                "timestamp": int(r.get("timestamp") or 0),
+                "client_ip": r.get("client_ip"),
+                "query_type": r.get("query_type"),
+                "domain": r.get("domain"),
+                "action": r.get("action"),
+            }
+        )
     return {
         "client_ip": client_ip,
         "hours": hours,
@@ -246,8 +267,13 @@ def lgpd_report_csv(report: dict) -> str:
     for it in report.get("items", []):
         ts = it.get("timestamp") or 0
         iso = datetime.fromtimestamp(ts).isoformat() if ts else ""
-        w.writerow([
-            iso, it.get("client_ip", ""), it.get("query_type", ""),
-            it.get("domain", ""), it.get("action", ""),
-        ])
+        w.writerow(
+            [
+                iso,
+                it.get("client_ip", ""),
+                it.get("query_type", ""),
+                it.get("domain", ""),
+                it.get("action", ""),
+            ]
+        )
     return buf.getvalue()

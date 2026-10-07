@@ -42,16 +42,19 @@ class ExternalHealthPruner:
         self._running = False
 
     async def _run_once(self) -> dict:
-        days = await settings_repo.get_int(
-            "external_health_retention_days", DEFAULT_RETENTION_DAYS
-        )
+        days = await settings_repo.get_int("external_health_retention_days", DEFAULT_RETENTION_DAYS)
         days = max(7, min(3650, days))
         deleted = await external_health_service.prune_old(days)
         ts_iso = datetime.now(UTC).isoformat(timespec="seconds")
-        await settings_repo.bulk_upsert([
-            {"setting_key": "external_health_pruner_last_run", "setting_value": ts_iso},
-            {"setting_key": "external_health_pruner_last_deleted", "setting_value": str(deleted)},
-        ])
+        await settings_repo.bulk_upsert(
+            [
+                {"setting_key": "external_health_pruner_last_run", "setting_value": ts_iso},
+                {
+                    "setting_key": "external_health_pruner_last_deleted",
+                    "setting_value": str(deleted),
+                },
+            ]
+        )
         log.info("external_health_pruner.completed", deleted=deleted, retention_days=days)
         return {"deleted": deleted, "retention_days": days}
 

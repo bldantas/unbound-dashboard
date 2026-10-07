@@ -29,7 +29,7 @@ def _extract_token(x_api_token: str | None, authorization: str | None) -> str | 
     if x_api_token:
         return x_api_token.strip()
     if authorization and authorization.startswith("Bearer "):
-        return authorization[len("Bearer "):].strip() or None
+        return authorization[len("Bearer ") :].strip() or None
     return None
 
 
@@ -43,7 +43,8 @@ async def _validate_peer_token(token: str) -> dict | None:
     if not token:
         return None
     rows = await db_fetchall(
-        "SELECT id, label, api_token_hash, role FROM ha_peers WHERE enabled = true AND api_token_hash IS NOT NULL"
+        "SELECT id, label, api_token_hash, role FROM ha_peers WHERE enabled = true AND "
+        "api_token_hash IS NOT NULL"
     )
     token_b = token.encode("utf-8")
     for r in rows:
@@ -53,7 +54,9 @@ async def _validate_peer_token(token: str) -> dict | None:
         try:
             if bcrypt.checkpw(token_b, hashed.encode("utf-8")):
                 return r
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            # hash malformado no banco: ignora este peer, mas deixa rastro
+            log.warning("cluster.peer_token_hash_invalid", error=str(exc))
             continue
     return None
 

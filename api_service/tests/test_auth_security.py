@@ -61,9 +61,7 @@ def _challenge_token() -> str:
 
 
 def test_challenge_token_rejected_by_protected_route(client) -> None:
-    resp = client.get(
-        "/api/v1/auth/me", headers={"Authorization": f"Bearer {_challenge_token()}"}
-    )
+    resp = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {_challenge_token()}"})
     assert resp.status_code == 401
 
 
@@ -142,15 +140,11 @@ def test_direct_local_request_detection() -> None:
     assert _is_direct_local_request(_request("::1"))
     assert not _is_direct_local_request(_request("203.0.113.9"))
     # Veio pelo Apache (mod_proxy sempre adiciona X-Forwarded-For)
-    assert not _is_direct_local_request(
-        _request("127.0.0.1", {"X-Forwarded-For": "203.0.113.9"})
-    )
+    assert not _is_direct_local_request(_request("127.0.0.1", {"X-Forwarded-For": "203.0.113.9"}))
 
 
 def test_password_reset_request_refused_for_remote_caller(client) -> None:
-    resp = client.post(
-        "/api/v1/auth/password-reset/request", json={"email": "admin@example.com"}
-    )
+    resp = client.post("/api/v1/auth/password-reset/request", json={"email": "admin@example.com"})
     assert resp.status_code == 403
     assert "token" not in resp.json()
 
@@ -164,9 +158,14 @@ def test_client_ip_key_uses_last_forwarded_hop() -> None:
     from app.core.rate_limit import client_ip_key
 
     # Atrás do Apache: o primeiro item do XFF é do cliente (forjável); o último é do Apache
-    assert client_ip_key(_request("127.0.0.1", {"X-Forwarded-For": "6.6.6.6, 203.0.113.9"})) == "ip:203.0.113.9"
+    assert (
+        client_ip_key(_request("127.0.0.1", {"X-Forwarded-For": "6.6.6.6, 203.0.113.9"}))
+        == "ip:203.0.113.9"
+    )
     # uvicorn já resolveu o IP real (proxy_headers): usa direto
-    assert client_ip_key(_request("203.0.113.9", {"X-Forwarded-For": "6.6.6.6"})) == "ip:203.0.113.9"
+    assert (
+        client_ip_key(_request("203.0.113.9", {"X-Forwarded-For": "6.6.6.6"})) == "ip:203.0.113.9"
+    )
 
 
 async def test_totp_challenge_dies_after_too_many_wrong_codes(populated_db) -> None:
@@ -180,8 +179,10 @@ async def test_totp_challenge_dies_after_too_many_wrong_codes(populated_db) -> N
     with duckdb.connect(populated_db) as c:
         c.execute("UPDATE users SET totp_enabled = true, totp_secret = ? WHERE id = 1", [secret])
 
-    with patch.object(config.settings, "db_path", populated_db), \
-            patch.object(connection.settings, "db_path", populated_db):
+    with (
+        patch.object(config.settings, "db_path", populated_db),
+        patch.object(connection.settings, "db_path", populated_db),
+    ):
         challenge = _challenge_token()
         for _ in range(5):
             with pytest.raises(auth_service.InvalidTOTPCode):
@@ -214,7 +215,9 @@ async def test_reset_email_uses_public_url_not_request_host(monkeypatch) -> None
         return True, "ok"
 
     async def _get(key, default=None):
-        return "https://painel.exemplo/unbound-dashboard" if key == "dashboard_public_url" else default
+        return (
+            "https://painel.exemplo/unbound-dashboard" if key == "dashboard_public_url" else default
+        )
 
     monkeypatch.setattr(email_notifier, "_load_smtp_config", _cfg)
     monkeypatch.setattr(email_notifier, "_send_via_smtp", _send)

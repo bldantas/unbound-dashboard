@@ -31,7 +31,9 @@ _AllowedCategory = Literal["Judicial", "Malware/Adware", "Phishing"]
 
 
 @router.get("/counts")
-async def counts(_: Annotated[dict, Depends(require_capability("blocklist.read"))]) -> dict[str, int]:
+async def counts(
+    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
+) -> dict[str, int]:
     """Retorna count por categoria (Malware/Adware, Phishing, Judicial)."""
     counts = await threats_repo.counts_by_category()
     return {
@@ -45,7 +47,9 @@ async def counts(_: Annotated[dict, Depends(require_capability("blocklist.read")
 async def search(
     _: Annotated[dict, Depends(require_capability("blocklist.read"))],
     q: str = Query("", max_length=120, description="Termo a buscar em domain (LIKE %q%)"),
-    category: _AllowedCategory | None = Query(None, description="Filtra por categoria; ausente = todas"),
+    category: _AllowedCategory | None = Query(
+        None, description="Filtra por categoria; ausente = todas"
+    ),
     tld: str = Query("", max_length=20, description="Filtra por TLD (sufixo após o último ponto)"),
     page: int = Query(1, ge=1, le=10000),
     per_page: int = Query(50, ge=1, le=100),
@@ -287,7 +291,10 @@ async def add_exception(
     reason = (body.get("reason") or "").strip() or None
     created_by = payload.get("username") if isinstance(payload, dict) else None
     added = await blocklist_exceptions_repo.add(
-        domain, org_id=target_org, reason=reason, created_by=created_by,
+        domain,
+        org_id=target_org,
+        reason=reason,
+        created_by=created_by,
     )
     return {"added": added, "domain": domain, "org_id": target_org}
 
@@ -296,7 +303,9 @@ async def add_exception(
 async def remove_exception(
     domain: str,
     payload: Annotated[dict, Depends(require_capability("blocklist.write"))],
-    org_id: int | None = Query(None, description="0=global, N=org. Default = própria org do viewer ou 0 pra admin global."),
+    org_id: int | None = Query(
+        None, description="0=global, N=org. Default = própria org do viewer ou 0 pra admin global."
+    ),
 ) -> dict:
     """Remove exceção. Sem org_id explícito, admin global apaga a global (0);
     user org-scoped apaga a da própria org."""
@@ -347,7 +356,8 @@ async def bulk_remove_exceptions(
     viewer_org_id = await resolve_viewer_org_id(payload)
     target_org = _resolve_target_org(body.get("org_id"), viewer_org_id)
     return await blocklist_exceptions_repo.remove_many(
-        [str(x) for x in domains], org_id=target_org,
+        [str(x) for x in domains],
+        org_id=target_org,
     )
 
 
@@ -369,14 +379,16 @@ async def export_exceptions_csv(
     writer.writerow(["domain", "org_id", "scope", "reason", "created_by", "created_at"])
     for r in rows:
         oid = r.get("org_id") or 0
-        writer.writerow([
-            r["domain"],
-            oid,
-            "global" if oid == 0 else f"org:{oid}",
-            r.get("reason") or "",
-            r.get("created_by") or "",
-            r["created_at"].isoformat() if r.get("created_at") else "",
-        ])
+        writer.writerow(
+            [
+                r["domain"],
+                oid,
+                "global" if oid == 0 else f"org:{oid}",
+                r.get("reason") or "",
+                r.get("created_by") or "",
+                r["created_at"].isoformat() if r.get("created_at") else "",
+            ]
+        )
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]),

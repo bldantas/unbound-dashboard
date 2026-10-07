@@ -84,7 +84,9 @@ async def approve(
 ) -> dict:
     approver_id = user.get("user_id") or _coerce_int(user.get("sub"))
     out = await approval_service.approve(
-        request_id, approver_id, user.get("username"),
+        request_id,
+        approver_id,
+        user.get("username"),
     )
     if not out.get("ok"):
         raise HTTPException(status_code=400, detail=out)
@@ -109,7 +111,10 @@ async def reject(
 ) -> dict:
     approver_id = user.get("user_id") or _coerce_int(user.get("sub"))
     out = await approval_service.reject(
-        request_id, approver_id, user.get("username"), reason=str(body.get("reason", "")),
+        request_id,
+        approver_id,
+        user.get("username"),
+        reason=str(body.get("reason", "")),
     )
     if not out.get("ok"):
         raise HTTPException(status_code=400, detail=out)
@@ -143,7 +148,10 @@ async def execute(
         category="config",
         target_type="approval_request",
         target_id=str(request_id),
-        details={"result_ok": out.get("ok"), "error": out.get("error") if not out.get("ok") else None},
+        details={
+            "result_ok": out.get("ok"),
+            "error": out.get("error") if not out.get("ok") else None,
+        },
     )
     if not out.get("ok"):
         raise HTTPException(status_code=400, detail=out)

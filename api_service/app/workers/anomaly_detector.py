@@ -32,47 +32,50 @@ from app.repositories.duckdb.connection import db_execute, db_fetchall, db_fetch
 
 log = structlog.get_logger(__name__)
 
-CHECK_INTERVAL = 300              # 5 minutos
+CHECK_INTERVAL = 300  # 5 minutos
 INITIAL_DELAY_SECONDS = 45
 
 # Defaults — overrideable via /api/v1/analytics/anomaly/settings
 DEFAULTS = {
-    "anomaly_enabled":                       "0",      # opt-in (master switch)
+    "anomaly_enabled": "0",  # opt-in (master switch)
     # DGA
-    "anomaly_dga_window_seconds":            "900",    # 15min
-    "anomaly_dga_entropy_min":               "3.5",    # bits/char (random ~3.7+)
-    "anomaly_dga_min_length":                "12",     # chars no label esquerdo
-    "anomaly_dga_min_count_per_client":      "10",     # X domínios suspeitos = alerta
+    "anomaly_dga_window_seconds": "900",  # 15min
+    "anomaly_dga_entropy_min": "3.5",  # bits/char (random ~3.7+)
+    "anomaly_dga_min_length": "12",  # chars no label esquerdo
+    "anomaly_dga_min_count_per_client": "10",  # X domínios suspeitos = alerta
     # NXDOMAIN spike
-    "anomaly_nxdomain_window_seconds":       "600",    # 10min
-    "anomaly_nxdomain_spike_ratio":          "0.5",    # 50% nxdomain
-    "anomaly_nxdomain_spike_min_count":      "20",     # min queries de nxdomain
+    "anomaly_nxdomain_window_seconds": "600",  # 10min
+    "anomaly_nxdomain_spike_ratio": "0.5",  # 50% nxdomain
+    "anomaly_nxdomain_spike_min_count": "20",  # min queries de nxdomain
     # Novo cliente
-    "anomaly_new_client_baseline_days":      "7",
-    "anomaly_new_client_window_seconds":     "86400",  # 24h
-    "anomaly_new_client_min_queries":        "10",     # filtra "ruído" 1-shot
+    "anomaly_new_client_baseline_days": "7",
+    "anomaly_new_client_window_seconds": "86400",  # 24h
+    "anomaly_new_client_min_queries": "10",  # filtra "ruído" 1-shot
     # DNS tunneling (v2.55)
-    "anomaly_tunneling_enabled":             "1",
-    "anomaly_tunneling_window_seconds":      "900",    # 15min
-    "anomaly_tunneling_min_unique_subdomains": "20",   # subdom únicos pro mesmo dom raiz / cliente
-    "anomaly_tunneling_min_avg_length":      "25",     # comprimento médio do label esquerdo
-    "anomaly_tunneling_min_avg_entropy":     "3.3",    # entropia média no label esquerdo
+    "anomaly_tunneling_enabled": "1",
+    "anomaly_tunneling_window_seconds": "900",  # 15min
+    "anomaly_tunneling_min_unique_subdomains": "20",  # subdom únicos pro mesmo dom raiz / cliente
+    "anomaly_tunneling_min_avg_length": "25",  # comprimento médio do label esquerdo
+    "anomaly_tunneling_min_avg_entropy": "3.3",  # entropia média no label esquerdo
     # Beaconing (v2.55)
-    "anomaly_beacon_enabled":                "1",
-    "anomaly_beacon_window_seconds":         "1800",   # 30min
-    "anomaly_beacon_min_samples":            "8",      # min queries pra calcular
-    "anomaly_beacon_max_cv":                 "0.20",   # coef var (stddev/mean) — baixo = beacon
-    "anomaly_beacon_min_period_seconds":     "30",     # ignora "burstinho" rápido
+    "anomaly_beacon_enabled": "1",
+    "anomaly_beacon_window_seconds": "1800",  # 30min
+    "anomaly_beacon_min_samples": "8",  # min queries pra calcular
+    "anomaly_beacon_max_cv": "0.20",  # coef var (stddev/mean) — baixo = beacon
+    "anomaly_beacon_min_period_seconds": "30",  # ignora "burstinho" rápido
     # Suspicious TLDs (v2.55)
-    "anomaly_suspicious_tld_enabled":        "1",
-    "anomaly_suspicious_tld_window_seconds": "3600",   # 1h
-    "anomaly_suspicious_tld_min_count":      "20",     # queries non-blocked pro cliente
-    "anomaly_suspicious_tld_list":           ".xyz,.top,.tk,.ml,.ga,.cf,.gq,.icu,.work,.click,.download,.stream,.country,.review,.zip,.mov,.rest",
+    "anomaly_suspicious_tld_enabled": "1",
+    "anomaly_suspicious_tld_window_seconds": "3600",  # 1h
+    "anomaly_suspicious_tld_min_count": "20",  # queries non-blocked pro cliente
+    "anomaly_suspicious_tld_list": (
+        ".xyz,.top,.tk,.ml,.ga,.cf,.gq,.icu,.work,.click,"
+        ".download,.stream,.country,.review,.zip,.mov,.rest"
+    ),
     # Baseline ML (v2.79)
-    "anomaly_baseline_enabled":              "0",      # opt-in (depende de hourly_stats com >= min_samples)
-    "anomaly_baseline_sigma":                "3.0",    # N desvios padrão pra alertar
-    "anomaly_baseline_window_weeks":         "4",      # quantas semanas pra treinar
-    "anomaly_baseline_min_samples":          "3",      # mínimo de amostras por bucket
+    "anomaly_baseline_enabled": "0",  # opt-in (depende de hourly_stats com >= min_samples)
+    "anomaly_baseline_sigma": "3.0",  # N desvios padrão pra alertar
+    "anomaly_baseline_window_weeks": "4",  # quantas semanas pra treinar
+    "anomaly_baseline_min_samples": "3",  # mínimo de amostras por bucket
 }
 
 
@@ -117,6 +120,7 @@ _WHITELIST_CACHE_TTL = 60.0  # 1min
 async def _load_whitelist() -> list[dict]:
     """Carrega anomaly_whitelist cacheado por 60s pra não martelar DuckDB."""
     import time
+
     global _WHITELIST_CACHE_TS
     now = time.monotonic()
     if now - _WHITELIST_CACHE_TS < _WHITELIST_CACHE_TTL and _WHITELIST_CACHE.get("all"):
@@ -165,8 +169,10 @@ async def _is_whitelisted(detector: str, client_ip: str, domain: str = "") -> bo
                 return True
         elif kind == "client_and_domain":
             if (
-                r["client_ip"] and r["client_ip"] == cip
-                and r["domain_pattern"] and r["domain_pattern"] in dom_l
+                r["client_ip"]
+                and r["client_ip"] == cip
+                and r["domain_pattern"]
+                and r["domain_pattern"] in dom_l
             ):
                 return True
     return False
@@ -197,11 +203,18 @@ async def _raise_alert(alert_type: str, severity: str, message: str) -> None:
     )
     log.warning("anomaly.detected", type=alert_type, severity=severity, message=message)
     from app.services import alerts_broker
-    alerts_broker.publish({
-        "event": "created", "type": alert_type, "severity": severity, "message": message,
-    })
+
+    alerts_broker.publish(
+        {
+            "event": "created",
+            "type": alert_type,
+            "severity": severity,
+            "message": message,
+        }
+    )
     try:
         from app.services.webhook_notifier import notify as webhook_notify
+
         await webhook_notify(alert_type, severity, message)
     except Exception as exc:  # noqa: BLE001
         log.warning("anomaly.webhook_failed", type=alert_type, error=str(exc))
@@ -219,10 +232,16 @@ async def _check_dga() -> int:
     entropy do primeiro label, e conta por cliente quantos passam o critério.
     Cliente com count >= threshold → alerta.
     """
-    window = await _setting_int("anomaly_dga_window_seconds", DEFAULTS["anomaly_dga_window_seconds"])
-    entropy_min = await _setting_float("anomaly_dga_entropy_min", DEFAULTS["anomaly_dga_entropy_min"])
+    window = await _setting_int(
+        "anomaly_dga_window_seconds", DEFAULTS["anomaly_dga_window_seconds"]
+    )
+    entropy_min = await _setting_float(
+        "anomaly_dga_entropy_min", DEFAULTS["anomaly_dga_entropy_min"]
+    )
     length_min = await _setting_int("anomaly_dga_min_length", DEFAULTS["anomaly_dga_min_length"])
-    count_min = await _setting_int("anomaly_dga_min_count_per_client", DEFAULTS["anomaly_dga_min_count_per_client"])
+    count_min = await _setting_int(
+        "anomaly_dga_min_count_per_client", DEFAULTS["anomaly_dga_min_count_per_client"]
+    )
 
     rows = await db_fetchall(
         """
@@ -261,9 +280,15 @@ async def _check_dga() -> int:
 
 
 async def _check_nxdomain_spike() -> int:
-    window = await _setting_int("anomaly_nxdomain_window_seconds", DEFAULTS["anomaly_nxdomain_window_seconds"])
-    ratio_min = await _setting_float("anomaly_nxdomain_spike_ratio", DEFAULTS["anomaly_nxdomain_spike_ratio"])
-    count_min = await _setting_int("anomaly_nxdomain_spike_min_count", DEFAULTS["anomaly_nxdomain_spike_min_count"])
+    window = await _setting_int(
+        "anomaly_nxdomain_window_seconds", DEFAULTS["anomaly_nxdomain_window_seconds"]
+    )
+    ratio_min = await _setting_float(
+        "anomaly_nxdomain_spike_ratio", DEFAULTS["anomaly_nxdomain_spike_ratio"]
+    )
+    count_min = await _setting_int(
+        "anomaly_nxdomain_spike_min_count", DEFAULTS["anomaly_nxdomain_spike_min_count"]
+    )
 
     rows = await db_fetchall(
         """
@@ -293,7 +318,8 @@ async def _check_nxdomain_spike() -> int:
             await _raise_alert(
                 f"anomaly_nxdomain_spike:{client_ip}",
                 "warning",
-                f"Spike NXDOMAIN: cliente {client_ip} com {nxd}/{total} ({ratio*100:.0f}%) NXDOMAIN em {window//60}min",
+                f"Spike NXDOMAIN: cliente {client_ip} com {nxd}/{total} ({ratio * 100:.0f}%) "
+                f"NXDOMAIN em {window // 60}min",
             )
             raised += 1
     return raised
@@ -301,9 +327,15 @@ async def _check_nxdomain_spike() -> int:
 
 async def _check_new_clients() -> int:
     """Clientes vistos nas últimas 24h que NÃO apareceram em baseline (7d antes)."""
-    window = await _setting_int("anomaly_new_client_window_seconds", DEFAULTS["anomaly_new_client_window_seconds"])
-    baseline_days = await _setting_int("anomaly_new_client_baseline_days", DEFAULTS["anomaly_new_client_baseline_days"])
-    min_queries = await _setting_int("anomaly_new_client_min_queries", DEFAULTS["anomaly_new_client_min_queries"])
+    window = await _setting_int(
+        "anomaly_new_client_window_seconds", DEFAULTS["anomaly_new_client_window_seconds"]
+    )
+    baseline_days = await _setting_int(
+        "anomaly_new_client_baseline_days", DEFAULTS["anomaly_new_client_baseline_days"]
+    )
+    min_queries = await _setting_int(
+        "anomaly_new_client_min_queries", DEFAULTS["anomaly_new_client_min_queries"]
+    )
     baseline_secs = baseline_days * 86400
 
     rows = await db_fetchall(
@@ -340,7 +372,8 @@ async def _check_new_clients() -> int:
         await _raise_alert(
             f"anomaly_new_client:{client_ip}",
             "info",
-            f"Cliente novo detectado: {client_ip} ({n} queries em 24h, ausente em {baseline_days}d antes)",
+            f"Cliente novo detectado: {client_ip} ({n} queries em 24h, ausente em "
+            f"{baseline_days}d antes)",
         )
         raised += 1
     return raised
@@ -357,10 +390,19 @@ async def _check_tunneling() -> int:
     """
     if not await _setting_bool("anomaly_tunneling_enabled", DEFAULTS["anomaly_tunneling_enabled"]):
         return 0
-    window = await _setting_int("anomaly_tunneling_window_seconds", DEFAULTS["anomaly_tunneling_window_seconds"])
-    min_unique = await _setting_int("anomaly_tunneling_min_unique_subdomains", DEFAULTS["anomaly_tunneling_min_unique_subdomains"])
-    min_len = await _setting_float("anomaly_tunneling_min_avg_length", DEFAULTS["anomaly_tunneling_min_avg_length"])
-    min_ent = await _setting_float("anomaly_tunneling_min_avg_entropy", DEFAULTS["anomaly_tunneling_min_avg_entropy"])
+    window = await _setting_int(
+        "anomaly_tunneling_window_seconds", DEFAULTS["anomaly_tunneling_window_seconds"]
+    )
+    min_unique = await _setting_int(
+        "anomaly_tunneling_min_unique_subdomains",
+        DEFAULTS["anomaly_tunneling_min_unique_subdomains"],
+    )
+    min_len = await _setting_float(
+        "anomaly_tunneling_min_avg_length", DEFAULTS["anomaly_tunneling_min_avg_length"]
+    )
+    min_ent = await _setting_float(
+        "anomaly_tunneling_min_avg_entropy", DEFAULTS["anomaly_tunneling_min_avg_entropy"]
+    )
 
     rows = await db_fetchall(
         """
@@ -418,10 +460,16 @@ async def _check_beaconing() -> int:
     """
     if not await _setting_bool("anomaly_beacon_enabled", DEFAULTS["anomaly_beacon_enabled"]):
         return 0
-    window = await _setting_int("anomaly_beacon_window_seconds", DEFAULTS["anomaly_beacon_window_seconds"])
-    min_samples = await _setting_int("anomaly_beacon_min_samples", DEFAULTS["anomaly_beacon_min_samples"])
+    window = await _setting_int(
+        "anomaly_beacon_window_seconds", DEFAULTS["anomaly_beacon_window_seconds"]
+    )
+    min_samples = await _setting_int(
+        "anomaly_beacon_min_samples", DEFAULTS["anomaly_beacon_min_samples"]
+    )
     max_cv = await _setting_float("anomaly_beacon_max_cv", DEFAULTS["anomaly_beacon_max_cv"])
-    min_period = await _setting_int("anomaly_beacon_min_period_seconds", DEFAULTS["anomaly_beacon_min_period_seconds"])
+    min_period = await _setting_int(
+        "anomaly_beacon_min_period_seconds", DEFAULTS["anomaly_beacon_min_period_seconds"]
+    )
 
     # Pega timestamps ordenados, group by (client_ip, registrable_domain)
     rows = await db_fetchall(
@@ -453,7 +501,7 @@ async def _check_beaconing() -> int:
         # errados (falso positivo de beaconing e beacons reais mascarados).
         ts_list.sort()
         # Inter-arrival times
-        deltas = [b - a for a, b in zip(ts_list[:-1], ts_list[1:]) if b - a >= 0]
+        deltas = [b - a for a, b in zip(ts_list[:-1], ts_list[1:], strict=True) if b - a >= 0]
         if len(deltas) < min_samples - 1:
             continue
         n = len(deltas)
@@ -479,10 +527,16 @@ async def _check_beaconing() -> int:
 
 async def _check_suspicious_tlds() -> int:
     """Detecta clientes com alto volume de queries pra TLDs problemáticos."""
-    if not await _setting_bool("anomaly_suspicious_tld_enabled", DEFAULTS["anomaly_suspicious_tld_enabled"]):
+    if not await _setting_bool(
+        "anomaly_suspicious_tld_enabled", DEFAULTS["anomaly_suspicious_tld_enabled"]
+    ):
         return 0
-    window = await _setting_int("anomaly_suspicious_tld_window_seconds", DEFAULTS["anomaly_suspicious_tld_window_seconds"])
-    min_count = await _setting_int("anomaly_suspicious_tld_min_count", DEFAULTS["anomaly_suspicious_tld_min_count"])
+    window = await _setting_int(
+        "anomaly_suspicious_tld_window_seconds", DEFAULTS["anomaly_suspicious_tld_window_seconds"]
+    )
+    min_count = await _setting_int(
+        "anomaly_suspicious_tld_min_count", DEFAULTS["anomaly_suspicious_tld_min_count"]
+    )
     tld_list_raw = await settings_repo.get(
         "anomaly_suspicious_tld_list", DEFAULTS["anomaly_suspicious_tld_list"]
     )
@@ -581,12 +635,18 @@ async def _check_baseline_deviation() -> int:
     lower = max(0, avg - n_sigma * sd)
 
     if qhour > upper:
-        msg = f"Volume {qhour:,} qph > baseline (avg={avg:.0f}, +{n_sigma}σ={upper:.0f}) pro bucket {hod}h dow={dow}"
+        msg = (
+            f"Volume {qhour:,} qph > baseline (avg={avg:.0f}, +{n_sigma}σ={upper:.0f}) pro "
+            f"bucket {hod}h dow={dow}"
+        )
         if not await _is_whitelisted("baseline_deviation", "", ""):
             await _raise_alert("anomaly_baseline_high", "warning", msg)
             return 1
     elif qhour < lower and avg > 10:
-        msg = f"Volume {qhour:,} qph < baseline (avg={avg:.0f}, -{n_sigma}σ={lower:.0f}) pro bucket {hod}h dow={dow}"
+        msg = (
+            f"Volume {qhour:,} qph < baseline (avg={avg:.0f}, -{n_sigma}σ={lower:.0f}) pro "
+            f"bucket {hod}h dow={dow}"
+        )
         if not await _is_whitelisted("baseline_deviation", "", ""):
             await _raise_alert("anomaly_baseline_low", "warning", msg)
             return 1
@@ -615,8 +675,12 @@ class AnomalyDetector:
                     if dga or nxd or new or tun or bea or tld or base:
                         log.info(
                             "anomaly_detector.tick",
-                            dga=dga, nxdomain_spike=nxd, new_clients=new,
-                            tunneling=tun, beaconing=bea, suspicious_tld=tld,
+                            dga=dga,
+                            nxdomain_spike=nxd,
+                            new_clients=new,
+                            tunneling=tun,
+                            beaconing=bea,
+                            suspicious_tld=tld,
                             baseline=base,
                         )
             except Exception as exc:  # noqa: BLE001

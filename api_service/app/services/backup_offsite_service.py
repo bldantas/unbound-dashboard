@@ -17,12 +17,11 @@ Estratégia:
 
 from __future__ import annotations
 
-import io
+import os
 import shutil
-import subprocess
 import tarfile
-import time
-from datetime import datetime, timezone
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -113,12 +112,14 @@ async def save_config(values: dict[str, str]) -> int:
     return await settings_repo.bulk_upsert(entries)
 
 
-async def save_status(*, status: str, error: str | None = None, size: int | None = None, key: str | None = None) -> None:
+async def save_status(
+    *, status: str, error: str | None = None, size: int | None = None, key: str | None = None
+) -> None:
     """`backup_s3_last_upload_at` = último upload com SUCESSO (ok/partial) —
     base do agendamento e do que a UI mostra. Falha só grava a tentativa:
     antes ela movia o last_upload_at e adiava o retry pelo intervalo inteiro
     (24h por padrão)."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     entries: list[dict[str, str]] = [
         {"setting_key": "backup_s3_last_status", "setting_value": status},
         {"setting_key": "backup_s3_last_attempt_at", "setting_value": now},
@@ -182,7 +183,11 @@ def test_connection(cfg: dict[str, str]) -> dict:
     try:
         c = _client(cfg)
         c.head_bucket(Bucket=bucket)
-        return {"success": True, "bucket": bucket, "endpoint": cfg.get("backup_s3_endpoint") or "aws"}
+        return {
+            "success": True,
+            "bucket": bucket,
+            "endpoint": cfg.get("backup_s3_endpoint") or "aws",
+        }
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "Unknown")
         msg = e.response.get("Error", {}).get("Message", str(e))
@@ -212,10 +217,13 @@ def _create_archive() -> tuple[str, int]:
     """Gera tar.gz em /tmp e retorna (path, size_bytes)."""
     from app.repositories.duckdb.connection import _writer_executor  # noqa: PLC2701
 
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    archive_path = f"/tmp/unbound-dashboard-backup-{ts}.tar.gz"
+    # mkstemp: nome imprevisível e arquivo 0600 (o archive contém o DuckDB e o
+    # api-v1.env com os segredos).
+    fd, archive_path = tempfile.mkstemp(prefix="unbound-dashboard-backup-", suffix=".tar.gz")
+    os.close(fd)
+    fd, snapshot = tempfile.mkstemp(prefix="unbound-dashboard-backup-", suffix=".duckdb")
+    os.close(fd)
     db_path = app_settings.db_path
-    snapshot = f"/tmp/unbound-dashboard-backup-{ts}.duckdb"
 
     try:
         if Path(db_path).exists():
@@ -288,7 +296,9 @@ def list_remote(cfg: dict[str, str], limit: int = 100) -> list[dict]:
                     {
                         "key": obj["Key"],
                         "size": int(obj.get("Size") or 0),
-                        "last_modified": obj["LastModified"].isoformat() if obj.get("LastModified") else None,
+                        "last_modified": obj["LastModified"].isoformat()
+                        if obj.get("LastModified")
+                        else None,
                     }
                 )
         if not resp.get("IsTruncated"):
@@ -315,6 +325,7 @@ def restore_test(cfg: dict[str, str], key: str | None = None) -> dict:
     """
     import shutil
     import tempfile
+
     import duckdb
 
     bucket = cfg.get("backup_s3_bucket", "").strip()
@@ -361,7 +372,8 @@ def restore_test(cfg: dict[str, str], key: str | None = None) -> dict:
                 return {"success": False, "error": "tabela users vazia"}
 
             tables_row = conn.execute(
-                "SELECT COUNT(DISTINCT table_name) FROM information_schema.tables WHERE table_schema='main'"
+                "SELECT COUNT(DISTINCT table_name) FROM information_schema.tables WHERE "
+                "table_schema='main'"
             ).fetchone()
             n_tables = int(tables_row[0]) if tables_row else 0
 
@@ -413,7 +425,7 @@ def upload_backup(
 
     try:
         prefix = _normalize_prefix(cfg.get("backup_s3_prefix", ""))
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         key = f"{prefix}unbound-dashboard-backup-{ts}.tar.gz"
 
         c = _client(cfg)
@@ -431,7 +443,10 @@ def upload_backup(
         return {"success": True, "key": key, "size_bytes": size, "retention_deleted": deleted}
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "Unknown")
-        return {"success": False, "error": f"{code}: {e.response.get('Error', {}).get('Message', str(e))}"}
+        return {
+            "success": False,
+            "error": f"{code}: {e.response.get('Error', {}).get('Message', str(e))}",
+        }
     except Exception as e:  # noqa: BLE001
         return {"success": False, "error": f"{type(e).__name__}: {e}"}
     finally:

@@ -25,7 +25,6 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-import time
 from typing import Any
 
 import structlog
@@ -89,8 +88,11 @@ async def create(
     )
     new_id = int(row["id"]) if row else 0
     log.info(
-        "api_tokens.created", id=new_id, label=label,
-        by=created_by, scoped=caps_json is not None,
+        "api_tokens.created",
+        id=new_id,
+        label=label,
+        by=created_by,
+        scoped=caps_json is not None,
     )
     return new_id, raw
 

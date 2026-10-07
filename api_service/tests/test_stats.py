@@ -48,7 +48,6 @@ def client(populated_db):
     from fastapi.testclient import TestClient
 
     from app.core import config
-
     from app.core.security import create_access_token
 
     with patch.object(config.settings, "db_path", populated_db):

@@ -52,15 +52,20 @@ async def gen_cert(
     ip = request.client.host if request.client else None
     try:
         await approval_service.enforce_approval(
-            user=user, request_ip=ip,
+            user=user,
+            request_ip=ip,
             action="doh_inbound.gen_cert",
-            description=f"Gerar self-signed cert CN={cn}, validade {days}d" + (" + restart Unbound" if restart else ""),
+            description=f"Gerar self-signed cert CN={cn}, validade {days}d"
+            + (" + restart Unbound" if restart else ""),
             payload={"common_name": cn, "days": days, "restart": restart},
         )
     except approval_service.ApprovalRequired as exc:
         return JSONResponse(
-            {"approval_pending": True, "request_id": exc.request_id,
-             "message": "Aguardando aprovação de outro admin em /approvals.php"},
+            {
+                "approval_pending": True,
+                "request_id": exc.request_id,
+                "message": "Aguardando aprovação de outro admin em /approvals.php",
+            },
             status_code=202,
         )
 

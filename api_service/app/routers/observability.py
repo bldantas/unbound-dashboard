@@ -54,7 +54,7 @@ async def get_workers_status(
       - próximas execuções estimadas (best-effort, baseado no tick)
     """
     from app.repositories.duckdb import settings_repo
-    from app.repositories.duckdb.connection import db_fetchall, db_fetchone
+    from app.repositories.duckdb.connection import db_fetchone
 
     # 1. Snapshot das tasks asyncio (do lifespan)
     task_status: dict[str, str] = {}
@@ -87,14 +87,13 @@ async def get_workers_status(
 
     # blocklist syncs — pega o mais recente entre todas as sources ativas
     bl_row = await db_fetchone(
-        "SELECT MAX(last_sync) AS ls FROM blocklist_sources WHERE index_enabled = true OR block_enabled = true"
+        "SELECT MAX(last_sync) AS ls FROM blocklist_sources WHERE index_enabled = true OR "
+        "block_enabled = true"
     )
     last_bl_sync = bl_row["ls"].isoformat() if bl_row and bl_row.get("ls") else None
 
     # managed_hosts — mais recente polled
-    mh_row = await db_fetchone(
-        "SELECT MAX(last_polled_at) AS lp FROM managed_hosts"
-    )
+    mh_row = await db_fetchone("SELECT MAX(last_polled_at) AS lp FROM managed_hosts")
     last_host_poll = mh_row["lp"].isoformat() if mh_row and mh_row.get("lp") else None
 
     # unbound collector — usa o arquivo latest_stats.json
@@ -116,9 +115,7 @@ async def get_workers_status(
     last_anomaly = anomaly_row["la"].isoformat() if anomaly_row and anomaly_row.get("la") else None
 
     # alerts table — total ativos
-    alerts_row = await db_fetchone(
-        "SELECT COUNT(*) AS n FROM alerts WHERE resolved_at IS NULL"
-    )
+    alerts_row = await db_fetchone("SELECT COUNT(*) AS n FROM alerts WHERE resolved_at IS NULL")
     active_alerts = int(alerts_row["n"] or 0) if alerts_row else 0
 
     workers = [

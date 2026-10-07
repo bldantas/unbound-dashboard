@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
@@ -10,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.deps import require_capability, require_global_admin
 from app.repositories.duckdb import settings_repo
+from app.services import approval_service
 from app.services import backup_offsite_service as svc
 
 router = APIRouter(prefix="/api/v1/backup-offsite", tags=["backup-offsite"])
@@ -77,15 +79,16 @@ async def _approval_handler_backup_upload(payload: dict) -> dict:
     result = await loop.run_in_executor(None, svc.upload_backup, cfg)
     if result.get("success"):
         await svc.save_status(
-            status="ok", error=None,
-            size=result.get("size_bytes"), key=result.get("key"),
+            status="ok",
+            error=None,
+            size=result.get("size_bytes"),
+            key=result.get("key"),
         )
     else:
         await svc.save_status(status="error", error=str(result.get("error") or ""))
     return {"ok": bool(result.get("success")), **result}
 
 
-from app.services import approval_service
 approval_service.register_action_handler("backup.upload_now", _approval_handler_backup_upload)
 
 
@@ -97,15 +100,19 @@ async def upload_now(
     ip = request.client.host if request.client else None
     try:
         await approval_service.enforce_approval(
-            user=user, request_ip=ip,
+            user=user,
+            request_ip=ip,
             action="backup.upload_now",
             description="Upload de backup pro S3 (gera tarball + envia)",
             payload={},
         )
     except approval_service.ApprovalRequired as exc:
         return JSONResponse(
-            {"approval_pending": True, "request_id": exc.request_id,
-             "message": "Aguardando aprovação"},
+            {
+                "approval_pending": True,
+                "request_id": exc.request_id,
+                "message": "Aguardando aprovação",
+            },
             status_code=202,
         )
     cfg = await svc.load_config()
@@ -115,8 +122,10 @@ async def upload_now(
     result = await loop.run_in_executor(None, svc.upload_backup, cfg)
     if result.get("success"):
         await svc.save_status(
-            status="ok", error=None,
-            size=result.get("size_bytes"), key=result.get("key"),
+            status="ok",
+            error=None,
+            size=result.get("size_bytes"),
+            key=result.get("key"),
         )
     else:
         await svc.save_status(status="error", error=str(result.get("error") or ""))
@@ -141,14 +150,25 @@ async def restore_test_endpoint(
     result = await loop.run_in_executor(None, svc.restore_test, cfg, key)
 
     # Persiste status do último restore-test em settings (UI mostra "última verificação")
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from app.repositories.duckdb import settings_repo
-    ts_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    ts_iso = datetime.now(UTC).isoformat(timespec="seconds")
     entries = [
         {"setting_key": "backup_s3_last_restore_test_at", "setting_value": ts_iso},
-        {"setting_key": "backup_s3_last_restore_test_ok", "setting_value": "1" if result.get("success") else "0"},
-        {"setting_key": "backup_s3_last_restore_test_error", "setting_value": str(result.get("error") or "")},
-        {"setting_key": "backup_s3_last_restore_test_key", "setting_value": str(result.get("key") or "")},
+        {
+            "setting_key": "backup_s3_last_restore_test_ok",
+            "setting_value": "1" if result.get("success") else "0",
+        },
+        {
+            "setting_key": "backup_s3_last_restore_test_error",
+            "setting_value": str(result.get("error") or ""),
+        },
+        {
+            "setting_key": "backup_s3_last_restore_test_key",
+            "setting_value": str(result.get("key") or ""),
+        },
     ]
     await settings_repo.bulk_upsert(entries)
     return result
@@ -159,6 +179,7 @@ async def list_destinations(
     _: Annotated[dict, Depends(require_capability("config.read_sensitive"))],
 ) -> dict:
     from app.services import backup_destinations_service as bd
+
     items = await bd.list_destinations()
     return {"items": items, "count": len(items)}
 
@@ -169,17 +190,21 @@ async def create_destination(
     user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
-    from app.services import backup_destinations_service as bd
     from app.services import admin_audit_service
+    from app.services import backup_destinations_service as bd
+
     try:
         out = await bd.create_destination(body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await admin_audit_service.log(
-        actor_id=user.get("user_id"), actor_username=user.get("username"),
+        actor_id=user.get("user_id"),
+        actor_username=user.get("username"),
         actor_ip=request.client.host if request.client else None,
-        action="backup.destination.create", category="config",
-        target_type="backup_destination", target_id=str(out["id"]),
+        action="backup.destination.create",
+        category="config",
+        target_type="backup_destination",
+        target_id=str(out["id"]),
         details={"label": out["label"], "bucket": out["bucket"]},
     )
     return out
@@ -192,16 +217,20 @@ async def update_destination(
     user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
-    from app.services import backup_destinations_service as bd
     from app.services import admin_audit_service
+    from app.services import backup_destinations_service as bd
+
     ok = await bd.update_destination(dest_id, body)
     if not ok:
         raise HTTPException(status_code=400, detail="nenhum campo válido pra atualizar")
     await admin_audit_service.log(
-        actor_id=user.get("user_id"), actor_username=user.get("username"),
+        actor_id=user.get("user_id"),
+        actor_username=user.get("username"),
         actor_ip=request.client.host if request.client else None,
-        action="backup.destination.update", category="config",
-        target_type="backup_destination", target_id=str(dest_id),
+        action="backup.destination.update",
+        category="config",
+        target_type="backup_destination",
+        target_id=str(dest_id),
         details={"fields": list(body.keys())},
     )
     return {"updated": True}
@@ -213,16 +242,20 @@ async def delete_destination(
     user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> None:
-    from app.services import backup_destinations_service as bd
     from app.services import admin_audit_service
+    from app.services import backup_destinations_service as bd
+
     ok = await bd.delete_destination(dest_id)
     if not ok:
         raise HTTPException(status_code=404)
     await admin_audit_service.log(
-        actor_id=user.get("user_id"), actor_username=user.get("username"),
+        actor_id=user.get("user_id"),
+        actor_username=user.get("username"),
         actor_ip=request.client.host if request.client else None,
-        action="backup.destination.delete", category="config",
-        target_type="backup_destination", target_id=str(dest_id),
+        action="backup.destination.delete",
+        category="config",
+        target_type="backup_destination",
+        target_id=str(dest_id),
     )
 
 
@@ -232,6 +265,7 @@ async def test_destination(
     _: Annotated[dict, Depends(require_global_admin)],
 ) -> dict:
     from app.services import backup_destinations_service as bd
+
     return await bd.test_destination(dest_id)
 
 
@@ -240,14 +274,17 @@ async def upload_all_destinations(
     user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
-    from app.services import backup_destinations_service as bd
     from app.services import admin_audit_service
+    from app.services import backup_destinations_service as bd
+
     out = await bd.upload_to_all()
     successes = sum(1 for r in out["results"] if r.get("success"))
     await admin_audit_service.log(
-        actor_id=user.get("user_id"), actor_username=user.get("username"),
+        actor_id=user.get("user_id"),
+        actor_username=user.get("username"),
         actor_ip=request.client.host if request.client else None,
-        action="backup.upload_all", category="config",
+        action="backup.upload_all",
+        category="config",
         details={"total": out["count"], "ok": successes},
     )
     return out
@@ -266,4 +303,4 @@ async def history(
         items = await loop.run_in_executor(None, svc.list_remote, cfg, limit)
         return {"items": items}
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Falha ao listar bucket: {e}")
+        raise HTTPException(status_code=502, detail=f"Falha ao listar bucket: {e}") from e

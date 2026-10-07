@@ -149,18 +149,14 @@ def test_classify_nxdomain_distinguishes_blocked_from_upstream() -> None:
 
     # Domain NÃO bloqueado pelo Unbound → nxdomain_upstream
     assert (
-        _classify("foo NXDOMAIN", "NXDOMAIN", "expired-adware.com", matcher)
-        == "nxdomain_upstream"
+        _classify("foo NXDOMAIN", "NXDOMAIN", "expired-adware.com", matcher) == "nxdomain_upstream"
     )
     assert (
-        _classify("foo NXDOMAIN", "NXDOMAIN", "random.example.org", matcher)
-        == "nxdomain_upstream"
+        _classify("foo NXDOMAIN", "NXDOMAIN", "random.example.org", matcher) == "nxdomain_upstream"
     )
 
     # 0.0.0.0 sempre é blocked (vem de local-data nossa), mesmo sem match
-    assert (
-        _classify("... 0.0.0.0 ...", "NOERROR", "qualquer.com", matcher) == "blocked"
-    )
+    assert _classify("... 0.0.0.0 ...", "NOERROR", "qualquer.com", matcher) == "blocked"
 
 
 def test_parse_line_emits_nxdomain_upstream_when_no_match() -> None:

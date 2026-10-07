@@ -80,7 +80,10 @@ async def create_peer(
     existing_token = (str(body.get("existing_token") or "")).strip() or None
     try:
         out = await ha_service.create_peer(
-            label, api_url, role, priority,
+            label,
+            api_url,
+            role,
+            priority,
             keep_raw=keep_raw,
             existing_token=existing_token,
         )
@@ -164,15 +167,19 @@ async def delete_peer(
     ip = request.client.host if request.client else None
     try:
         await approval_service.enforce_approval(
-            user=user, request_ip=ip,
+            user=user,
+            request_ip=ip,
             action="ha.peer.delete",
             description=f"Excluir peer HA #{peer_id}",
             payload={"peer_id": peer_id},
         )
     except approval_service.ApprovalRequired as exc:
         return JSONResponse(
-            {"approval_pending": True, "request_id": exc.request_id,
-             "message": "Aguardando aprovação"},
+            {
+                "approval_pending": True,
+                "request_id": exc.request_id,
+                "message": "Aguardando aprovação",
+            },
             status_code=202,
         )
     ok = await ha_service.delete_peer(peer_id)
@@ -213,15 +220,20 @@ async def manual_failover(
     ip = request.client.host if request.client else None
     try:
         await approval_service.enforce_approval(
-            user=user, request_ip=ip,
+            user=user,
+            request_ip=ip,
             action="ha.failover",
-            description=f"Promover peer #{promote_id} → primary" + (f" + demover #{demote_id}" if demote_id else ""),
+            description=f"Promover peer #{promote_id} → primary"
+            + (f" + demover #{demote_id}" if demote_id else ""),
             payload={"promote_id": promote_id, "demote_id": demote_id},
         )
     except approval_service.ApprovalRequired as exc:
         return JSONResponse(
-            {"approval_pending": True, "request_id": exc.request_id,
-             "message": "Aguardando aprovação de outro admin em /approvals.php"},
+            {
+                "approval_pending": True,
+                "request_id": exc.request_id,
+                "message": "Aguardando aprovação de outro admin em /approvals.php",
+            },
             status_code=202,
         )
 

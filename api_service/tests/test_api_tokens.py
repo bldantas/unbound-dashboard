@@ -13,9 +13,11 @@ def fresh_db(tmp_path, monkeypatch):
 
     config.settings = config.Settings()  # noqa: SLF001
     from app.repositories.duckdb import connection
+
     connection.settings = config.settings  # type: ignore[attr-defined]
 
     from app.db import run_migrations
+
     run_migrations(str(db))
     return db
 

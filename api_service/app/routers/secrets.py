@@ -51,10 +51,12 @@ async def status(_: Annotated[dict, Depends(require_admin)]) -> dict:
 
     base["secrets_inventory"] = {
         "oidc_client_secret": {
-            "encrypted": oidc_enc, "legacy_plaintext": oidc_leg,
+            "encrypted": oidc_enc,
+            "legacy_plaintext": oidc_leg,
         },
         "ha_peer_raw_token": {
-            "with_raw_encrypted": ha_enc, "total_peers": ha_total,
+            "with_raw_encrypted": ha_enc,
+            "total_peers": ha_total,
         },
     }
     return base

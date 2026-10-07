@@ -27,7 +27,9 @@ async def get(slug: str) -> dict | None:
     )
 
 
-async def set_flags(slug: str, *, index_enabled: bool | None = None, block_enabled: bool | None = None) -> bool:
+async def set_flags(
+    slug: str, *, index_enabled: bool | None = None, block_enabled: bool | None = None
+) -> bool:
     """Atualiza index_enabled e/ou block_enabled. Retorna True se algo mudou."""
     fields: list[str] = []
     args: list = []
@@ -90,7 +92,8 @@ async def stats_per_source() -> list[dict]:
         """
         SELECT s.slug, s.name, s.category, s.index_enabled, s.block_enabled,
                s.last_sync, s.last_error,
-               COALESCE((SELECT COUNT(*) FROM blocklist_entries WHERE source_slug = s.slug), 0) AS count
+               COALESCE((SELECT COUNT(*) FROM blocklist_entries WHERE source_slug = s.slug), 0) AS
+                   count
         FROM blocklist_sources s
         ORDER BY s.sort_order, s.name
         """

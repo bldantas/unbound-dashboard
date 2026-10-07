@@ -22,9 +22,11 @@ def fresh_db(tmp_path, monkeypatch):
     config.settings = config.Settings()  # noqa: SLF001
     # Patch o db_path direto no conn module
     from app.repositories.duckdb import connection
+
     connection.settings = config.settings  # type: ignore[attr-defined]
 
     from app.db import run_migrations
+
     run_migrations(str(db))
     return db
 
@@ -32,6 +34,7 @@ def fresh_db(tmp_path, monkeypatch):
 @pytest.fixture
 def no_redis(monkeypatch):
     """Simula Redis indisponível — todo get_redis() levanta exceção."""
+
     async def _raise(*_a, **_kw):
         raise RuntimeError("redis off (simulado)")
 
@@ -99,7 +102,16 @@ async def test_bootstrap_cleans_old_expired_rows(fresh_db, no_redis):
     await db_execute(
         "INSERT INTO auth_sessions (token_hash, user_id, ip, user_agent, iat, exp, login_at, last_seen, revoked_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)",
-        ["ancient", 1, "x", "y", now - 90 * 86400, now - 60 * 86400, now - 90 * 86400, now - 60 * 86400],
+        [
+            "ancient",
+            1,
+            "x",
+            "y",
+            now - 90 * 86400,
+            now - 60 * 86400,
+            now - 90 * 86400,
+            now - 60 * 86400,
+        ],
     )
     rows_before = await db_fetchall("SELECT COUNT(*) AS c FROM auth_sessions", [])
     assert rows_before[0]["c"] >= 1
@@ -108,7 +120,9 @@ async def test_bootstrap_cleans_old_expired_rows(fresh_db, no_redis):
     with patch("app.services.sessions.get_redis", AsyncMock(side_effect=RuntimeError("off"))):
         await sessions.bootstrap_from_duckdb()
 
-    rows_after = await db_fetchall("SELECT COUNT(*) AS c FROM auth_sessions WHERE token_hash = 'ancient'", [])
+    rows_after = await db_fetchall(
+        "SELECT COUNT(*) AS c FROM auth_sessions WHERE token_hash = 'ancient'", []
+    )
     assert rows_after[0]["c"] == 0
 
 
@@ -125,6 +139,7 @@ async def test_track_updates_last_seen(fresh_db, no_redis):
     # Avança alguns segundos (mas sem usar sleep — simula time passing)
     # Como o throttle é 30s no Redis path, Redis-off ignora throttle e sempre persiste.
     import asyncio
+
     await asyncio.sleep(0.05)
     await sessions.track(5, "abc", "1.1.1.1", "ua", t1, t1 + 3600)
     items2 = await sessions.list_for_user(5)

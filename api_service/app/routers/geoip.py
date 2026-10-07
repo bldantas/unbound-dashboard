@@ -54,9 +54,7 @@ async def distribution(
 
     action vazio = todas; 'blocked'/'resolved'/'cached'/'nxdomain_upstream' filtra.
     """
-    rows = await geoip_service.top_countries(
-        hours=hours, limit=limit, action=action or None
-    )
+    rows = await geoip_service.top_countries(hours=hours, limit=limit, action=action or None)
     return {"hours": hours, "action": action or "all", "countries": rows}
 
 
@@ -68,7 +66,5 @@ async def top_asns(
     action: str = Query("blocked", max_length=30),
 ) -> dict:
     """Top ASNs (provedores/redes) por hits. action='' = todas."""
-    rows = await geoip_service.top_asns(
-        hours=hours, limit=limit, action=action or None
-    )
+    rows = await geoip_service.top_asns(hours=hours, limit=limit, action=action or None)
     return {"hours": hours, "action": action or "all", "asns": rows}

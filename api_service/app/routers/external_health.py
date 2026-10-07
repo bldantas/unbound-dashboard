@@ -41,7 +41,9 @@ async def list_probes(
     limit: int = Query(200, ge=1, le=2000),
 ) -> dict:
     items = await external_health_service.list_recent(
-        probe_source=probe_source, hours=hours, limit=limit,
+        probe_source=probe_source,
+        hours=hours,
+        limit=limit,
     )
     return {"items": items, "count": len(items)}
 
@@ -92,9 +94,9 @@ async def update_retention(
     days = int(body.get("days", 90))
     if days < 7 or days > 3650:
         raise HTTPException(status_code=400, detail="days must be 7..3650")
-    await settings_repo.bulk_upsert([
-        {"setting_key": "external_health_retention_days", "setting_value": str(days)}
-    ])
+    await settings_repo.bulk_upsert(
+        [{"setting_key": "external_health_retention_days", "setting_value": str(days)}]
+    )
     await admin_audit_service.log(
         actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
         actor_username=user.get("username"),

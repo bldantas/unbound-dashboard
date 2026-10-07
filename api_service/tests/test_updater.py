@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 
 
@@ -75,9 +71,18 @@ def test_find_assets_complete():
 
     release = {
         "assets": [
-            {"name": "unbound-dashboard-update-v2.16.3-123.tar.gz", "browser_download_url": "http://x/tar"},
-            {"name": "unbound-dashboard-update-v2.16.3-123.tar.gz.sha256", "browser_download_url": "http://x/sha"},
-            {"name": "unbound-dashboard-update-v2.16.3-123.tar.gz.sig", "browser_download_url": "http://x/sig"},
+            {
+                "name": "unbound-dashboard-update-v2.16.3-123.tar.gz",
+                "browser_download_url": "http://x/tar",
+            },
+            {
+                "name": "unbound-dashboard-update-v2.16.3-123.tar.gz.sha256",
+                "browser_download_url": "http://x/sha",
+            },
+            {
+                "name": "unbound-dashboard-update-v2.16.3-123.tar.gz.sig",
+                "browser_download_url": "http://x/sig",
+            },
         ]
     }
     tar, sha, sig = _find_assets(release)
@@ -109,7 +114,10 @@ def test_find_assets_requires_signature_of_same_tarball():
     assert _find_assets(release) == (None, None, None)
     # Assinatura de outro tarball também não serve
     release["assets"].append(
-        {"name": "unbound-dashboard-update-v2.16.2-1.tar.gz.sig", "browser_download_url": "http://x/s"}
+        {
+            "name": "unbound-dashboard-update-v2.16.2-1.tar.gz.sig",
+            "browser_download_url": "http://x/s",
+        }
     )
     assert _find_assets(release) == (None, None, None)
 
@@ -118,7 +126,9 @@ def test_infer_status_success(tmp_path):
     from app.services.updater import _infer_status_from_log
 
     log = tmp_path / "u.log"
-    log.write_text("blah\n[OK] some step\n╔════╗\n║   Update concluído                             ║\n╚════╝\n")
+    log.write_text(
+        "blah\n[OK] some step\n╔════╗\n║   Update concluído                             ║\n╚════╝\n"
+    )
     assert _infer_status_from_log(log) == "succeeded"
 
 
@@ -224,8 +234,14 @@ async def test_apply_blocks_major_bump_without_ack(monkeypatch):
             "published_at": "",
             "html_url": "",
             "assets": [
-                {"name": "unbound-dashboard-update-v3.0.0-x.tar.gz", "browser_download_url": "http://x/tar"},
-                {"name": "unbound-dashboard-update-v3.0.0-x.tar.gz.sha256", "browser_download_url": "http://x/sha"},
+                {
+                    "name": "unbound-dashboard-update-v3.0.0-x.tar.gz",
+                    "browser_download_url": "http://x/tar",
+                },
+                {
+                    "name": "unbound-dashboard-update-v3.0.0-x.tar.gz.sha256",
+                    "browser_download_url": "http://x/sha",
+                },
             ],
         }
 
@@ -291,8 +307,14 @@ async def test_apply_accepts_latest_sentinel(monkeypatch, tmp_path):
             "published_at": "",
             "html_url": "",
             "assets": [
-                {"name": "unbound-dashboard-update-v2.99.0-x.tar.gz", "browser_download_url": "http://x/tar"},
-                {"name": "unbound-dashboard-update-v2.99.0-x.tar.gz.sha256", "browser_download_url": "http://x/sha"},
+                {
+                    "name": "unbound-dashboard-update-v2.99.0-x.tar.gz",
+                    "browser_download_url": "http://x/tar",
+                },
+                {
+                    "name": "unbound-dashboard-update-v2.99.0-x.tar.gz.sha256",
+                    "browser_download_url": "http://x/sha",
+                },
             ],
         }
 
@@ -326,6 +348,7 @@ async def test_apply_accepts_latest_sentinel(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, "_spawn_update_process", _fake_spawn)
     monkeypatch.setattr(updater, "_monitor_job", _fake_monitor)
     from app.services import audit_service
+
     monkeypatch.setattr(audit_service, "record_start", _fake_record)
 
     # "latest" deve passar mesmo sem bater string-a-string com o tag do GitHub
@@ -499,7 +522,9 @@ def test_list_backups_ignores_malformed_names(monkeypatch, tmp_path):
     (tmp_path / "dashboard-20260514_120000.tar.gz").write_bytes(b"x")
     (tmp_path / "dashboard-bad-format.tar.gz").write_bytes(b"x")
     (tmp_path / "random-file.tar.gz").write_bytes(b"x")
-    (tmp_path / "pre-restore-20260514_120000.tar.gz").write_bytes(b"x")  # snapshot do restore-backup, não conta
+    (tmp_path / "pre-restore-20260514_120000.tar.gz").write_bytes(
+        b"x"
+    )  # snapshot do restore-backup, não conta
 
     items = updater.list_backups()
     assert len(items) == 1

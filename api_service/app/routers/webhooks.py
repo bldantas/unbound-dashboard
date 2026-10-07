@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 
 from app.core.deps import require_global_admin
 from app.repositories.duckdb import settings_repo
@@ -72,14 +72,25 @@ async def update_config(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="telegram_chat_id é obrigatório para tipo telegram",
         )
-    await settings_repo.bulk_upsert([
-        {"setting_key": "webhook_enabled", "setting_value": "true" if body.enabled else "false"},
-        {"setting_key": "webhook_url", "setting_value": body.url},
-        {"setting_key": "webhook_type", "setting_value": body.type},
-        {"setting_key": "webhook_severity_min", "setting_value": body.severity_min},
-        {"setting_key": "notify_webhook_on_release", "setting_value": "true" if body.notify_on_release else "false"},
-        {"setting_key": "webhook_telegram_chat_id", "setting_value": body.telegram_chat_id.strip()},
-    ])
+    await settings_repo.bulk_upsert(
+        [
+            {
+                "setting_key": "webhook_enabled",
+                "setting_value": "true" if body.enabled else "false",
+            },
+            {"setting_key": "webhook_url", "setting_value": body.url},
+            {"setting_key": "webhook_type", "setting_value": body.type},
+            {"setting_key": "webhook_severity_min", "setting_value": body.severity_min},
+            {
+                "setting_key": "notify_webhook_on_release",
+                "setting_value": "true" if body.notify_on_release else "false",
+            },
+            {
+                "setting_key": "webhook_telegram_chat_id",
+                "setting_value": body.telegram_chat_id.strip(),
+            },
+        ]
+    )
 
 
 class TestRequest(BaseModel):

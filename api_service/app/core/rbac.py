@@ -23,26 +23,22 @@ VALID_ROLES = frozenset({"admin", "readonly_admin", "operator", "viewer"})
 # Mudar uma capability afeta TODOS os endpoints que a usam.
 CAPABILITIES: dict[str, frozenset[str]] = {
     # Writes/admin
-    "config.write":         frozenset({"admin"}),
-    "users.manage":         frozenset({"admin"}),
-    "webhooks.manage":      frozenset({"admin"}),
-    "smtp.manage":          frozenset({"admin"}),
-    "tokens.manage":        frozenset({"admin"}),  # API tokens p/ master multi-host
-
+    "config.write": frozenset({"admin"}),
+    "users.manage": frozenset({"admin"}),
+    "webhooks.manage": frozenset({"admin"}),
+    "smtp.manage": frozenset({"admin"}),
+    "tokens.manage": frozenset({"admin"}),  # API tokens p/ master multi-host
     # Operações de NOC — operator + admin
-    "alerts.resolve":       frozenset({"admin", "operator"}),
-    "blocklist.write":      frozenset({"admin", "operator"}),
-
+    "alerts.resolve": frozenset({"admin", "operator"}),
+    "blocklist.write": frozenset({"admin", "operator"}),
     # Leituras administrativas (não-sensíveis) — operator + readonly_admin + admin
-    "alerts.read":          frozenset({"admin", "readonly_admin", "operator"}),
-    "blocklist.read":       frozenset({"admin", "readonly_admin", "operator"}),
-
+    "alerts.read": frozenset({"admin", "readonly_admin", "operator"}),
+    "blocklist.read": frozenset({"admin", "readonly_admin", "operator"}),
     # Leituras sensíveis (SMTP, webhooks, users) — readonly_admin + admin
-    "users.read":           frozenset({"admin", "readonly_admin"}),
+    "users.read": frozenset({"admin", "readonly_admin"}),
     "config.read_sensitive": frozenset({"admin", "readonly_admin"}),
-
     # Reads gerais (qualquer user autenticado)
-    "dashboard.read":       frozenset({"admin", "readonly_admin", "operator", "viewer"}),
+    "dashboard.read": frozenset({"admin", "readonly_admin", "operator", "viewer"}),
 }
 
 

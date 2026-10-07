@@ -68,6 +68,7 @@ def _row_to_dict(r: dict, include_token_hash: bool = False) -> dict:
 
 # ---------- CRUD ----------
 
+
 async def list_peers() -> list[dict]:
     rows = await db_fetchall(
         "SELECT * FROM ha_peers ORDER BY priority DESC, label ASC",
@@ -124,7 +125,8 @@ async def create_peer(
 
     await db_execute(
         """
-        INSERT INTO ha_peers (label, api_url, api_token_hash, api_token_raw_encrypted, role, priority)
+        INSERT INTO ha_peers (label, api_url, api_token_hash, api_token_raw_encrypted, role,
+            priority)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
         [label, api_url, token_hash, encrypted, role, int(priority)],
@@ -209,6 +211,7 @@ async def delete_peer(peer_id: int) -> bool:
 
 # ---------- Healthcheck ----------
 
+
 async def check_peer(peer_id: int) -> dict:
     """Faz GET <api_url>/api/v1/cluster/peer-ping (autenticado) ou /healthz
     (anônimo) como fallback. Atualiza last_check_*.
@@ -250,8 +253,16 @@ async def check_peer(peer_id: int) -> dict:
     latency_ms = None
     error_msg: str | None = None
 
+    # O probe leva o API token do peer (admin no outro servidor): validar o
+    # certificado por padrão. Cluster com cert autoassinado pode desligar via
+    # setting `ha_peer_tls_verify=false` — consciente do risco de MITM.
+    from app.repositories.duckdb import settings_repo
+
+    tls_verify = await settings_repo.get_bool("ha_peer_tls_verify", True)
+    if not tls_verify and api_url.startswith("https://"):
+        log.warning("ha.peer_tls_verify_disabled", api_url=api_url)
     try:
-        async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT, verify=False) as client:
+        async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT, verify=tls_verify) as client:
             r = await client.get(f"{api_url}{probe_path}", headers=headers)
             latency_ms = int((time.time() - started) * 1000)
             if r.status_code == 200:
@@ -266,7 +277,9 @@ async def check_peer(peer_id: int) -> dict:
                 error_msg = "Peer rejeitou X-Api-Token (não cadastrado no espelho?)"
             elif r.status_code == 404:
                 status = "not_found"
-                error_msg = f"Peer respondeu 404 em {probe_path} — versão sem o endpoint? (precisa v2.103+)"
+                error_msg = (
+                    f"Peer respondeu 404 em {probe_path} — versão sem o endpoint? (precisa v2.103+)"
+                )
             else:
                 status = "error"
                 error_msg = f"HTTP {r.status_code}"
@@ -320,6 +333,7 @@ async def check_all_enabled() -> list[dict]:
 
 # ---------- Manual failover ----------
 
+
 async def manual_failover(promote_peer_id: int, demote_peer_id: int | None = None) -> dict:
     """Promove peer secondary→primary; opcionalmente demove um primary→secondary.
 
@@ -346,11 +360,14 @@ async def manual_failover(promote_peer_id: int, demote_peer_id: int | None = Non
         "ok": True,
         "promoted": promote["label"],
         "demoted_id": demote_peer_id,
-        "note": "Apenas o registro foi atualizado. Configure cutover real (DNS/IP virtual) manualmente.",
+        "note": (
+            "Apenas o registro foi atualizado. Configure cutover real (DNS/IP virtual) manualmente."
+        ),
     }
 
 
 # ---------- Status agregado ----------
+
 
 async def cluster_status() -> dict:
     """Snapshot pro KPI da página /cluster.php."""
@@ -365,6 +382,8 @@ async def cluster_status() -> dict:
         "secondary_count": len(secondary),
         "ok_count": ok_count,
         "down_count": down_count,
-        "has_primary_ok": any(p["role"] == "primary" and p["last_check_status"] == "ok" for p in peers),
+        "has_primary_ok": any(
+            p["role"] == "primary" and p["last_check_status"] == "ok" for p in peers
+        ),
         "peers": peers,
     }

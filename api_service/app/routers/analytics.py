@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -147,8 +147,14 @@ async def search_queries(
     truncated = _pre_total > _GEO_CAP
     if not rows:
         return {
-            "window": window, "total": 0, "page": page, "per_page": per_page,
-            "total_pages": 1, "rows": [], "country": country, "truncated": truncated,
+            "window": window,
+            "total": 0,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": 1,
+            "rows": [],
+            "country": country,
+            "truncated": truncated,
         }
 
     ips = list({r["client_ip"] for r in rows})
@@ -215,7 +221,13 @@ _ANOMALY_KEYS = [
 ]
 
 _VALID_DETECTORS = {
-    "", "dga", "nxdomain", "new_client", "tunneling", "beaconing", "suspicious_tld",
+    "",
+    "dga",
+    "nxdomain",
+    "new_client",
+    "tunneling",
+    "beaconing",
+    "suspicious_tld",
     "baseline_deviation",
 }
 _VALID_KINDS = {"client_ip", "domain", "client_and_domain"}
@@ -342,9 +354,10 @@ async def add_anomaly_whitelist(
     body: dict,
 ) -> dict:
     """body: {kind, client_ip?, domain_pattern?, detector?, note?}."""
+    import time
+
     from app.repositories.duckdb.connection import db_execute
     from app.workers.anomaly_detector import _whitelist_invalidate
-    import time
 
     kind = str(body.get("kind") or "").strip()
     if kind not in _VALID_KINDS:
@@ -518,7 +531,8 @@ async def anomaly_resolve_all(
     n = int((cnt_row or {}).get("n", 0))
     if n > 0:
         await db_execute(
-            "UPDATE alerts SET resolved_at = NOW() WHERE type LIKE 'anomaly_%' AND resolved_at IS NULL"
+            "UPDATE alerts SET resolved_at = NOW() WHERE type LIKE 'anomaly_%' AND resolved_at IS "
+            "NULL"
         )
     return {"resolved": n}
 
@@ -563,14 +577,14 @@ async def export_csv(
         header.append("country_code")
     writer.writerow(header)
     for r in rows:
-        iso = datetime.fromtimestamp(r["timestamp"], tz=timezone.utc).isoformat()
+        iso = datetime.fromtimestamp(r["timestamp"], tz=UTC).isoformat()
         row = [iso, r["timestamp"], r["client_ip"], r["domain"], r["query_type"], r["action"]]
         if country:
             row.append(country_map.get(r["client_ip"], "??"))
         writer.writerow(row)
     buf.seek(0)
 
-    filename = f"unbound-queries-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+    filename = f"unbound-queries-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.csv"
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="text/csv",
@@ -597,9 +611,9 @@ async def get_retention_settings(
 
     out = {k: await settings_repo.get(k, _RETENTION_DEFAULTS[k]) for k in _RETENTION_KEYS}
     last = {
-        "last_run":     await settings_repo.get("query_log_pruner_last_run"),
+        "last_run": await settings_repo.get("query_log_pruner_last_run"),
         "last_deleted": await settings_repo.get("query_log_pruner_last_deleted"),
-        "last_cutoff":  await settings_repo.get("query_log_pruner_last_cutoff"),
+        "last_cutoff": await settings_repo.get("query_log_pruner_last_cutoff"),
     }
     row = await db_fetchone("SELECT COUNT(*) AS n, MIN(timestamp) AS oldest FROM query_logs")
     return {
@@ -651,7 +665,7 @@ async def get_hourly_stats(
     """Últimas N horas de hourly_stats. Usado em /observability."""
     from app.repositories.duckdb.connection import db_fetchall
 
-    now = int(datetime.now(timezone.utc).timestamp())
+    now = int(datetime.now(UTC).timestamp())
     since = ((now // 3600) - hours) * 3600
     rows = await db_fetchall(
         """

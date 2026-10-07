@@ -146,7 +146,8 @@ async def add_many(
             skipped_dup += 1
             continue
         await db_execute(
-            "INSERT INTO blocklist_exceptions (domain, org_id, reason, created_by) VALUES (?, ?, ?, ?)",
+            "INSERT INTO blocklist_exceptions (domain, org_id, reason, created_by) VALUES (?, ?, "
+            "?, ?)",
             [d, oid, reason, created_by],
         )
         added += 1

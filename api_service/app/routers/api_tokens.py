@@ -23,12 +23,16 @@ async def list_tokens(
 
 
 class CreateTokenRequest(BaseModel):
-    label: str = Field(min_length=1, max_length=100, description="Identificação do token, ex: 'master-orchestrator'")
+    label: str = Field(
+        min_length=1,
+        max_length=100,
+        description="Identificação do token, ex: 'master-orchestrator'",
+    )
     capabilities: list[str] | None = Field(
         default=None,
         description="Lista de capabilities concedidas. Vazio/None = admin global "
-                    "(backward-compat). Lista não vazia = token restrito a essas caps. "
-                    "Caps válidas: ver /api/v1/api-tokens/capabilities-catalog",
+        "(backward-compat). Lista não vazia = token restrito a essas caps. "
+        "Caps válidas: ver /api/v1/api-tokens/capabilities-catalog",
     )
 
 
@@ -41,12 +45,10 @@ async def list_capabilities(
     Usado pela UI pra montar checkboxes na criação de token escopado.
     """
     from app.core.rbac import CAPABILITIES
+
     return {
         "capabilities": sorted(CAPABILITIES.keys()),
-        "details": {
-            cap: {"allowed_roles": sorted(roles)}
-            for cap, roles in CAPABILITIES.items()
-        },
+        "details": {cap: {"allowed_roles": sorted(roles)} for cap, roles in CAPABILITIES.items()},
     }
 
 
@@ -71,15 +73,18 @@ async def create_token(
     # Valida caps contra o catálogo conhecido pra evitar typos
     if body.capabilities:
         from app.core.rbac import CAPABILITIES
+
         unknown = set(body.capabilities) - set(CAPABILITIES.keys())
         if unknown:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Capabilities desconhecidas: {sorted(unknown)}. "
-                       f"Catálogo em /api/v1/api-tokens/capabilities-catalog",
+                f"Catálogo em /api/v1/api-tokens/capabilities-catalog",
             )
     new_id, raw = await api_tokens.create(
-        body.label, created_by=user_id, capabilities=body.capabilities,
+        body.label,
+        created_by=user_id,
+        capabilities=body.capabilities,
     )
     return {
         "id": new_id,
