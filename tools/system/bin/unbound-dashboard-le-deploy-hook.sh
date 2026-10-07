@@ -5,8 +5,12 @@
 # dashboard (Configurações → Criptografia DoT/DoH), que também escreve
 # o marker /etc/unbound/certs/.le-lineage com o nome do lineage importado.
 #
+# O update.sh instala este arquivo em /usr/local/bin (root:root) e o
+# helper `unbound-dashboard-priv.sh le-install` copia de lá — nunca da
+# árvore do dashboard, que é gravável por www-data.
+#
 # Pra instalar manualmente:
-#   sudo install -m 0755 system/letsencrypt/unbound-dashboard-deploy.sh \
+#   sudo install -m 0755 /usr/local/bin/unbound-dashboard-le-deploy-hook.sh \
 #       /etc/letsencrypt/renewal-hooks/deploy/unbound-dashboard.sh
 #   echo "dashboard.SEUDOMINIO.com" | sudo tee /etc/unbound/certs/.le-lineage
 #

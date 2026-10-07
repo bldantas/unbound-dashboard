@@ -502,7 +502,7 @@ function restoreConfigBackup() {
             // Copy to staging area then via sudo to destination
             $stagingFile = "{$tmpDir}/unbound_restore_{$basename}";
             copy($confFile, $stagingFile);
-            \App\ShellHelper::exec('/usr/bin/cp', [$stagingFile, $originalPath], $cpOut, $cpRet, true);
+            \App\ShellHelper::installFile($stagingFile, $originalPath, $cpOut, $cpRet);
             @unlink($stagingFile);
 
             if ($cpRet === 0) {

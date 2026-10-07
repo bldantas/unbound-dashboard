@@ -831,24 +831,24 @@ class UnboundConfigManager
         }
 
         // Move blocklist conf se foi alterada (ou se estamos migrando)
-        \App\ShellHelper::exec('/usr/bin/cp', [$this->tempBlockedConfPath, $this->blockedConfPath], $cpBlockedOutput, $cpBlockedReturn, true);
+        \App\ShellHelper::installFile($this->tempBlockedConfPath, $this->blockedConfPath, $cpBlockedOutput, $cpBlockedReturn);
         if ($cpBlockedReturn !== 0) {
             return ['success' => false, 'message' => "Falha ao salvar lista de bloqueio modular:\n" . implode("\n", $cpBlockedOutput)];
         }
 
         // Move Anti-DoH conf (mesmo padrão do blocked_domains)
-        \App\ShellHelper::exec('/usr/bin/cp', [$this->tempAntiDohPath, $this->antiDohConfPath], $cpAntiDohOutput, $cpAntiDohReturn, true);
+        \App\ShellHelper::installFile($this->tempAntiDohPath, $this->antiDohConfPath, $cpAntiDohOutput, $cpAntiDohReturn);
         if ($cpAntiDohReturn !== 0) {
             return ['success' => false, 'message' => "Falha ao salvar filtro Anti-DoH:\n" . implode("\n", $cpAntiDohOutput)];
         }
 
         // Move views.conf (client policies). Mesmo se vazio, garante atualização.
-        \App\ShellHelper::exec('/usr/bin/cp', [$this->tempViewsConfPath, $this->viewsConfPath], $cpViewsOutput, $cpViewsReturn, true);
+        \App\ShellHelper::installFile($this->tempViewsConfPath, $this->viewsConfPath, $cpViewsOutput, $cpViewsReturn);
         if ($cpViewsReturn !== 0) {
             return ['success' => false, 'message' => "Falha ao salvar views.conf:\n" . implode("\n", $cpViewsOutput)];
         }
 
-        \App\ShellHelper::exec('/usr/bin/cp', [$this->tempLocalRecordsPath, $this->modularFiles['local_records']], $cpLocalOutput, $cpLocalReturn, true);
+        \App\ShellHelper::installFile($this->tempLocalRecordsPath, $this->modularFiles['local_records'], $cpLocalOutput, $cpLocalReturn);
 
         $tempDir = dirname(__FILE__) . '/data/tmp/';
         // 1. Gera e salva arquivos modulares temporários
@@ -900,14 +900,14 @@ class UnboundConfigManager
             // Pula se o arquivo temporário não existe (ex: local_records que é tratado separadamente como .tmp)
             if (!file_exists($src)) continue;
 
-            \App\ShellHelper::exec('/usr/bin/cp', [$src, $dest], $cpModularOutput, $cpModularReturn, true);
+            \App\ShellHelper::installFile($src, $dest, $cpModularOutput, $cpModularReturn);
             if ($cpModularReturn !== 0) {
                 return ['success' => false, 'message' => "Erro ao mover arquivo modular {$key}:\n" . implode("\n", $cpModularOutput)];
             }
         }
 
         // 5. Move o unbound.conf master
-        \App\ShellHelper::exec('/usr/bin/cp', [$this->tempConfigPath, $this->configPath], $cpOutput, $cpReturn, true);
+        \App\ShellHelper::installFile($this->tempConfigPath, $this->configPath, $cpOutput, $cpReturn);
 
         if ($cpReturn !== 0) {
             return ['success' => false, 'message' => "Falha ao sobrescrever unbound.conf:\n" . implode("\n", $cpOutput)];

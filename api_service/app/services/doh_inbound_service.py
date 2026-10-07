@@ -145,7 +145,7 @@ async def generate_self_signed(
     """Gera novo par RSA 2048 + self-signed cert e instala no path padrão.
 
     Sandbox systemd pode bloquear write em /etc/unbound — então geramos em
-    /var/www/html/unbound-dashboard/src/data/tmp/ e copiamos via `sudo cp`,
+    /var/www/html/unbound-dashboard/src/data/tmp/ e instalamos via `sudo install`,
     mesmo padrão de dns_security_service.apply().
 
     Se `restart=True`, faz systemctl restart unbound pra recarregar TLS.
@@ -181,8 +181,10 @@ async def generate_self_signed(
 
     tmp_dir = Path("/var/www/html/unbound-dashboard/src/data/tmp")
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    tmp_crt = tmp_dir / "doh_dashboard.crt"
-    tmp_key = tmp_dir / "doh_dashboard.key"
+    # Nomes fixos: o sudoers só autoriza `install` destes dois arquivos para
+    # os paths gerenciados (mesmas regras do TlsCertManager no PHP).
+    tmp_crt = tmp_dir / "unbound_dashboard_cert.crt"
+    tmp_key = tmp_dir / "unbound_dashboard_cert.key"
 
     tmp_crt.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
     tmp_key.write_bytes(
@@ -195,16 +197,41 @@ async def generate_self_signed(
     tmp_crt.chmod(0o644)
     tmp_key.chmod(0o600)
 
-    # sudo cp pros paths reais
-    rc1, _, e1 = await _run(["sudo", "/usr/bin/cp", str(tmp_crt), str(CERT_PATH)])
+    # install = cópia + dono + modo numa chamada (regras exatas no sudoers)
+    await _run(["sudo", "/usr/bin/mkdir", "-p", str(CERT_PATH.parent)])
+    rc1, _, e1 = await _run(
+        [
+            "sudo",
+            "/usr/bin/install",
+            "-o",
+            "unbound",
+            "-g",
+            "unbound",
+            "-m",
+            "0644",
+            str(tmp_crt),
+            str(CERT_PATH),
+        ]
+    )
     if rc1 != 0:
         return {"ok": False, "stage": "cp_cert", "error": e1}
-    rc2, _, e2 = await _run(["sudo", "/usr/bin/cp", str(tmp_key), str(KEY_PATH)])
+    rc2, _, e2 = await _run(
+        [
+            "sudo",
+            "/usr/bin/install",
+            "-o",
+            "unbound",
+            "-g",
+            "unbound",
+            "-m",
+            "0640",
+            str(tmp_key),
+            str(KEY_PATH),
+        ]
+    )
+    tmp_key.unlink(missing_ok=True)
     if rc2 != 0:
         return {"ok": False, "stage": "cp_key", "error": e2}
-    # Ajusta dono pra unbound — best-effort (pode falhar se sudoers não autorizar)
-    await _run(["sudo", "/bin/chown", "unbound:unbound", str(KEY_PATH)])
-    await _run(["sudo", "/bin/chmod", "640", str(KEY_PATH)])
 
     restart_result = None
     if restart:

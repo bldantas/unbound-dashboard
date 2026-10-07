@@ -7,8 +7,7 @@ require_once __DIR__ . '/ShellHelper.php';
 class NetworkManager {
 
     const NETPLAN_FILE = '/etc/netplan/99-unbound-dashboard.yaml';
-    const NETPLAN_TMP  = '/tmp/unbound-dashboard-netplan.yaml';
-    const NETPLAN_BACKUP_DIR = '/var/backups/unbound-dashboard';
+    const NETPLAN_BACKUP_DIR = '/var/backups/unbound-dashboard-netplan';
     const LOCK_DIR = __DIR__ . '/data/tmp/locks';
 
     /**
@@ -231,7 +230,7 @@ class NetworkManager {
         }
 
         $out = []; $ret = 0;
-        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, '/etc/hosts'], $out, $ret, true);
+        \App\ShellHelper::moveFile($tmpFile, '/etc/hosts', $out, $ret);
         if ($ret !== 0) {
             return ['success' => false, 'message' => 'mv falhou: ' . implode(' ', $out)];
         }
@@ -377,7 +376,7 @@ class NetworkManager {
         }
 
         $out = []; $ret = 0;
-        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, $path], $out, $ret, true);
+        \App\ShellHelper::moveFile($tmpFile, $path, $out, $ret);
         if ($ret !== 0) {
             return ['success' => false, 'message' => 'mv falhou: ' . implode(' ', $out)];
         }
@@ -408,7 +407,7 @@ class NetworkManager {
         file_put_contents($tmpFile, $content);
         $output = [];
         $returnVar = 0;
-        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, '/etc/resolv.conf'], $output, $returnVar, true);
+        \App\ShellHelper::moveFile($tmpFile, '/etc/resolv.conf', $output, $returnVar);
 
         if ($returnVar === 0) {
             return ['success' => true, 'message' => 'DNS do sistema atualizado com sucesso.'];
@@ -667,7 +666,7 @@ class NetworkManager {
         // Move o tmp pra /etc/netplan/99-unbound-dashboard.yaml
         $outMv = [];
         $retMv = 0;
-        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, self::NETPLAN_FILE], $outMv, $retMv, true);
+        \App\ShellHelper::moveFile($tmpFile, self::NETPLAN_FILE, $outMv, $retMv);
         if ($retMv !== 0) {
             return ['success' => false, 'message' => 'Falha ao mover YAML para /etc/netplan/: ' . implode(' ', $outMv)];
         }
@@ -690,17 +689,16 @@ class NetworkManager {
     }
 
     /**
-     * Salva uma cópia datada do YAML atual em /var/backups/unbound-dashboard/.
+     * Salva uma cópia datada do YAML atual em NETPLAN_BACKUP_DIR (o helper
+     * root escolhe o nome e cria o diretório root:www-data 0750).
      */
     private function backupCurrentNetplan(): array {
-        @mkdir(self::NETPLAN_BACKUP_DIR, 0755, true);
-        $ts = date('Ymd-His');
-        $dest = self::NETPLAN_BACKUP_DIR . "/netplan-99-{$ts}.yaml";
         $out = []; $ret = 0;
-        \App\ShellHelper::exec('/usr/bin/cp', [self::NETPLAN_FILE, $dest], $out, $ret, true);
+        \App\ShellHelper::exec(\App\ShellHelper::PRIV_HELPER, ['netplan-backup'], $out, $ret, true);
         if ($ret !== 0) {
-            return ['success' => false, 'message' => 'cp falhou: ' . implode(' ', $out)];
+            return ['success' => false, 'message' => 'backup falhou: ' . implode(' ', $out)];
         }
+        $dest = trim((string)end($out));
         return ['success' => true, 'message' => "Backup em $dest", 'path' => $dest];
     }
 
@@ -728,9 +726,9 @@ class NetworkManager {
                 return ['success' => false, 'message' => 'Nenhum backup encontrado em ' . self::NETPLAN_BACKUP_DIR];
             }
             $out = []; $ret = 0;
-            \App\ShellHelper::exec('/usr/bin/cp', [$last, self::NETPLAN_FILE], $out, $ret, true);
+            \App\ShellHelper::exec(\App\ShellHelper::PRIV_HELPER, ['netplan-restore', basename($last)], $out, $ret, true);
             if ($ret !== 0) {
-                return ['success' => false, 'message' => 'cp falhou: ' . implode(' ', $out)];
+                return ['success' => false, 'message' => 'restore falhou: ' . implode(' ', $out)];
             }
             $outA = []; $retA = 0;
             \App\ShellHelper::exec('/usr/sbin/netplan', ['apply'], $outA, $retA, true);
@@ -963,7 +961,7 @@ class NetworkManager {
         $newContent = implode("", $newLines);
         $tmpFile = dirname(__FILE__) . '/data/tmp/interfaces_new';
         file_put_contents($tmpFile, $newContent);
-        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, '/etc/network/interfaces'], $output, $returnVar, true);
+        \App\ShellHelper::moveFile($tmpFile, '/etc/network/interfaces', $output, $returnVar);
 
         if ($returnVar === 0) {
             return ['success' => true, 'message' => "Configuração da interface $iface salva. É necessário reiniciar a interface para aplicar."];
@@ -1048,7 +1046,7 @@ class NetworkManager {
         $newContent = implode("", $newLines);
         $tmpFile = dirname(__FILE__) . '/data/tmp/interfaces_new';
         file_put_contents($tmpFile, $newContent);
-        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, '/etc/network/interfaces'], $output, $returnVar, true);
+        \App\ShellHelper::moveFile($tmpFile, '/etc/network/interfaces', $output, $returnVar);
 
         if ($returnVar !== 0) {
             return ['success' => false, 'message' => 'Erro ao salvar: ' . implode(" ", $output)];
@@ -1057,7 +1055,7 @@ class NetworkManager {
         // Best-effort: derruba a interface se estiver up. Falha silenciosa
         // (talvez nunca tenha sido instanciada).
         $dnOut = []; $dnRet = 0;
-        \App\ShellHelper::exec('/usr/sbin/ifdown', [$iface], $dnOut, $dnRet, true);
+        \App\ShellHelper::exec(\App\ShellHelper::PRIV_HELPER, ['ifdown', $iface], $dnOut, $dnRet, true);
 
         return ['success' => true, 'message' => "Interface $iface removida do /etc/network/interfaces."];
     }
@@ -1087,21 +1085,22 @@ class NetworkManager {
             return ['success' => true, 'message' => "Interface $iface: netplan apply executado durante o save."];
         }
 
-        $safeIface = escapeshellarg($iface);
         $output = [];
         $returnVar = 0;
         $usedFallback = false;
 
         // Usa --force para reaplicar também cenários em que a interface já está ativa.
         // Isso evita que mudanças de IPv6 fiquem sem efeito em alguns ambientes ifupdown.
-        $cmd = "sudo /usr/sbin/ifdown --force $safeIface; sudo /usr/sbin/ifup --force $safeIface";
-        \App\ShellHelper::shell($cmd, $output, $returnVar);
+        $dnOut = []; $dnRet = 0;
+        \App\ShellHelper::exec(\App\ShellHelper::PRIV_HELPER, ['ifdown', $iface, '--force'], $dnOut, $dnRet, true);
+        \App\ShellHelper::exec(\App\ShellHelper::PRIV_HELPER, ['ifup', $iface, '--force'], $output, $returnVar, true);
+        $output = array_merge($dnOut, $output);
 
         // Fallback: tenta subir a interface novamente caso o ciclo down/up retorne erro.
         if ($returnVar !== 0) {
             $fallbackOutput = [];
             $fallbackRet = 0;
-            \App\ShellHelper::shell("sudo /usr/sbin/ifup --force $safeIface", $fallbackOutput, $fallbackRet);
+            \App\ShellHelper::exec(\App\ShellHelper::PRIV_HELPER, ['ifup', $iface, '--force'], $fallbackOutput, $fallbackRet, true);
             if ($fallbackRet === 0) {
                 $usedFallback = true;
                 $returnVar = 0;
@@ -1327,9 +1326,11 @@ class NetworkManager {
         $tmpFile = dirname(__FILE__) . '/data/tmp/timesyncd.conf.new';
         @mkdir(dirname($tmpFile), 0775, true);
         file_put_contents($tmpFile, implode('', $newLines));
-        $safeTmp = escapeshellarg($tmpFile);
-        $safeFile = escapeshellarg($file);
-        \App\ShellHelper::shell("sudo /usr/bin/mv $safeTmp $safeFile && sudo /usr/bin/systemctl restart systemd-timesyncd", $out, $ret);
+        $out = []; $ret = 0;
+        \App\ShellHelper::moveFile($tmpFile, $file, $out, $ret);
+        if ($ret === 0) {
+            \App\ShellHelper::exec('/usr/bin/systemctl', ['restart', 'systemd-timesyncd'], $out, $ret, true);
+        }
 
         if ($ret === 0) return ['success' => true, 'message' => 'Servidores NTP (timesyncd) salvos e serviço reiniciado.'];
         return ['success' => false, 'message' => 'Erro ao salvar NTP timesyncd: ' . implode(' ', $out)];
@@ -1374,7 +1375,7 @@ class NetworkManager {
         file_put_contents($tmpFile, implode('', $newLines));
 
         $out = []; $ret = 0;
-        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, $file], $out, $ret, true);
+        \App\ShellHelper::moveFile($tmpFile, $file, $out, $ret);
         if ($ret !== 0) return ['success' => false, 'message' => 'mv falhou: ' . implode(' ', $out)];
 
         // Detecta nome do serviço chrony (chrony em Debian, chronyd em Ubuntu/RHEL)
@@ -1422,7 +1423,7 @@ class NetworkManager {
         file_put_contents($tmpFile, implode('', $newLines));
 
         $out = []; $ret = 0;
-        \App\ShellHelper::exec('/usr/bin/mv', [$tmpFile, $file], $out, $ret, true);
+        \App\ShellHelper::moveFile($tmpFile, $file, $out, $ret);
         if ($ret !== 0) return ['success' => false, 'message' => 'mv falhou: ' . implode(' ', $out)];
 
         // Detecta nome do serviço (ntp em Debian, ntpd em RHEL, ntpsec em Debian moderno)

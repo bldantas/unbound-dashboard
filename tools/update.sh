@@ -638,6 +638,34 @@ APACHE_PHP_FPM
         log "Scripts /usr/local/bin/ atualizados"
     fi
 
+    # --- Arquivos de /etc gravados pelo dashboard
+    # Até a v2.114 eles eram trocados com `sudo mv` de um arquivo criado
+    # por www-data, e o mv preserva o dono: /etc/network/interfaces e
+    # companhia ficavam graváveis por www-data. Agora o helper root fixa
+    # dono/modo; aqui corrigimos o que versões antigas deixaram.
+    if [ "$DRY_RUN" != "true" ]; then
+        local f
+        for f in /etc/network/interfaces /etc/hosts /etc/resolv.conf \
+            /etc/systemd/timesyncd.conf /etc/systemd/resolved.conf \
+            /etc/chrony/chrony.conf /etc/chrony.conf /etc/ntp.conf \
+            /etc/netplan/99-unbound-dashboard.yaml; do
+            [ -f "$f" ] && [ ! -L "$f" ] || continue
+            if [ "$(stat -c %U "$f")" = "www-data" ]; then
+                chown root:root "$f" && chmod go-w "$f" \
+                    && warn "Dono de $f corrigido (era www-data)"
+            fi
+        done
+
+        # Deploy hook do certbot: antes era instalado a partir da árvore do
+        # dashboard (gravável por www-data). Se já existe, troca pela cópia
+        # root-owned de /usr/local/bin.
+        local le_hook=/etc/letsencrypt/renewal-hooks/deploy/unbound-dashboard.sh
+        if [ -f "$le_hook" ] && [ -f /usr/local/bin/unbound-dashboard-le-deploy-hook.sh ]; then
+            install -o root -g root -m 0755 /usr/local/bin/unbound-dashboard-le-deploy-hook.sh "$le_hook" \
+                && debug "Deploy hook do certbot atualizado"
+        fi
+    fi
+
     # --- Crontabs
     # Nome novo de propósito: o update.sh de versões anteriores procura
     # "unbound-dashboard-crons" e colaria este arquivo (formato /etc/cron.d,

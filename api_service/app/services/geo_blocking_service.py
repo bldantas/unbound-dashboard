@@ -32,6 +32,8 @@ from app.repositories.duckdb.connection import db_execute, db_fetchall, db_fetch
 log = structlog.get_logger(__name__)
 
 TMP_DIR = Path("/var/www/html/unbound-dashboard/src/data/tmp")
+# Copia validada (allowlist de origem/destino) — ver tools/system/bin/.
+PRIV_HELPER = "/usr/local/bin/unbound-dashboard-priv.sh"
 TMP_GEO_ACL = TMP_DIR / "unbound_geo_acl.tmp"
 TARGET_GEO_ACL = "/etc/unbound/includes/geo_acl.conf"
 
@@ -327,7 +329,9 @@ async def apply() -> dict[str, Any]:
     TMP_GEO_ACL.write_text(content, encoding="utf-8")
     TMP_GEO_ACL.chmod(0o644)
 
-    rc, out, err = await _run(["sudo", "/usr/bin/cp", str(TMP_GEO_ACL), TARGET_GEO_ACL])
+    rc, out, err = await _run(
+        ["sudo", PRIV_HELPER, "install-file", str(TMP_GEO_ACL), TARGET_GEO_ACL]
+    )
     if rc != 0:
         log.error("geo_blocking.apply.cp_failed", rc=rc, err=err)
         return {"ok": False, "stage": "cp", "error": err or out}
@@ -337,7 +341,9 @@ async def apply() -> dict[str, Any]:
         log.error("geo_blocking.apply.restart_failed", rc=rc, err=err)
         # rollback
         TMP_GEO_ACL.write_text(previous, encoding="utf-8")
-        rb_rc, _, rb_err = await _run(["sudo", "/usr/bin/cp", str(TMP_GEO_ACL), TARGET_GEO_ACL])
+        rb_rc, _, rb_err = await _run(
+            ["sudo", PRIV_HELPER, "install-file", str(TMP_GEO_ACL), TARGET_GEO_ACL]
+        )
         rs_rc, _, rs_err = await _run(["sudo", "/usr/bin/systemctl", "restart", "unbound"])
         return {
             "ok": False,
