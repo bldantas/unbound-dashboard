@@ -93,6 +93,7 @@ copy_dashboard() {
         --exclude='src/data/official_blocklist.conf' \
         --exclude='test_help.php' \
         --exclude='tools/docker' \
+        --exclude='tools/*.tar.gz' \
         "$DASHBOARD_DIR/" "$BUILD_DIR/dashboard/"
 
     # Força inclusão de CHANGELOG.md (excluído pelo *.md acima)
@@ -223,7 +224,7 @@ sudo bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/unbound-dashboard
 
 \`\`\`bash
 sudo systemctl stop unbound-dashboard-api
-sudo tar xzf /var/backups/unbound-dashboard/dashboard-<TS>.tar.gz -C /
+sudo tar xzf /var/backups/unbound-dashboard/dashboard-<TS>.tar.gz -C /var/www/html
 sudo cp -a /var/backups/unbound-dashboard/duckdb-<TS>.duckdb /var/lib/unbound-dashboard/unbound_dash.duckdb
 sudo cp -a /var/backups/unbound-dashboard/api-v1.env-<TS> /etc/unbound-dashboard/api-v1.env
 sudo systemctl start unbound-dashboard-api

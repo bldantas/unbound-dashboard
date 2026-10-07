@@ -704,8 +704,21 @@ rollback_from_backup() {
     systemctl stop unbound-dashboard-api 2>/dev/null || true
 
     info "Restaurando código a partir de $code_backup..."
-    if tar xzf "$code_backup" -C /; then
+    # O backup é criado relativo ao dir pai (entradas "unbound-dashboard/..."),
+    # então extrai lá — com -C / os arquivos iam para /unbound-dashboard.
+    if tar xzf "$code_backup" -C "$(dirname "$DASHBOARD_DIR")"; then
         log "Código restaurado"
+        # A .venv pode ter sido alterada pelo uv sync da versão nova.
+        if command -v uv >/dev/null 2>&1 || [ -x /usr/local/bin/uv ]; then
+            local uv_bin
+            uv_bin=$(command -v uv || echo /usr/local/bin/uv)
+            if (cd "$APISERVICE_DIR" && "$uv_bin" sync --no-dev --quiet); then
+                log ".venv ressincronizada com a versão restaurada"
+            else
+                warn "uv sync falhou no rollback — .venv pode estar inconsistente"
+            fi
+        fi
+        chown -R www-data:www-data "$DASHBOARD_DIR" 2>/dev/null || true
     else
         error "Falha ao restaurar código"
         rollback_ok=0
@@ -738,9 +751,15 @@ rollback_from_backup() {
     info "Reiniciando api_service após rollback..."
     systemctl start unbound-dashboard-api
 
-    sleep 5
-    if systemctl is-active --quiet unbound-dashboard-api \
-       && curl -sf --max-time 5 http://127.0.0.1:8001/api/v1/healthz >/dev/null 2>&1; then
+    local rb_healthy=0
+    for _ in $(seq 1 60); do
+        if curl -sf --max-time 2 http://127.0.0.1:8001/api/v1/healthz >/dev/null 2>&1; then
+            rb_healthy=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "$rb_healthy" -eq 1 ]; then
         log "api_service saudável após rollback"
     else
         error "api_service AINDA falha após rollback"
@@ -785,7 +804,7 @@ print_report() {
     echo ""
     echo "Rollback (se necessário):"
     echo "  sudo systemctl stop unbound-dashboard-api"
-    echo "  sudo tar xzf $BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz -C /"
+    echo "  sudo tar xzf $BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz -C $(dirname "$DASHBOARD_DIR")"
     echo "  sudo cp -a $BACKUP_DIR/duckdb-$TIMESTAMP.duckdb $DUCKDB_PATH"
     echo "  sudo cp -a $BACKUP_DIR/api-v1.env-$TIMESTAMP $ENV_FILE"
     echo "  sudo systemctl start unbound-dashboard-api"
