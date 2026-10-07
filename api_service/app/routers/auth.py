@@ -245,6 +245,12 @@ async def revoke_my_session(
     matching = next((s for s in all_sessions if s.get("token_hash") == token_hash), None)
     if matching is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sessão não encontrada")
+    owner_id = int(matching.get("user_id", 0))
+    if owner_id != user_id:
+        # Admin encerrando sessão de outro user: mesma regra de org de /users
+        from app.routers.users import _ensure_can_target_user
+
+        await _ensure_can_target_user(payload, owner_id)
 
     # Revoga: adiciona hash ao denylist + remove do tracking
     await jwt_denylist.revoke_token_hash(token_hash)
@@ -271,6 +277,10 @@ async def revoke_user(
             detail="Apenas admin ou o próprio user pode revogar tokens",
         )
     from app.services import jwt_denylist
+    if requester_id != user_id:
+        from app.routers.users import _ensure_can_target_user
+
+        await _ensure_can_target_user(payload, user_id)
     ok = await jwt_denylist.revoke_user_tokens(user_id)
     return {"revoked": ok, "user_id": user_id}
 
@@ -472,6 +482,9 @@ async def admin_reset_2fa(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas users com 'users.manage' podem resetar 2FA de terceiros.",
         )
+    from app.routers.users import _ensure_can_target_user
+
+    await _ensure_can_target_user(payload, user_id)
     ok = await user_repo.disable_totp(user_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User não encontrado")

@@ -34,6 +34,40 @@ router = APIRouter(prefix="/api/v1/hosts", tags=["hosts"])
 async def _viewer_org_id(payload: dict) -> int | None:
     return await resolve_viewer_org_id(payload)
 
+
+async def _ensure_host_access(payload: dict, host_id: int, *, write: bool) -> None:
+    """Multi-tenant por host.
+
+    - Admin global / API token (viewer None): tudo.
+    - User de org: hosts da própria org (leitura e escrita); hosts globais
+      só leitura — mexer em infra compartilhada é do admin global.
+    - Host de outra org responde 404 (não confirma que existe).
+    """
+    exists, owner = await managed_hosts.get_owner(host_id)
+    if not exists:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado")
+    viewer = await _viewer_org_id(payload)
+    if viewer is None or owner == viewer:
+        return
+    if owner is None:
+        if write:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Host global: só o admin global pode alterá-lo",
+            )
+        return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado")
+
+
+async def _ensure_global_viewer(payload: dict) -> None:
+    """Operações que atingem todos os hosts (batch, push de config com as
+    policies de todas as orgs) são do admin global."""
+    if await _viewer_org_id(payload) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operação em todos os hosts: exclusiva do admin global",
+        )
+
 _ALLOWED_RESTART_SERVICES = {"api", "unbound"}
 
 
@@ -136,8 +170,9 @@ class HostUpdate(BaseModel):
 async def update_host(
     host_id: int,
     body: HostUpdate,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> None:
+    await _ensure_host_access(payload, host_id, write=True)
     ok = await managed_hosts.update(
         host_id,
         label=body.label,
@@ -151,8 +186,9 @@ async def update_host(
 @router.delete("/{host_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_host(
     host_id: int,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> None:
+    await _ensure_host_access(payload, host_id, write=True)
     ok = await managed_hosts.delete(host_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host não encontrado")
@@ -175,9 +211,10 @@ class UpgradeRequest(BaseModel):
 
 @router.post("/batch/poll", status_code=status.HTTP_200_OK)
 async def batch_poll(
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
     """Força poll imediato em todos os hosts. Atualiza banco."""
+    await _ensure_global_viewer(payload)
     results = await managed_hosts.poll_all()
     return {"results": results, "count": len(results)}
 
@@ -185,9 +222,10 @@ async def batch_poll(
 @router.post("/batch/restart/{service}", status_code=status.HTTP_202_ACCEPTED)
 async def batch_restart(
     service: str,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
     """Restart em todos os hosts. Sequencial — fail isolado por host."""
+    await _ensure_global_viewer(payload)
     if service not in _ALLOWED_RESTART_SERVICES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -200,9 +238,10 @@ async def batch_restart(
 @router.post("/batch/upgrade", status_code=status.HTTP_202_ACCEPTED)
 async def batch_upgrade(
     body: UpgradeRequest,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
     """Upgrade em todos os hosts pra `version`. Sequencial."""
+    await _ensure_global_viewer(payload)
     results = await managed_hosts.batch("upgrade", version=body.version)
     return {"results": results, "count": len(results), "version": body.version}
 
@@ -215,9 +254,10 @@ async def batch_upgrade(
 @router.post("/{host_id}/poll")
 async def poll_now(
     host_id: int,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
     """Força poll imediato do host. Retorna resultado."""
+    await _ensure_host_access(payload, host_id, write=True)
     try:
         result = await managed_hosts.poll_host(host_id)
     except managed_hosts.HostNotFound:
@@ -228,9 +268,10 @@ async def poll_now(
 @router.get("/{host_id}/info")
 async def host_info(
     host_id: int,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
     """Proxy: GET /api/v1/host/info do agent (estático: hostname, OS, etc)."""
+    await _ensure_host_access(payload, host_id, write=False)
     try:
         return await managed_hosts.proxy_get(host_id, "/api/v1/host/info")
     except managed_hosts.HostNotFound:
@@ -240,10 +281,11 @@ async def host_info(
 @router.get("/{host_id}/history")
 async def host_history(
     host_id: int,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
     limit: int = 100,
 ) -> dict:
     """Últimos polls registrados pelo poller. Retenção: HISTORY_RETENTION (100)."""
+    await _ensure_host_access(payload, host_id, write=False)
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="limit deve ser 1..500")
     items = await managed_hosts.list_history(host_id, limit=limit)
@@ -254,9 +296,10 @@ async def host_history(
 async def restart_host_service(
     host_id: int,
     service: str,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
     """Reinicia api ou unbound no agent específico."""
+    await _ensure_host_access(payload, host_id, write=True)
     if service not in _ALLOWED_RESTART_SERVICES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -272,9 +315,10 @@ async def restart_host_service(
 async def upgrade_host(
     host_id: int,
     body: UpgradeRequest,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
     """Dispara self-update no agent pra versão informada."""
+    await _ensure_host_access(payload, host_id, write=True)
     try:
         return await managed_hosts.trigger_upgrade(host_id, body.version)
     except managed_hosts.HostNotFound:
@@ -291,17 +335,49 @@ class PushConfigRequest(BaseModel):
     include_policies: bool = True
 
 
+@router.post("/batch/push-config")
+async def batch_push_config(
+    body: PushConfigRequest,
+    auth: Annotated[dict, Depends(require_capability("config.write"))],
+) -> dict:
+    """Push config pra todos os hosts. Sequencial, falhas isoladas."""
+    await _ensure_global_viewer(auth)
+    from app.services import multi_host_sync
+
+    payload: dict = {}
+    if body.include_blocklists:
+        payload["blocklists"] = await multi_host_sync.build_blocklists_payload()
+    if body.include_policies:
+        payload["policies"] = await multi_host_sync.build_policies_payload()
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nada selecionado para sincronizar",
+        )
+
+    hosts = await managed_hosts.list_all()
+    results = []
+    for h in hosts:
+        try:
+            r = await managed_hosts.proxy_post(int(h["id"]), "/api/v1/host/apply-config", payload)
+            results.append({"host_id": h["id"], "label": h["label"], **r})
+        except Exception as exc:  # noqa: BLE001
+            results.append({"host_id": h["id"], "label": h["label"], "ok": False, "error": str(exc)})
+    return {"sent": payload_summary(payload), "results": results, "count": len(results)}
+
+
 @router.post("/{host_id}/push-config")
 async def push_config(
     host_id: int,
     body: PushConfigRequest,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    auth: Annotated[dict, Depends(require_capability("config.write"))],
 ) -> dict:
     """
     Empacota config local (blocklist flags + policies completas) e
     posta no `/api/v1/host/apply-config` do agent. Retorna o resultado
     bruto do agent.
     """
+    await _ensure_global_viewer(auth)
     from app.services import multi_host_sync
 
     payload: dict = {}
@@ -327,33 +403,3 @@ def payload_summary(payload: dict) -> dict:
         "blocklists_count": len(payload.get("blocklists", [])),
         "policies_count": len(payload.get("policies", [])),
     }
-
-
-@router.post("/batch/push-config")
-async def batch_push_config(
-    body: PushConfigRequest,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
-) -> dict:
-    """Push config pra todos os hosts. Sequencial, falhas isoladas."""
-    from app.services import multi_host_sync
-
-    payload: dict = {}
-    if body.include_blocklists:
-        payload["blocklists"] = await multi_host_sync.build_blocklists_payload()
-    if body.include_policies:
-        payload["policies"] = await multi_host_sync.build_policies_payload()
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nada selecionado para sincronizar",
-        )
-
-    hosts = await managed_hosts.list_all()
-    results = []
-    for h in hosts:
-        try:
-            r = await managed_hosts.proxy_post(int(h["id"]), "/api/v1/host/apply-config", payload)
-            results.append({"host_id": h["id"], "label": h["label"], **r})
-        except Exception as exc:  # noqa: BLE001
-            results.append({"host_id": h["id"], "label": h["label"], "ok": False, "error": str(exc)})
-    return {"sent": payload_summary(payload), "results": results, "count": len(results)}

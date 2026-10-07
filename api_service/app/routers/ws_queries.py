@@ -20,8 +20,7 @@ import queue
 import structlog
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
-from app.core.security import JWTError, decode_token
-from app.services import api_tokens as api_tokens_service
+from app.core.deps import validate_ws_token
 from app.services import query_broker
 
 log = structlog.get_logger(__name__)
@@ -30,33 +29,8 @@ router = APIRouter(prefix="/api/v1/ws", tags=["websocket"])
 
 
 async def _validate(token: str) -> dict | None:
-    """
-    Valida JWT ou API token. Retorna payload ou None.
-
-    WS não tem header Authorization fácil de mandar do browser, então
-    aceitamos `?token=<jwt-or-api-token>` no query string. Tentamos JWT
-    primeiro (login humano); se falhar, fallback pra api_tokens
-    (máquinas, X-Api-Token equivalente via query).
-    """
-    if not token:
-        return None
-
-    try:
-        payload = decode_token(token)
-        role = payload.get("role", "")
-        if role in ("admin", "readonly_admin", "operator", "viewer"):
-            return payload
-    except JWTError:
-        pass
-
-    try:
-        info = await api_tokens_service.verify(token)
-        if info:
-            return {"sub": "api_token", "role": "admin", "token_id": info.get("id")}
-    except Exception:  # noqa: BLE001
-        pass
-
-    return None
+    """JWT ou API token via `?token=` (ver deps.validate_ws_token)."""
+    return await validate_ws_token(token)
 
 
 @router.websocket("/queries")

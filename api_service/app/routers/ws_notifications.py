@@ -17,9 +17,8 @@ import queue
 import structlog
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
-from app.core.security import JWTError, decode_token
+from app.core.deps import validate_ws_token
 from app.services import alerts_broker
-from app.services import api_tokens as api_tokens_service
 
 log = structlog.get_logger(__name__)
 
@@ -27,21 +26,8 @@ router = APIRouter(prefix="/api/v1/ws", tags=["websocket"])
 
 
 async def _validate(token: str) -> dict | None:
-    if not token:
-        return None
-    try:
-        payload = decode_token(token)
-        if payload.get("role", "") in ("admin", "readonly_admin", "operator", "viewer"):
-            return payload
-    except JWTError:
-        pass
-    try:
-        info = await api_tokens_service.verify(token)
-        if info:
-            return {"sub": "api_token", "role": "admin", "token_id": info.get("id")}
-    except Exception:  # noqa: BLE001
-        pass
-    return None
+    """JWT ou API token via `?token=` (ver deps.validate_ws_token)."""
+    return await validate_ws_token(token)
 
 
 @router.websocket("/notifications")
