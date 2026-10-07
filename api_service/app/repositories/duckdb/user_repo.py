@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.repositories.duckdb.connection import db_execute, db_fetchall, db_fetchone
+from app.repositories.duckdb.connection import db_execute, db_execute_returning, db_fetchall, db_fetchone
 
 
 async def find_by_username(username: str) -> dict | None:
@@ -40,11 +40,26 @@ async def find_by_username_with_hash(user_id: int) -> dict | None:
     )
 
 
-async def update_failed_logins(user_id: int, count: int, locked_until: datetime | None) -> None:
-    await db_execute(
-        "UPDATE users SET failed_logins = ?, locked_until = ? WHERE id = ?",
-        [count, locked_until, user_id],
+async def register_failed_login(
+    user_id: int, max_failed: int, lock_until: datetime
+) -> int:
+    """Incrementa failed_logins de forma atômica (no writer) e aplica o lock
+    ao atingir `max_failed`. Retorna o novo contador.
+
+    Antes o serviço lia o contador e regravava o valor absoluto: N tentativas
+    paralelas liam 0 e gravavam 1, e o lockout nunca disparava."""
+    row = await db_execute_returning(
+        """
+        UPDATE users
+        SET failed_logins = COALESCE(failed_logins, 0) + 1,
+            locked_until = CASE WHEN COALESCE(failed_logins, 0) + 1 >= ? THEN ?
+                                ELSE locked_until END
+        WHERE id = ?
+        RETURNING failed_logins
+        """,
+        [int(max_failed), lock_until, int(user_id)],
     )
+    return int(row["failed_logins"]) if row else 0
 
 
 async def reset_failed_logins(user_id: int) -> None:

@@ -448,6 +448,10 @@ async def _check_beaconing() -> int:
     for (cip, reg), ts_list in grouped.items():
         if len(ts_list) < min_samples:
             continue
+        # A query ordena por domínio completo, mas o agrupamento é por domínio
+        # registrável: sem ordenar, subdomínios intercalados geravam intervalos
+        # errados (falso positivo de beaconing e beacons reais mascarados).
+        ts_list.sort()
         # Inter-arrival times
         deltas = [b - a for a, b in zip(ts_list[:-1], ts_list[1:]) if b - a >= 0]
         if len(deltas) < min_samples - 1:

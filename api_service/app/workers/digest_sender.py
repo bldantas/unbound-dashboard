@@ -247,8 +247,12 @@ class DigestSender:
             log.warning("digest_sender.smtp_unavailable", due_count=len(due))
             return {"sent": 0, "skipped": len(due)}
 
-        # Carrega as últimas 24h só 1x (filtra por user depois em memória)
-        since = datetime.now(UTC) - timedelta(hours=24)
+        # Carrega as últimas 24h só 1x (filtra por user depois em memória).
+        # alerts.started_at é gravado com NOW() do DuckDB numa coluna TIMESTAMP:
+        # hora LOCAL sem fuso. Comparar com datetime aware (now(UTC)) levantava
+        # TypeError em todo ciclo — o digest nunca era enviado.
+        since_local = datetime.now() - timedelta(hours=24)
+        since_utc = datetime.now(UTC) - timedelta(hours=24)
         rows = await alert_repo.list_filtered(
             limit=500, offset=0,
         )
@@ -256,7 +260,9 @@ class DigestSender:
         all_items = []
         for r in rows.get("items", []):
             started = r.get("started_at")
-            if isinstance(started, datetime) and started >= since:
+            if not isinstance(started, datetime):
+                continue
+            if started >= (since_utc if started.tzinfo else since_local):
                 all_items.append({
                     "id": r["id"],
                     "type": r.get("type"),
@@ -305,7 +311,9 @@ class DigestSender:
                 html_body = _format_html_body(
                     uname, chunk, part=idx, parts=parts, total_items=total,
                 )
-                ok, reason = email_notifier._send_via_smtp(  # noqa: SLF001
+                # smtplib é bloqueante: fora do event loop (senão trava API e workers)
+                ok, reason = await asyncio.to_thread(
+                    email_notifier._send_via_smtp,  # noqa: SLF001
                     cfg, email, subject, body, html_body=html_body,
                 )
                 if ok:

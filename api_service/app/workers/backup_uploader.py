@@ -19,6 +19,8 @@ from app.services import backup_offsite_service as svc
 
 log = structlog.get_logger(__name__)
 
+_RETRY_AFTER_FAILURE_HOURS = 1.0
+
 CHECK_INTERVAL = 3600  # 1h
 INITIAL_DELAY_SECONDS = 120
 
@@ -63,12 +65,16 @@ class BackupUploader:
 
         # Verifica schedule (compartilhado pelos dois modos)
         schedule_h = float(cfg.get("backup_s3_schedule_hours", "24") or "24")
-        last_str = await settings_repo.get("backup_s3_last_upload_at")
-        last = _parse_iso(last_str)
-        if last is not None:
-            elapsed_h = (datetime.now(timezone.utc) - last).total_seconds() / 3600
-            if elapsed_h < schedule_h:
-                return
+        now = datetime.now(timezone.utc)
+        last_ok = _parse_iso(await settings_repo.get("backup_s3_last_upload_at"))
+        if last_ok is not None and (now - last_ok).total_seconds() / 3600 < schedule_h:
+            return
+        # Após falha: nova tentativa em até 1h (não a cada tick, nem só no
+        # próximo ciclo de schedule_h).
+        last_try = _parse_iso(await settings_repo.get("backup_s3_last_attempt_at"))
+        retry_h = min(_RETRY_AFTER_FAILURE_HOURS, schedule_h)
+        if last_try is not None and (now - last_try).total_seconds() / 3600 < retry_h:
+            return
 
         # Modo multi-destination: se ≥1 enabled na tabela backup_destinations,
         # usa esse caminho ao invés do legacy single-bucket.

@@ -105,7 +105,12 @@ class LogWatcher:
 
     async def start(self) -> None:
         self._running = True
-        await asyncio.gather(self._tail_loop(), self._flush_loop())
+        # TaskGroup: se um dos loops falha, o outro é cancelado. Com gather o
+        # _flush_loop ficava órfão a cada restart do supervisor (um novo a cada
+        # 60s enquanto o tail falhasse, ex.: permissão do log após logrotate).
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self._tail_loop())
+            tg.create_task(self._flush_loop())
 
     async def stop(self) -> None:
         self._running = False
@@ -179,11 +184,14 @@ class LogWatcher:
                 fh.close()
 
     async def _flush_loop(self) -> None:
-        while self._running:
-            await asyncio.sleep(FLUSH_INTERVAL)
+        try:
+            while self._running:
+                await asyncio.sleep(FLUSH_INTERVAL)
+                await self._flush_once()
+        finally:
+            # Drena a fila ao encerrar, inclusive quando cancelado no shutdown
+            # (antes o cancel chegava no sleep e até 5s de queries se perdiam).
             await self._flush_once()
-        # Drena fila ao encerrar pra não perder buffer
-        await self._flush_once()
 
     async def _flush_once(self) -> None:
         batch: list[LogEntry] = []
