@@ -134,9 +134,17 @@ copy_system() {
              "$BUILD_DIR/system/bin" \
              "$BUILD_DIR/system/cron"
 
-    # Sudoers (do sistema vivo, fonte de verdade)
-    if [ -f /etc/sudoers.d/unbound-dashboard ]; then
+    # Sudoers: versionado no repo (system/sudoers/). O do sistema vivo só
+    # como fallback — senão a release carregaria as regras antigas da
+    # máquina que gerou o pacote.
+    if [ -f "$DASHBOARD_DIR/system/sudoers/unbound-dashboard" ]; then
+        cp "$DASHBOARD_DIR/system/sudoers/unbound-dashboard" "$BUILD_DIR/system/sudoers/"
+    elif [ -f /etc/sudoers.d/unbound-dashboard ]; then
         cp /etc/sudoers.d/unbound-dashboard "$BUILD_DIR/system/sudoers/"
+    fi
+    if command -v visudo >/dev/null 2>&1 && [ -f "$BUILD_DIR/system/sudoers/unbound-dashboard" ]; then
+        visudo -c -f "$BUILD_DIR/system/sudoers/unbound-dashboard" >/dev/null \
+            || { error "Sudoers inválido — visudo -c falhou"; exit 1; }
     fi
 
     # Systemd unit do api_service (template versionado em api_service/deployments/)

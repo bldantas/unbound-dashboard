@@ -24,6 +24,8 @@ from app.repositories.duckdb import settings_repo
 log = structlog.get_logger(__name__)
 
 TMP_DIR = Path("/var/www/html/unbound-dashboard/src/data/tmp")
+# Copia validada (allowlist de origem/destino) — ver tools/system/bin/.
+PRIV_HELPER = "/usr/local/bin/unbound-dashboard-priv.sh"
 TMP_FORWARDERS = TMP_DIR / "unbound_forwarders.tmp"
 TARGET_FORWARDERS = "/etc/unbound/includes/forwarders.conf"
 TLS_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
@@ -514,7 +516,9 @@ async def apply() -> dict[str, Any]:
     TMP_FORWARDERS.write_text(content, encoding="utf-8")
     TMP_FORWARDERS.chmod(0o644)
 
-    rc, out, err = await _run(["sudo", "/usr/bin/cp", str(TMP_FORWARDERS), TARGET_FORWARDERS])
+    rc, out, err = await _run(
+        ["sudo", PRIV_HELPER, "install-file", str(TMP_FORWARDERS), TARGET_FORWARDERS]
+    )
     if rc != 0:
         log.error("dns_security.apply.cp_failed", rc=rc, err=err)
         return {"ok": False, "stage": "cp", "error": err or out}
@@ -525,7 +529,7 @@ async def apply() -> dict[str, Any]:
         # Rollback: restaura conteúdo anterior e tenta restart
         TMP_FORWARDERS.write_text(previous, encoding="utf-8")
         rb_rc, _, rb_err = await _run(
-            ["sudo", "/usr/bin/cp", str(TMP_FORWARDERS), TARGET_FORWARDERS]
+            ["sudo", PRIV_HELPER, "install-file", str(TMP_FORWARDERS), TARGET_FORWARDERS]
         )
         rs_rc, _, rs_err = await _run(["sudo", "/usr/bin/systemctl", "restart", "unbound"])
         return {
