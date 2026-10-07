@@ -87,11 +87,9 @@ async def login(username: str, password: str) -> dict:
         raise AccountLocked
 
     if not verify_password(password, user["password_hash"]):
-        count = int(user["failed_logins"] or 0) + 1
-        new_lock = (
-            _now_utc_naive() + timedelta(minutes=_LOCKOUT_MINUTES) if count >= _MAX_FAILED else None
+        await user_repo.register_failed_login(
+            user["id"], _MAX_FAILED, _now_utc_naive() + timedelta(minutes=_LOCKOUT_MINUTES)
         )
-        await user_repo.update_failed_logins(user["id"], count, new_lock)
         raise InvalidCredentials
 
     await user_repo.reset_failed_logins(user["id"])

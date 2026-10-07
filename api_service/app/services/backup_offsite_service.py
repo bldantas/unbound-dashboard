@@ -65,6 +65,7 @@ DEFAULTS = {
 
 STATUS_KEYS = [
     "backup_s3_last_upload_at",
+    "backup_s3_last_attempt_at",
     "backup_s3_last_status",
     "backup_s3_last_error",
     "backup_s3_last_size_bytes",
@@ -113,10 +114,19 @@ async def save_config(values: dict[str, str]) -> int:
 
 
 async def save_status(*, status: str, error: str | None = None, size: int | None = None, key: str | None = None) -> None:
+    """`backup_s3_last_upload_at` = último upload com SUCESSO (ok/partial) —
+    base do agendamento e do que a UI mostra. Falha só grava a tentativa:
+    antes ela movia o last_upload_at e adiava o retry pelo intervalo inteiro
+    (24h por padrão)."""
+    now = datetime.now(timezone.utc).isoformat()
     entries: list[dict[str, str]] = [
         {"setting_key": "backup_s3_last_status", "setting_value": status},
-        {"setting_key": "backup_s3_last_upload_at", "setting_value": datetime.now(timezone.utc).isoformat()},
+        {"setting_key": "backup_s3_last_attempt_at", "setting_value": now},
     ]
+    if status in ("ok", "partial"):
+        entries.append({"setting_key": "backup_s3_last_upload_at", "setting_value": now})
+        if error is None and status == "ok":
+            entries.append({"setting_key": "backup_s3_last_error", "setting_value": ""})
     if error is not None:
         entries.append({"setting_key": "backup_s3_last_error", "setting_value": error})
     if size is not None:
@@ -183,21 +193,45 @@ def test_connection(cfg: dict[str, str]) -> dict:
         return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
 
+def _snapshot_duckdb(db_path: str, dest: str) -> None:
+    """Roda NO writer executor do DuckDB (thread única de escrita): enquanto
+    executa, nenhuma escrita do processo avança. CHECKPOINT grava o WAL no
+    arquivo; a cópia sai consistente. Se o CHECKPOINT falhar, a cópia ainda é
+    consistente até o último checkpoint (nenhum outro checkpoint roda no meio)."""
+    import duckdb
+
+    try:
+        with duckdb.connect(db_path) as conn:
+            conn.execute("CHECKPOINT")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("backup_offsite.checkpoint_failed", error=str(exc))
+    shutil.copy2(db_path, dest)
+
+
 def _create_archive() -> tuple[str, int]:
     """Gera tar.gz em /tmp e retorna (path, size_bytes)."""
+    from app.repositories.duckdb.connection import _writer_executor  # noqa: PLC2701
+
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     archive_path = f"/tmp/unbound-dashboard-backup-{ts}.tar.gz"
     db_path = app_settings.db_path
+    snapshot = f"/tmp/unbound-dashboard-backup-{ts}.duckdb"
 
-    with tarfile.open(archive_path, "w:gz") as tar:
-        # DuckDB (snapshot via cp pra evitar lock contention seria ideal,
-        # mas DuckDB tolera leitura concorrente — adicionamos direto).
+    try:
         if Path(db_path).exists():
-            tar.add(db_path, arcname=f"duckdb/{Path(db_path).name}")
-        for p in INCLUDED_PATHS:
-            if p.exists():
-                # arcname preserva estrutura relativa ao /
-                tar.add(p, arcname=str(p).lstrip("/"))
+            # Antes o tar lia o arquivo vivo (escritas a cada 5s, sem o .wal):
+            # backup podia sair corrompido ou sem os dados recentes.
+            # Chamado de uma thread do executor padrão → esperar o writer não trava.
+            _writer_executor.submit(_snapshot_duckdb, db_path, snapshot).result(timeout=600)
+        with tarfile.open(archive_path, "w:gz") as tar:
+            if Path(snapshot).exists():
+                tar.add(snapshot, arcname=f"duckdb/{Path(db_path).name}")
+            for p in INCLUDED_PATHS:
+                if p.exists():
+                    # arcname preserva estrutura relativa ao /
+                    tar.add(p, arcname=str(p).lstrip("/"))
+    finally:
+        Path(snapshot).unlink(missing_ok=True)
     size = Path(archive_path).stat().st_size
     return archive_path, size
 

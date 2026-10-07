@@ -11,6 +11,8 @@ teste no UI).
 
 from __future__ import annotations
 
+import asyncio
+
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -134,7 +136,8 @@ e clique em "Atualizar pra {tag}".
     sent = 0
     failed = 0
     for to_addr in targets:
-        ok, reason = _send_via_smtp(cfg, to_addr, subject, email_body)
+        # smtplib é bloqueante (timeouts de 10s por operação): fora do event loop
+        ok, reason = await asyncio.to_thread(_send_via_smtp, cfg, to_addr, subject, email_body)
         if ok:
             sent += 1
             log.info("email_notifier.sent", to=to_addr, tag=tag)
