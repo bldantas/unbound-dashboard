@@ -569,3 +569,48 @@ def test_user_from_payload_malformed():
 
     uid, hint = _user_from_payload({"sub": "nonsense"})
     assert uid is None and hint is None
+
+
+async def test_resume_running_job_restarts_monitor(monkeypatch, tmp_path):
+    """Job "running" herdado da instância anterior da API ganha um monitor novo."""
+    from app.services import updater
+
+    async def _fake_running():
+        return "abcdef012345"
+
+    async def _fake_state(job_id):
+        return {"status": "running", "log_path": str(tmp_path / "x.log"), "to_version": "9.9.9"}
+
+    seen = {}
+
+    async def _fake_monitor(job_id, pid, log_path, to_version):
+        seen.update(job_id=job_id, log_path=log_path, to_version=to_version)
+
+    monkeypatch.setattr(updater, "get_running_job_id", _fake_running)
+    monkeypatch.setattr(updater, "get_job_state", _fake_state)
+    monkeypatch.setattr(updater, "_monitor_job", _fake_monitor)
+
+    task = await updater.resume_running_job()
+    assert task is not None
+    await task
+    assert seen == {"job_id": "abcdef012345", "log_path": tmp_path / "x.log", "to_version": "9.9.9"}
+
+
+async def test_resume_running_job_noop_without_running_job(monkeypatch):
+    from app.services import updater
+
+    async def _none():
+        return None
+
+    monkeypatch.setattr(updater, "get_running_job_id", _none)
+    assert await updater.resume_running_job() is None
+
+    async def _running():
+        return "abcdef012345"
+
+    async def _finished(job_id):
+        return {"status": "succeeded"}
+
+    monkeypatch.setattr(updater, "get_running_job_id", _running)
+    monkeypatch.setattr(updater, "get_job_state", _finished)
+    assert await updater.resume_running_job() is None

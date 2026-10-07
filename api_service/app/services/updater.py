@@ -597,6 +597,26 @@ async def _monitor_job(job_id: str, pid: int, log_path: Path, to_version: str) -
     log.info("updater.job_finished", job_id=job_id, status=status, marker_found=marker_found)
 
 
+async def resume_running_job() -> asyncio.Task | None:
+    """Retoma o monitor de um job de update/restore iniciado pela instância
+    anterior da API.
+
+    O update.sh sempre reinicia a API no fim, e o `_monitor_job` da instância
+    antiga morre junto: o job ficava "running" e o lock só expirava após
+    LOCK_TTL_SECONDS (o SSE da UI não recebia o fim). Chamado no startup.
+    """
+    job_id = await get_running_job_id()
+    if not job_id:
+        return None
+    state = await get_job_state(job_id)
+    if not state or state.get("status") != "running":
+        return None
+    log_path = Path(state.get("log_path", ""))
+    to_version = str(state.get("to_version", ""))
+    log.info("updater.resuming_monitor", job_id=job_id, to_version=to_version)
+    return asyncio.create_task(_monitor_job(job_id, 0, log_path, to_version))
+
+
 def _log_has_terminal_marker(log_path: Path) -> bool:
     """True se o log já contém um marcador de término do update.sh."""
     try:

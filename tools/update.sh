@@ -90,9 +90,25 @@ install_dashboard_cron() {
 }
 
 cleanup_extracted() {
-    if [ -n "$EXTRACTED_DIR" ] && [[ "$EXTRACTED_DIR" == /tmp/unbound-dashboard-update-* ]]; then
+    if [ -n "$EXTRACTED_DIR" ] && { [[ "$EXTRACTED_DIR" == /tmp/unbound-dashboard-update-* ]] \
+         || [[ "$EXTRACTED_DIR" == /var/backups/unbound-dashboard/.update-pkg.* ]]; }; then
         rm -rf "$EXTRACTED_DIR"
     fi
+}
+
+# Chamado pelo unbound-dashboard-run-update.sh (UDASH_IN_SCOPE=1): trabalha
+# numa cópia própria do pacote. O wrapper roda como filho de um `sudo` que
+# fica no cgroup da API; quando paramos a API o sudo recebe SIGTERM e o
+# repassa ao wrapper, cujo trap de saída apaga o diretório extraído — na
+# v2.114.0 o update seguia sem os arquivos. Este processo não recebe o sinal.
+privatize_package() {
+    [ "${UDASH_IN_SCOPE:-}" = "1" ] || return 0
+    [ "$DRY_RUN" = "true" ] && return 0
+    local private
+    private=$(mktemp -d /var/backups/unbound-dashboard/.update-pkg.XXXXXX)
+    cp -a "$EXTRACTED_DIR/." "$private/"
+    EXTRACTED_DIR="$private"
+    debug "Pacote copiado para $private"
 }
 
 # Estado para o handler de saída: create_backup para a API (snapshot
@@ -207,6 +223,14 @@ validate_package_files() {
         fi
     done < <(find "$EXTRACTED_DIR" -name "*.sh" -type f)
 
+    local part
+    for part in dashboard api_service system; do
+        if [ ! -d "$EXTRACTED_DIR/$part" ]; then
+            error "Pacote incompleto: $part/ ausente"
+            fail=1
+        fi
+    done
+
     [ "$fail" -eq 0 ] || { error "Validação falhou — abortando antes de aplicar update"; exit 1; }
     log "Sintaxe validada"
 }
@@ -313,7 +337,7 @@ create_backup() {
 # ============================================================
 apply_dashboard() {
     local src="$EXTRACTED_DIR/dashboard"
-    [ -d "$src" ] || { warn "dashboard/ ausente no pacote — pulando frontend"; return 0; }
+    [ -d "$src" ] || { error "dashboard/ ausente em $EXTRACTED_DIR — abortando"; exit 1; }
 
     info "Atualizando frontend PHP..."
     if [ "$DRY_RUN" = "true" ]; then
@@ -344,7 +368,7 @@ apply_dashboard() {
 # ============================================================
 apply_apiservice() {
     local src="$EXTRACTED_DIR/api_service"
-    [ -d "$src" ] || { warn "api_service/ ausente no pacote — pulando backend"; return 0; }
+    [ -d "$src" ] || { error "api_service/ ausente em $EXTRACTED_DIR — abortando"; exit 1; }
 
     info "Atualizando api_service..."
     if [ "$DRY_RUN" = "true" ]; then
@@ -413,7 +437,7 @@ apply_apiservice() {
 # ============================================================
 apply_system() {
     local sys="$EXTRACTED_DIR/system"
-    [ -d "$sys" ] || { warn "system/ ausente no pacote — pulando configs"; return 0; }
+    [ -d "$sys" ] || { error "system/ ausente em $EXTRACTED_DIR — abortando"; exit 1; }
 
     # Logs de update/restore (scripts root escrevem, API lê via SSE)
     if [ "$DRY_RUN" != "true" ]; then
@@ -848,6 +872,7 @@ main() {
 
     validate_environment
     extract_update
+    privatize_package
     validate_package_files
     create_backup
     APPLY_STARTED="true"
