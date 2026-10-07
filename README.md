@@ -270,7 +270,7 @@ O self-update só aplica pacotes assinados. O script root `/usr/local/bin/unboun
 - A chave privada fica na máquina de release, por padrão em `~/.config/unbound-dashboard/release-signing.key` (ou em `RELEASE_SIGNING_KEY`). **Guarde um backup fora dessa máquina**: sem ela não é possível publicar updates que os servidores aceitem.
 - O `release.sh` confere que a chave corresponde à pública embutida antes de publicar.
 - Trocar a chave: gere um par novo (`openssl genpkey -algorithm ed25519 -out release-signing.key`), atualize a pública no script, publique uma release assinada com a chave **antiga**; as seguintes usam a nova.
-- Aplicar um pacote manualmente (SSH): `tar xzf <pacote>.tar.gz -C /tmp/u && sudo bash /tmp/u/update.sh /tmp/u`.
+- Aplicar um pacote manualmente (SSH): `mkdir -p /tmp/u && tar xzf <pacote>.tar.gz -C /tmp/u && sudo bash /tmp/u/update.sh /tmp/u`.
 
 ## Estrutura do Projeto
 

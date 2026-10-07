@@ -8,6 +8,11 @@
 #
 # Sem esta rotação o arquivo cresce sem limite (~300MB/dia num resolver médio)
 # até encher o disco, e com disco cheio o DuckDB pode ficar sem abrir.
+#
+# copytruncate COPIA o arquivo antes de truncar. Se o log já cresceu além do
+# espaço livre (instalações antigas sem rotação), a cópia encheria o disco: o
+# prerotate pula a rotação nesse caso e registra no syslog. Nada é apagado —
+# libere espaço ou trunque o log manualmente.
 /var/log/unbound/unbound.log {
     daily
     maxsize 1G
@@ -18,4 +23,14 @@
     notifempty
     copytruncate
     su unbound unbound
+    prerotate
+        f=/var/log/unbound/unbound.log
+        [ -f "$f" ] || exit 0
+        size=$(stat -c %s "$f")
+        avail=$(df -B1 --output=avail "$(dirname "$f")" | tail -1 | tr -d ' ')
+        if [ "$size" -ge "$avail" ]; then
+            logger -t unbound-dashboard "logrotate: $f ($size bytes) maior que o espaço livre ($avail) - rotação pulada para não encher o disco"
+            exit 1
+        fi
+    endscript
 }
