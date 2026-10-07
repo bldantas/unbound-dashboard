@@ -14,7 +14,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.config import settings
-from app.core.deps import require_admin
+from app.core.deps import require_global_admin
 from app.repositories.duckdb import settings_repo
 from app.services import admin_audit_service
 
@@ -32,7 +32,7 @@ def _coerce_int(v) -> int | None:
 
 
 @router.get("/config")
-async def get_config(_: Annotated[dict, Depends(require_admin)]) -> dict:
+async def get_config(_: Annotated[dict, Depends(require_global_admin)]) -> dict:
     """Retorna config atual (env + settings DB) — UI mostra qual está vigente."""
     out = {
         "active": {
@@ -53,7 +53,7 @@ async def get_config(_: Annotated[dict, Depends(require_admin)]) -> dict:
 @router.put("/config")
 async def update_config(
     body: dict,
-    user: Annotated[dict, Depends(require_admin)],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     """Persiste novos limites em settings. Aplica após restart do API."""

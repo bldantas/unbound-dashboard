@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.core.deps import require_capability
+from app.core.deps import require_capability, require_global_capability
 from app.services import updater
 
 router = APIRouter(prefix="/api/v1/updates", tags=["updates"])
@@ -56,7 +56,7 @@ def _user_from_payload(payload: dict) -> tuple[int | None, str | None]:
 
 
 @router.get("/check")
-async def check(_: Annotated[dict, Depends(require_capability("config.write"))]) -> dict:
+async def check(_: Annotated[dict, Depends(require_global_capability("config.write"))]) -> dict:
     """
     Consulta GitHub Releases pela última versão publicada. Resposta
     sempre 200 — se GitHub off, retorna {error: ...} e has_update=false.
@@ -74,7 +74,7 @@ class ApplyRequest(BaseModel):
 async def apply(
     body: ApplyRequest,
     request: Request,
-    payload: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> dict:
     """
     Dispara o update. Não bloqueia — retorna job_id imediato pra cliente
@@ -136,7 +136,7 @@ async def apply(
 @router.get("/status/{job_id}")
 async def status_endpoint(
     job_id: str,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> dict:
     """
     Estado atual do job.
@@ -252,7 +252,7 @@ async def _tail_log_generator(request: Request, job_id: str):
 
 @router.get("/backups")
 async def list_backups(
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> dict:
     """Lista os últimos backups disponíveis pra restore manual."""
     items = updater.list_backups()
@@ -267,7 +267,7 @@ class RestoreRequest(BaseModel):
 async def restore_backup(
     body: RestoreRequest,
     request: Request,
-    payload: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> dict:
     """
     Dispara restore de um backup específico (criado por update.sh anterior).
@@ -293,7 +293,7 @@ async def restore_backup(
 async def log_stream(
     job_id: str,
     request: Request,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> StreamingResponse:
     """
     SSE stream do log do update em tempo real.

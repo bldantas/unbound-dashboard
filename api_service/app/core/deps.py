@@ -270,6 +270,37 @@ async def require_global_admin(
     return payload
 
 
+def require_global_capability(capability: str):
+    """Como `require_capability`, mas para configuração que vale para o
+    sistema todo (Unbound, updates, DNS security, geo-blocking...): usuário
+    vinculado a uma org é negado mesmo tendo a capability. API token passa se
+    não tiver escopo ou se o escopo incluir a capability."""
+    from app.core.rbac import can
+
+    async def _dep(payload: Annotated[dict, Depends(require_auth)]) -> dict:
+        if payload.get("auth_kind") == "api_token":
+            caps = payload.get("api_token_capabilities") or []
+            if caps and capability not in caps:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"API token sem a capability '{capability}'",
+                )
+            return payload
+        if not can(payload.get("role"), capability):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Acesso negado: requer '{capability}'",
+            )
+        if await resolve_viewer_org_id(payload) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Configuração global: exclusiva do admin global (sem org).",
+            )
+        return payload
+
+    return _dep
+
+
 def require_capability(capability: str):
     """
     Factory de dependency que valida uma capability RBAC.

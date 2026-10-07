@@ -208,3 +208,32 @@ async def test_ws_token_rules(monkeypatch) -> None:
 
     monkeypatch.setattr(api_tokens, "verify", _scoped)
     assert await deps.validate_ws_token("udt_qualquer") is None
+
+
+# ---------------------------------------------------------------------------
+# Configuração global (webhooks, rate limits, approvals, geo-blocking)
+# ---------------------------------------------------------------------------
+
+
+def test_global_config_routes_deny_org_admin(api) -> None:
+    client, _, as_, _ = api
+    hdr = as_("admin_a")
+    assert client.get("/api/v1/webhooks/config", headers=hdr).status_code == 403
+    assert client.get("/api/v1/rate-limits/config", headers=hdr).status_code == 403
+    assert client.get("/api/v1/approvals/config", headers=hdr).status_code == 403
+    assert client.delete("/api/v1/geo-blocking/countries/BR", headers=hdr).status_code == 403
+    assert client.get("/api/v1/webhooks/config", headers=as_("global")).status_code == 200
+
+
+async def test_global_capability_respects_api_token_scope() -> None:
+    from fastapi import HTTPException
+
+    from app.core.deps import require_global_capability
+
+    dep = require_global_capability("config.write")
+    token = {"sub": "api-token", "role": "admin", "auth_kind": "api_token"}
+    assert await dep({**token, "api_token_capabilities": []}) is not None
+    assert await dep({**token, "api_token_capabilities": ["config.write"]}) is not None
+    with pytest.raises(HTTPException) as exc:
+        await dep({**token, "api_token_capabilities": ["dashboard.read"]})
+    assert exc.value.status_code == 403

@@ -14,7 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
-from app.core.deps import require_auth, require_capability, resolve_viewer_org_id
+from app.core.deps import require_auth, require_capability, require_global_capability, resolve_viewer_org_id
 from app.repositories.duckdb import alert_repo, settings_repo
 from app.services import notification_prefs_service
 
@@ -116,7 +116,7 @@ async def get_retention(
 @router.put("/retention/settings")
 async def update_retention(
     body: dict,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> dict:
     days = int(body.get("days", 30))
     if days < 1 or days > 365:
@@ -129,7 +129,7 @@ async def update_retention(
 
 @router.post("/prune-now")
 async def prune_now(
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> dict:
     """Roda manualmente o prune (admin-only, usa setting atual)."""
     days = await settings_repo.get_int("notifications_retention_days", 30)
