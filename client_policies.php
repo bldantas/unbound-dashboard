@@ -136,7 +136,7 @@ $currentPage = 'client_policies.php';
             policies = details;
             render();
         } catch (err) {
-            listEl.innerHTML = `<div class="glass-panel text-center text-red-500 py-8 text-xs uppercase font-black tracking-widest">Erro: ${err.message}</div>`;
+            listEl.innerHTML = `<div class="glass-panel text-center text-red-500 py-8 text-xs uppercase font-black tracking-widest">Erro: ${escHtml(err.message)}</div>`;
         }
     }
 

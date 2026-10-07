@@ -358,7 +358,7 @@ $currentPage = 'anomalies.php';
             const data = await res.json();
             renderRecent(data.items || []);
         } catch (err) {
-            tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro: ${err.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro: ${escHtml(err.message)}</td></tr>`;
         }
     }
 
@@ -525,7 +525,7 @@ $currentPage = 'anomalies.php';
                 });
             });
         } catch (err) {
-            tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-red-500 text-xs">Falha: ${err.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-red-500 text-xs">Falha: ${escHtml(err.message)}</td></tr>`;
         }
     }
 

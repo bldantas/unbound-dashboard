@@ -9,9 +9,15 @@ if (!\App\Auth::isAdmin()) { header('Location: index.php'); exit; }
 $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    \App\Auth::requireCsrf();
     $action = $_POST['action'] ?? '';
-    $target = $_POST['target'] ?? '';
+    $target = trim((string) ($_POST['target'] ?? ''));
     $tool   = $_POST['tool'] ?? '';
+    // Alvo = hostname ou IP. Sem isso um valor começando com "-" virava opção
+    // do ping/traceroute/whois/dig (escapeshellarg não impede argumento).
+    if ($target !== '' && !preg_match('/^[A-Za-z0-9][A-Za-z0-9.:_-]{0,252}$/', $target)) {
+        $target = '';
+    }
     
     $output = '';
 

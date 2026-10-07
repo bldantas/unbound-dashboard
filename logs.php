@@ -305,10 +305,10 @@ flush();
                             const div = document.createElement('div');
                             div.className = "animate-fade-in";
                             if (q.type === 'query') {
-                                div.innerHTML = `<span class="text-green-700">[QUERY]</span> <span class="text-blue-400">${q.client}</span> <span class="text-slate-400">pediu</span> <span class="text-white font-bold">${q.domain}</span> <span class="text-purple-400">(${q.qtype})</span>`;
+                                div.innerHTML = `<span class="text-green-700">[QUERY]</span> <span class="text-blue-400">${escHtml(q.client)}</span> <span class="text-slate-400">pediu</span> <span class="text-white font-bold">${escHtml(q.domain)}</span> <span class="text-purple-400">(${escHtml(q.qtype)})</span>`;
                             } else if (q.type === 'reply') {
                                 const rcodeColor = q.rcode === 'NOERROR' ? 'text-green-400' : 'text-red-500';
-                                div.innerHTML = `<span class="text-slate-600">[REPLY]</span> <span class="text-blue-400">${q.client}</span> <span class="text-slate-500">←</span> <span class="text-white font-bold">${q.domain}</span> <span class="${rcodeColor} font-black">${q.rcode}</span> <span class="text-yellow-500">(${q.time}s)</span>`;
+                                div.innerHTML = `<span class="text-slate-600">[REPLY]</span> <span class="text-blue-400">${escHtml(q.client)}</span> <span class="text-slate-500">←</span> <span class="text-white font-bold">${escHtml(q.domain)}</span> <span class="${rcodeColor} font-black">${escHtml(q.rcode)}</span> <span class="text-yellow-500">(${escHtml(q.time)}s)</span>`;
                             }
                             liveStream.appendChild(div);
                             if (liveStream.childElementCount > 150) liveStream.removeChild(liveStream.firstChild);

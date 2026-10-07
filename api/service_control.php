@@ -12,7 +12,8 @@ use App\ApiClient;
 use App\BlocklistManager;
 
 Auth::check();
-if (!\App\Auth::isAdmin()) { http_response_code(403); echo json_encode(['success' => false, 'message' => 'Acesso Negado']); exit; }
+if (!\App\Auth::isGlobalAdmin()) { http_response_code(403); echo json_encode(['success' => false, 'message' => 'Acesso Negado']); exit; }
+\App\Auth::requireCsrf();
 
 header('Content-Type: application/json');
 

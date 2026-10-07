@@ -28,12 +28,26 @@ $tempPassword = null;
 $tempPasswordUser = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+    if (!isset($_POST['csrf_token']) || !hash_equals((string) ($_SESSION['csrf_token'] ?? ''), (string) $_POST['csrf_token'])) {
         $message = "Erro Crítico: Token de segurança (CSRF) inválido ou expirado.";
         $messageType = "error";
         $action = '';
     } else {
         $action = $_POST['action'] ?? '';
+    }
+
+    // Ações de usuário/perfil: a API já aplica a regra de org (admin de org só
+    // mexe nos users da própria org). O resto altera o servidor inteiro
+    // (Unbound, rede, NTP, TLS, SMTP, webhooks) e é exclusivo do admin global.
+    $orgScopedActions = [
+        'add_user', 'toggle_user', 'delete_user', 'update_role', 'update_org', 'update_email',
+        'reset_password', 'admin_reset_totp',
+        'update_profile_pass', 'setup_totp', 'confirm_totp', 'disable_totp', 'revoke_session',
+    ];
+    if ($action !== '' && !in_array($action, $orgScopedActions, true) && !\App\Auth::isGlobalAdmin()) {
+        $message = "Acesso negado: esta configuração é exclusiva do administrador global.";
+        $messageType = "error";
+        $action = '';
     }
 
     if ($action === 'save_unbound_settings') {
@@ -3101,7 +3115,7 @@ function field($key, $label, $desc = '', $def = '')
                     updateLastCheckLabel();
                 } catch (err) {
                     setBanner(
-                        `<p class="text-sm text-red-700 dark:text-red-300"><strong>Erro:</strong> ${err.message}</p>`,
+                        `<p class="text-sm text-red-700 dark:text-red-300"><strong>Erro:</strong> ${escHtml(err.message)}</p>`,
                         'bg-red-500/10 border-red-500/30'
                     );
                     if (el.lastCheck) el.lastCheck.textContent = 'Falha na verificação';
@@ -3135,7 +3149,7 @@ function field($key, $label, $desc = '', $def = '')
                     const data = await resp.json();
                     renderBackups(data.backups || []);
                 } catch (err) {
-                    el.backupsList.innerHTML = `<p class="text-xs text-red-500">Erro ao listar backups: ${err.message}</p>`;
+                    el.backupsList.innerHTML = `<p class="text-xs text-red-500">Erro ao listar backups: ${escHtml(err.message)}</p>`;
                 }
             }
 
@@ -3238,7 +3252,7 @@ function field($key, $label, $desc = '', $def = '')
                     el.latest.className = 'text-lg font-black mt-1 font-mono text-slate-500';
                     el.published.textContent = '';
                     setBanner(
-                        `<p class="text-xs text-amber-700 dark:text-amber-300"><strong>GitHub indisponível:</strong> ${d.error}</p>`,
+                        `<p class="text-xs text-amber-700 dark:text-amber-300"><strong>GitHub indisponível:</strong> ${escHtml(d.error)}</p>`,
                         'bg-amber-500/10 border-amber-500/30'
                     );
                     el.action.classList.add('hidden');
@@ -3347,7 +3361,7 @@ function field($key, $label, $desc = '', $def = '')
                     streamLog(data.job_id);
                 } catch (err) {
                     setBanner(
-                        `<p class="text-sm text-red-700 dark:text-red-300"><strong>Erro ao iniciar update:</strong> ${err.message}</p>`,
+                        `<p class="text-sm text-red-700 dark:text-red-300"><strong>Erro ao iniciar update:</strong> ${escHtml(err.message)}</p>`,
                         'bg-red-500/10 border-red-500/30'
                     );
                     el.applyBtn.disabled = false;
@@ -3570,7 +3584,7 @@ function field($key, $label, $desc = '', $def = '')
                     const data = await resp.json();
                     render(data.audit || []);
                 } catch (err) {
-                    tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-red-500 text-xs">Erro: ${err.message}</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-red-500 text-xs">Erro: ${escHtml(err.message)}</td></tr>`;
                 } finally {
                     refreshBtn.disabled = false;
                 }
@@ -3594,8 +3608,8 @@ function field($key, $label, $desc = '', $def = '')
                         <tr class="border-b border-slate-200/50 dark:border-white/5 hover:bg-slate-50/40 dark:hover:bg-white/5">
                             <td class="py-2.5 px-2 text-slate-700 dark:text-slate-300 whitespace-nowrap">${fmtDate(e.started_at)}</td>
                             <td class="py-2.5 px-2">${kindBadge}</td>
-                            <td class="py-2.5 px-2 font-mono">${e.username || '?'}</td>
-                            <td class="py-2.5 px-2 text-slate-500 font-mono text-[10px]">${e.ip || '?'}</td>
+                            <td class="py-2.5 px-2 font-mono">${escHtml(e.username || '?')}</td>
+                            <td class="py-2.5 px-2 text-slate-500 font-mono text-[10px]">${escHtml(e.ip || '?')}</td>
                             <td class="py-2.5 px-2 font-mono text-[11px]">${versionCell}</td>
                             <td class="py-2.5 px-2"><span class="inline-block px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-widest ${badge.color}">${badge.label}</span></td>
                             <td class="py-2.5 px-2 text-right text-slate-500 font-mono text-[10px]">${fmtDuration(e.duration_seconds)}</td>
@@ -3657,7 +3671,7 @@ function field($key, $label, $desc = '', $def = '')
                     const data = await resp.json();
                     render(data.tokens || []);
                 } catch (err) {
-                    list.innerHTML = `<p class="text-xs text-red-500">Erro: ${err.message}</p>`;
+                    list.innerHTML = `<p class="text-xs text-red-500">Erro: ${escHtml(err.message)}</p>`;
                 }
             }
 
@@ -3676,7 +3690,7 @@ function field($key, $label, $desc = '', $def = '')
                     <div class="flex items-center justify-between gap-3 p-3 bg-slate-900/5 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/5">
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2">
-                                <p class="font-mono text-xs font-bold text-slate-900 dark:text-white">${t.label}</p>
+                                <p class="font-mono text-xs font-bold text-slate-900 dark:text-white">${escHtml(t.label)}</p>
                                 <span class="text-[9px] font-black uppercase tracking-widest text-slate-500">#${t.id}</span>
                                 ${scopeBadge}
                             </div>
@@ -3687,7 +3701,7 @@ function field($key, $label, $desc = '', $def = '')
                             </p>
                             ${scoped ? `<p class="text-[10px] font-mono text-slate-500 mt-1 break-words">${caps}</p>` : ''}
                         </div>
-                        <button type="button" data-id="${t.id}" data-label="${t.label}" class="revoke-btn glass-btn !py-1 !px-3 text-[10px] uppercase font-black bg-red-500/15 text-red-600 dark:text-red-400">Revogar</button>
+                        <button type="button" data-id="${t.id}" data-label="${escHtml(t.label)}" class="revoke-btn glass-btn !py-1 !px-3 text-[10px] uppercase font-black bg-red-500/15 text-red-600 dark:text-red-400">Revogar</button>
                     </div>`;
                 }).join('');
                 list.querySelectorAll('.revoke-btn').forEach(btn => {
@@ -3797,7 +3811,7 @@ function field($key, $label, $desc = '', $def = '')
                             `).join('');
                             capsLoaded = true;
                         } catch (err) {
-                            capsListEl.innerHTML = `<p class="text-xs text-red-500">Erro carregando catálogo: ${err.message}</p>`;
+                            capsListEl.innerHTML = `<p class="text-xs text-red-500">Erro carregando catálogo: ${escHtml(err.message)}</p>`;
                         }
                     }
                 });

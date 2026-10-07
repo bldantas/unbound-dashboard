@@ -16,7 +16,7 @@ use App\ShellHelper;
 header('Content-Type: application/json; charset=utf-8');
 
 Auth::check();
-if (!Auth::isAdmin()) {
+if (!Auth::isGlobalAdmin()) {
     http_response_code(403);
     echo json_encode(['success' => false, 'message' => 'Acesso negado']);
     exit;

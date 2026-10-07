@@ -10,7 +10,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
-from app.core.deps import require_capability, resolve_viewer_org_id
+from app.core.deps import require_capability, require_global_capability, resolve_viewer_org_id
 from app.repositories.duckdb import client_policies_repo as repo
 
 router = APIRouter(prefix="/api/v1/policies", tags=["policies"])
@@ -72,9 +72,11 @@ async def list_policies(
 
 @router.get("/full-enabled")
 async def list_full_enabled(
-    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
+    _: Annotated[dict, Depends(require_global_capability("blocklist.read"))],
 ) -> dict:
-    """Lista enabled+ranges+blocks+allows. Consumida pelo PHP pra gerar views.conf."""
+    """Lista enabled+ranges+blocks+allows de TODAS as orgs. Consumida pelo PHP
+    pra gerar views.conf (arquivo global do Unbound) — por isso só escopo
+    global: usuário de org não lê ranges/regras de outras orgs."""
     policies = await repo.list_all_full_enabled()
     return {"policies": policies}
 

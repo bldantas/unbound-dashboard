@@ -234,7 +234,7 @@ $currentPage = 'analytics.php';
             const d = await fetchJson(`/api/v1/analytics/top-domains?${qs}`);
             renderTopDomains(d.items);
         } catch (err) {
-            tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-red-500 text-xs uppercase font-black tracking-widest">${err.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-red-500 text-xs uppercase font-black tracking-widest">${escHtml(err.message)}</td></tr>`;
         }
     }
 
@@ -245,7 +245,7 @@ $currentPage = 'analytics.php';
             const d = await fetchJson(`/api/v1/analytics/top-clients?window=${currentWindow}&limit=20`);
             renderTopClients(d.items);
         } catch (err) {
-            tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-red-500 text-xs uppercase font-black tracking-widest">${err.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-red-500 text-xs uppercase font-black tracking-widest">${escHtml(err.message)}</td></tr>`;
         }
     }
 
