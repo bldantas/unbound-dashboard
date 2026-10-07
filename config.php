@@ -1678,7 +1678,7 @@ function field($key, $label, $desc = '', $def = '')
 
                         <!-- Form config -->
                         <form method="POST" action="config.php?tab=webhooks" class="glass-panel space-y-5">
-                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars((string) ($_SESSION['csrf_token'] ?? ''), ENT_QUOTES) ?>">
                             <input type="hidden" name="action" value="save_webhook_config">
                             <input type="hidden" name="tab" value="webhooks">
 
@@ -1773,7 +1773,7 @@ function field($key, $label, $desc = '', $def = '')
 
                         <!-- Teste -->
                         <form method="POST" action="config.php?tab=webhooks" class="glass-panel space-y-4">
-                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars((string) ($_SESSION['csrf_token'] ?? ''), ENT_QUOTES) ?>">
                             <input type="hidden" name="action" value="test_webhook">
                             <input type="hidden" name="tab" value="webhooks">
 

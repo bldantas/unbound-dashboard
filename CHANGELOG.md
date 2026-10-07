@@ -7,6 +7,11 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-10-07
 
+### Correções da v2.115.0
+- **v2.115.1**:
+  - **Webhooks (Configurações)**: os formulários de configurar e testar webhook saíam com o token CSRF vazio e eram sempre recusados. Corrigido; o wrapper de CSRF também preenche tokens vazios em qualquer formulário.
+  - **Update pela UI**: a correção do dono de arquivos de `/etc` deixados com dono `www-data` (ex.: `/etc/network/interfaces`, `/etc/resolv.conf`) não rodava no update pela UI, porque ele roda no sandbox da API, onde `/etc` é somente leitura. Agora é feita por uma unidade transitória do systemd. O mesmo vale para a atualização do deploy hook do certbot.
+
 ### Isolamento entre organizações, CSRF/XSS, workers e sudoers
 - **v2.115.0**: release de segurança e confiabilidade (PRs #9–#13). **Recomendado atualizar.**
   - **⚠️ Compatibilidade — admins de organização**: ações globais (configuração do Unbound e do sistema, rede, NTP, backups, blocklists globais, hosts gerenciados, apply-config do multi-host, export em massa) passam a exigir **admin global**. Admins de org continuam gerenciando a própria org, mas deixam de ver ou alterar recursos de outras orgs e configurações do servidor.

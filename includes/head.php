@@ -34,8 +34,10 @@ if (!empty($_SESSION['logged_in']) && !empty($_SESSION['csrf_token'])) {
         . "XMLHttpRequest.prototype.open=function(m,u){this.__m=String(m).toUpperCase();this.__u=u;return oo.apply(this,arguments);};"
         . "XMLHttpRequest.prototype.send=function(){if(this.__m!=='GET'&&this.__m!=='HEAD'&&same(this.__u)){try{this.setRequestHeader('X-CSRF-Token',tok);}catch(e){}}return os.apply(this,arguments);};"
         . "document.addEventListener('submit',function(ev){var f=ev.target;"
-        . "if(f&&f.method&&f.method.toLowerCase()==='post'&&!f.querySelector('input[name=\"csrf_token\"]')){"
-        . "var i=document.createElement('input');i.type='hidden';i.name='csrf_token';i.value=tok;f.appendChild(i);}},true);"
+        . "if(!f||!f.method||f.method.toLowerCase()!=='post')return;"
+        . "var i=f.querySelector('input[name=\"csrf_token\"]');"
+        . "if(!i){i=document.createElement('input');i.type='hidden';i.name='csrf_token';f.appendChild(i);}"
+        . "if(!i.value)i.value=tok;},true);"
         . "})();</script>\n";
 }
 
