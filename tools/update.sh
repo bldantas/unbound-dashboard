@@ -651,8 +651,16 @@ APACHE_PHP_FPM
             /etc/netplan/99-unbound-dashboard.yaml; do
             [ -f "$f" ] && [ ! -L "$f" ] || continue
             if [ "$(stat -c %U "$f")" = "www-data" ]; then
-                chown root:root "$f" && chmod go-w "$f" \
-                    && warn "Dono de $f corrigido (era www-data)"
+                # Pela UI o update roda no namespace da API (ProtectSystem=
+                # strict, /etc read-only): nesse caso pede ao PID 1 uma
+                # unidade transitória, que roda fora do sandbox.
+                if { chown root:root "$f" && chmod go-w "$f"; } 2>/dev/null \
+                    || systemd-run --wait --collect --quiet -- \
+                        /bin/sh -c 'chown root:root "$1" && chmod go-w "$1"' sh "$f"; then
+                    warn "Dono de $f corrigido (era www-data)"
+                else
+                    warn "Não consegui corrigir o dono de $f (é www-data): rode 'chown root:root $f'"
+                fi
             fi
         done
 
@@ -661,8 +669,14 @@ APACHE_PHP_FPM
         # root-owned de /usr/local/bin.
         local le_hook=/etc/letsencrypt/renewal-hooks/deploy/unbound-dashboard.sh
         if [ -f "$le_hook" ] && [ -f /usr/local/bin/unbound-dashboard-le-deploy-hook.sh ]; then
-            install -o root -g root -m 0755 /usr/local/bin/unbound-dashboard-le-deploy-hook.sh "$le_hook" \
-                && debug "Deploy hook do certbot atualizado"
+            # /etc/letsencrypt também é read-only no sandbox — mesmo desvio.
+            if install -o root -g root -m 0755 /usr/local/bin/unbound-dashboard-le-deploy-hook.sh "$le_hook" 2>/dev/null \
+                || systemd-run --wait --collect --quiet -- /usr/bin/install -o root -g root -m 0755 \
+                    /usr/local/bin/unbound-dashboard-le-deploy-hook.sh "$le_hook"; then
+                debug "Deploy hook do certbot atualizado"
+            else
+                warn "Não consegui atualizar $le_hook"
+            fi
         fi
     fi
 
