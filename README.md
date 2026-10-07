@@ -259,9 +259,18 @@ bash tools/gen_sdk_js.sh
 
 1. Atualize [VERSION](VERSION) e adicione a entrada no [CHANGELOG.md](CHANGELOG.md) — agrupada sob o dia (`## AAAA-MM-DD` → `### Título` → `- **vX.Y.Z**: ...`).
 2. Commit + push para `main`.
-3. `bash tools/release.sh` — builda o pacote de update, extrai as notas do CHANGELOG e cria a release no GitHub (`gh` autenticado). Use `DRAFT=true` para rascunho.
+3. `bash tools/release.sh` — builda o pacote de update, **assina** o tarball, extrai as notas do CHANGELOG e cria a release no GitHub (`gh` autenticado) com `.tar.gz`, `.sha256` e `.sig`. Use `DRAFT=true` para rascunho.
 
 Servidores instalados detectam a release nova pelo worker `UpdateChecker` e podem aplicar pela UI.
+
+### Assinatura dos pacotes
+
+O self-update só aplica pacotes assinados. O script root `/usr/local/bin/unbound-dashboard-run-update.sh` verifica a assinatura Ed25519 do tarball com a chave pública embutida nele ([tools/system/bin/unbound-dashboard-run-update.sh](tools/system/bin/unbound-dashboard-run-update.sh)) e só então executa o `update.sh` **do pacote**.
+
+- A chave privada fica na máquina de release, por padrão em `~/.config/unbound-dashboard/release-signing.key` (ou em `RELEASE_SIGNING_KEY`). **Guarde um backup fora dessa máquina**: sem ela não é possível publicar updates que os servidores aceitem.
+- O `release.sh` confere que a chave corresponde à pública embutida antes de publicar.
+- Trocar a chave: gere um par novo (`openssl genpkey -algorithm ed25519 -out release-signing.key`), atualize a pública no script, publique uma release assinada com a chave **antiga**; as seguintes usam a nova.
+- Aplicar um pacote manualmente (SSH): `tar xzf <pacote>.tar.gz -C /tmp/u && sudo bash /tmp/u/update.sh /tmp/u`.
 
 ## Estrutura do Projeto
 
