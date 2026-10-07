@@ -21,7 +21,12 @@ from typing import Any
 import structlog
 
 from app.repositories.duckdb import settings_repo
-from app.repositories.duckdb.connection import db_execute, db_fetchall, db_fetchone
+from app.repositories.duckdb.connection import (
+    db_execute,
+    db_execute_returning,
+    db_fetchall,
+    db_fetchone,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -207,13 +212,19 @@ async def get(request_id: int) -> dict | None:
     return _row_to_dict(row) if row else None
 
 
-async def approve(request_id: int, approver_id: int, approver_username: str | None) -> dict:
+_PENDING_VALID = "status = 'pending' AND expires_at > NOW()"
+
+
+async def approve(request_id: int, approver_id: int | None, approver_username: str | None) -> dict:
+    if approver_id is None:
+        # API token não é uma pessoa: o 4-olhos exige um segundo usuário.
+        return {"ok": False, "error": "aprovação exige um usuário (não API token)"}
     row = await db_fetchone(
-        "SELECT * FROM approval_requests WHERE id = ? AND status = 'pending'",
+        f"SELECT * FROM approval_requests WHERE id = ? AND {_PENDING_VALID}",
         [int(request_id)],
     )
     if not row:
-        return {"ok": False, "error": "request não pendente ou inexistente"}
+        return {"ok": False, "error": "request não pendente, expirado ou inexistente"}
     if int(row["requester_id"]) == int(approver_id):
         return {"ok": False, "error": "requester não pode aprovar o próprio request"}
     await db_execute(
@@ -227,13 +238,15 @@ async def approve(request_id: int, approver_id: int, approver_username: str | No
     return {"ok": True, "request_id": int(request_id)}
 
 
-async def reject(request_id: int, approver_id: int, approver_username: str | None, reason: str = "") -> dict:
+async def reject(request_id: int, approver_id: int | None, approver_username: str | None, reason: str = "") -> dict:
+    if approver_id is None:
+        return {"ok": False, "error": "rejeição exige um usuário (não API token)"}
     row = await db_fetchone(
-        "SELECT * FROM approval_requests WHERE id = ? AND status = 'pending'",
+        f"SELECT * FROM approval_requests WHERE id = ? AND {_PENDING_VALID}",
         [int(request_id)],
     )
     if not row:
-        return {"ok": False, "error": "request não pendente ou inexistente"}
+        return {"ok": False, "error": "request não pendente, expirado ou inexistente"}
     if int(row["requester_id"]) == int(approver_id):
         return {"ok": False, "error": "requester não pode rejeitar o próprio request"}
     await db_execute(
@@ -321,6 +334,17 @@ async def execute_request(request_id: int, executor_user: dict | None = None) ->
             "error": f"action '{action}' não tem handler registrado — execute manualmente",
         }
 
+    # Reivindica o request de forma atômica: só uma chamada concorrente passa
+    # de 'approved' para 'executing' — sem isto duas chamadas a /execute
+    # rodavam o handler duas vezes.
+    claimed = await db_execute_returning(
+        "UPDATE approval_requests SET status = 'executing' "
+        "WHERE id = ? AND status = 'approved' RETURNING id",
+        [int(request_id)],
+    )
+    if claimed is None:
+        return {"ok": False, "error": "request já está sendo executado"}
+
     payload = row.get("payload")
     if isinstance(payload, str):
         try:
@@ -350,9 +374,10 @@ async def execute_request(request_id: int, executor_user: dict | None = None) ->
 
 
 async def mark_executed(request_id: int, result: dict | None = None) -> bool:
-    """Caller chama isso depois de re-executar a ação manualmente."""
+    """Caller chama isso depois de re-executar a ação manualmente. Aceita
+    também 'executing' (handler interrompido no meio, ex.: restart da API)."""
     row = await db_fetchone(
-        "SELECT id FROM approval_requests WHERE id = ? AND status = 'approved'",
+        "SELECT id FROM approval_requests WHERE id = ? AND status IN ('approved', 'executing')",
         [int(request_id)],
     )
     if not row:

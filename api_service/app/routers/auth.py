@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.deps import require_auth
-from app.core.rate_limit import limiter
+from app.core.rate_limit import client_ip_key, limiter
 from app.core.security import create_access_token
 from app.repositories.duckdb import user_repo
 from app.services import auth_service, sessions
@@ -32,7 +32,7 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/login")
-@limiter.limit(settings.rate_limit_auth)
+@limiter.limit(settings.rate_limit_auth, key_func=client_ip_key)
 async def login(request: Request, body: LoginRequest) -> dict:
     """
     Retorna TokenResponse normal OU `{requires_totp: true, challenge_token}`
@@ -81,7 +81,7 @@ class Login2FARequest(BaseModel):
 
 
 @router.post("/login/2fa-verify", response_model=TokenResponse)
-@limiter.limit(settings.rate_limit_auth)
+@limiter.limit(settings.rate_limit_auth, key_func=client_ip_key)
 async def login_2fa_verify(request: Request, body: Login2FARequest) -> TokenResponse:
     """
     Segundo passo do login pra users com 2FA habilitado. Recebe o
@@ -119,7 +119,7 @@ async def me(payload: Annotated[dict, Depends(require_auth)]) -> dict:
 
 
 @router.post("/refresh", response_model=TokenResponse)
-@limiter.limit(settings.rate_limit_auth)
+@limiter.limit(settings.rate_limit_auth, key_func=client_ip_key)
 async def refresh(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
@@ -245,6 +245,12 @@ async def revoke_my_session(
     matching = next((s for s in all_sessions if s.get("token_hash") == token_hash), None)
     if matching is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sessão não encontrada")
+    owner_id = int(matching.get("user_id", 0))
+    if owner_id != user_id:
+        # Admin encerrando sessão de outro user: mesma regra de org de /users
+        from app.routers.users import _ensure_can_target_user
+
+        await _ensure_can_target_user(payload, owner_id)
 
     # Revoga: adiciona hash ao denylist + remove do tracking
     await jwt_denylist.revoke_token_hash(token_hash)
@@ -271,6 +277,10 @@ async def revoke_user(
             detail="Apenas admin ou o próprio user pode revogar tokens",
         )
     from app.services import jwt_denylist
+    if requester_id != user_id:
+        from app.routers.users import _ensure_can_target_user
+
+        await _ensure_can_target_user(payload, user_id)
     ok = await jwt_denylist.revoke_user_tokens(user_id)
     return {"revoked": ok, "user_id": user_id}
 
@@ -339,7 +349,7 @@ class PasswordResetConfirm(BaseModel):
 
 
 @router.post("/password-reset/request")
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=client_ip_key)
 async def request_password_reset(request: Request, body: PasswordResetRequest) -> dict:
     """
     Gera token de reset se email pertence a user ativo. Retorna o token (cru)
@@ -364,7 +374,7 @@ async def request_password_reset(request: Request, body: PasswordResetRequest) -
 
 
 @router.post("/password-reset/confirm", status_code=status.HTTP_204_NO_CONTENT)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=client_ip_key)
 async def confirm_password_reset(request: Request, body: PasswordResetConfirm) -> None:
     from app.services import users_service
 
@@ -472,6 +482,9 @@ async def admin_reset_2fa(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas users com 'users.manage' podem resetar 2FA de terceiros.",
         )
+    from app.routers.users import _ensure_can_target_user
+
+    await _ensure_can_target_user(payload, user_id)
     ok = await user_repo.disable_totp(user_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User não encontrado")

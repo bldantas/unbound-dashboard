@@ -28,7 +28,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.config import settings
-from app.core.deps import require_auth, require_capability
+from app.core.deps import require_auth, require_capability, require_global_admin
 from app.repositories.duckdb.connection import db_fetchone
 
 router = APIRouter(prefix="/api/v1/host", tags=["host"])
@@ -256,10 +256,14 @@ async def restart_service(
 @router.post("/apply-config", status_code=status.HTTP_200_OK)
 async def apply_config(
     body: dict,
-    payload: Annotated[dict, Depends(require_capability("config.write"))],
+    payload: Annotated[dict, Depends(require_global_admin)],
 ) -> dict:
     """
     Recebe payload de config do master e aplica.
+
+    Só admin global / API token sem escopo (o master usa api_token): o
+    payload cria/substitui policies de qualquer org e flags globais de
+    blocklist, então um admin de org não pode chamar.
 
     Body shape:
         {

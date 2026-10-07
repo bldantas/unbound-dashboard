@@ -31,11 +31,30 @@ def _token_or_ip_key(request: Request) -> str:
     api_tok = request.headers.get("x-api-token", "").strip()
     if api_tok:
         return "tok:" + hashlib.sha256(api_tok.encode()).hexdigest()[:24]
-    # Fallback IP — respeita X-Forwarded-For (Apache reverso)
-    fwd = request.headers.get("x-forwarded-for", "")
-    if fwd:
-        return "ip:" + fwd.split(",")[0].strip()
-    return "ip:" + (request.client.host if request.client else "unknown")
+    return client_ip_key(request)
+
+
+_LOOPBACK = {"127.0.0.1", "::1"}
+
+
+def client_ip_key(request: Request) -> str:
+    """Chave por IP real do cliente.
+
+    Atrás do Apache o hop confiável é o ÚLTIMO item do X-Forwarded-For (o
+    que o Apache acrescenta); o primeiro é controlado pelo cliente. O
+    uvicorn (proxy_headers, forwarded_allow_ips=127.0.0.1) já põe esse valor
+    em request.client.host — o XFF só é lido se ainda aparecer o loopback.
+
+    Usada nas rotas de autenticação: lá a chave por token não serve (mandar
+    um Bearer aleatório a cada request criava um balde novo e anulava o
+    limite de tentativas de senha/2FA).
+    """
+    host = request.client.host if request.client else ""
+    if host in _LOOPBACK or not host:
+        fwd = request.headers.get("x-forwarded-for", "")
+        if fwd:
+            return "ip:" + fwd.split(",")[-1].strip()
+    return "ip:" + (host or "unknown")
 
 
 limiter = Limiter(

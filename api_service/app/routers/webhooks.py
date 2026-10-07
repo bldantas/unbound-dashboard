@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, HttpUrl
 
-from app.core.deps import require_admin
+from app.core.deps import require_global_admin
 from app.repositories.duckdb import settings_repo
 from app.services import webhook_notifier
 
@@ -27,7 +27,7 @@ class WebhookConfig(BaseModel):
 
 
 @router.get("/config")
-async def get_config(_: Annotated[dict, Depends(require_admin)]) -> WebhookConfig:
+async def get_config(_: Annotated[dict, Depends(require_global_admin)]) -> WebhookConfig:
     return WebhookConfig(
         enabled=await settings_repo.get_bool("webhook_enabled", False),
         url=await settings_repo.get("webhook_url", "") or "",
@@ -50,7 +50,7 @@ class WebhookUpdate(BaseModel):
 @router.put("/config", status_code=status.HTTP_204_NO_CONTENT)
 async def update_config(
     body: WebhookUpdate,
-    _: Annotated[dict, Depends(require_admin)],
+    _: Annotated[dict, Depends(require_global_admin)],
 ) -> None:
     if body.type not in _ALLOWED_TYPES:
         raise HTTPException(
@@ -89,7 +89,7 @@ class TestRequest(BaseModel):
 @router.post("/test")
 async def send_test(
     body: TestRequest,
-    _: Annotated[dict, Depends(require_admin)],
+    _: Annotated[dict, Depends(require_global_admin)],
 ) -> dict:
     result = await webhook_notifier.send_test(body.message)
     return result

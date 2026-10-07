@@ -162,14 +162,19 @@ async def add_range(policy_id: int, cidr: str, label: str | None) -> int | None:
     return int(row["id"]) if row else None
 
 
-async def remove_range(range_id: int) -> bool:
+async def remove_range(range_id: int, *, policy_id: int) -> bool:
+    """Remove o range só se ele pertence à policy — o id sozinho permitia
+    apagar range de policy de outra org."""
     existing = await db_fetchone(
-        "SELECT 1 FROM client_policy_ranges WHERE id = ?",
-        [int(range_id)],
+        "SELECT 1 FROM client_policy_ranges WHERE id = ? AND policy_id = ?",
+        [int(range_id), int(policy_id)],
     )
     if not existing:
         return False
-    await db_execute("DELETE FROM client_policy_ranges WHERE id = ?", [int(range_id)])
+    await db_execute(
+        "DELETE FROM client_policy_ranges WHERE id = ? AND policy_id = ?",
+        [int(range_id), int(policy_id)],
+    )
     return True
 
 

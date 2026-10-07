@@ -16,7 +16,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 
-from app.core.deps import require_admin, require_capability
+from app.core.deps import require_capability, require_global_admin
 from app.services import admin_audit_service, approval_service
 
 router = APIRouter(prefix="/api/v1/approvals", tags=["approvals"])
@@ -30,14 +30,14 @@ def _coerce_int(v) -> int | None:
 
 
 @router.get("/config")
-async def get_config(_: Annotated[dict, Depends(require_admin)]) -> dict:
+async def get_config(_: Annotated[dict, Depends(require_global_admin)]) -> dict:
     return await approval_service.get_config()
 
 
 @router.put("/config")
 async def update_config(
     body: dict,
-    user: Annotated[dict, Depends(require_admin)],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     enabled = body.get("enabled")
@@ -79,7 +79,7 @@ async def list_all(
 @router.post("/{request_id}/approve")
 async def approve(
     request_id: Annotated[int, Path(ge=1)],
-    user: Annotated[dict, Depends(require_admin)],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     approver_id = user.get("user_id") or _coerce_int(user.get("sub"))
@@ -104,7 +104,7 @@ async def approve(
 async def reject(
     request_id: Annotated[int, Path(ge=1)],
     body: dict,
-    user: Annotated[dict, Depends(require_admin)],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     approver_id = user.get("user_id") or _coerce_int(user.get("sub"))
@@ -129,7 +129,7 @@ async def reject(
 @router.post("/{request_id}/execute")
 async def execute(
     request_id: Annotated[int, Path(ge=1)],
-    user: Annotated[dict, Depends(require_admin)],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     """Dispatcha o handler registrado da action. Replay automático sem
@@ -152,7 +152,7 @@ async def execute(
 
 @router.get("/handlers")
 async def list_handlers(
-    _: Annotated[dict, Depends(require_admin)],
+    _: Annotated[dict, Depends(require_global_admin)],
 ) -> dict:
     """Quais actions têm handler dispatchável automaticamente."""
     return {"actions": approval_service.list_action_handlers()}
@@ -162,7 +162,7 @@ async def list_handlers(
 async def mark_executed(
     request_id: Annotated[int, Path(ge=1)],
     body: dict,
-    user: Annotated[dict, Depends(require_admin)],
+    user: Annotated[dict, Depends(require_global_admin)],
     request: Request,
 ) -> dict:
     ok = await approval_service.mark_executed(request_id, result=body.get("result"))

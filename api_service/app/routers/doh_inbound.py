@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from app.core.deps import require_capability
+from app.core.deps import require_capability, require_global_capability
 from app.services import approval_service, doh_inbound_service
 
 router = APIRouter(prefix="/api/v1/doh-inbound", tags=["doh-inbound"])
@@ -39,7 +39,7 @@ async def get_info(
 
 @router.post("/gen-cert", response_model=None)
 async def gen_cert(
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_capability("config.write"))],
     request: Request,
     body: dict = Body(default={}),
 ):

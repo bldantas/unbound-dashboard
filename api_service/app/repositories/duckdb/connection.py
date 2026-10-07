@@ -126,6 +126,23 @@ def _sync_execute(sql: str, params: list[Any]) -> None:
         conn.execute(sql, params)
 
 
+async def db_execute_returning(sql: str, params: list[Any] | None = None) -> dict[str, Any] | None:
+    """Escrita com `RETURNING` (ex.: transição de status atômica), serializada
+    pelo writer executor. Retorna a primeira linha devolvida ou None."""
+    def _run(sql: str, params: list[Any]) -> dict[str, Any] | None:
+        with duckdb.connect(settings.db_path) as conn:
+            result = conn.execute(sql, params)
+            row = result.fetchone()
+            if row is None:
+                return None
+            cols = [d[0] for d in result.description]
+            return dict(zip(cols, row, strict=True))
+
+    return await asyncio.get_running_loop().run_in_executor(
+        _writer_executor, _run, sql, params or []
+    )
+
+
 async def db_execute(sql: str, params: list[Any] | None = None) -> None:
     """
     Executa um statement de escrita (INSERT/UPDATE/DELETE/UPSERT) no DuckDB.

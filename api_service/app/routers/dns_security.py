@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Request
 
 from fastapi.responses import JSONResponse
 
-from app.core.deps import require_capability
+from app.core.deps import require_capability, require_global_capability
 from app.services import admin_audit_service, approval_service, dns_security_service
 
 router = APIRouter(prefix="/api/v1/dns-security", tags=["dns-security"])
@@ -58,7 +58,7 @@ async def get_settings(
 @router.put("/settings")
 async def update_settings(
     body: dict,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> dict:
     n = await dns_security_service.update_settings(body)
     return {"updated": n}
@@ -67,7 +67,7 @@ async def update_settings(
 @router.post("/apply", response_model=None)
 async def apply(
     request: Request,
-    user: Annotated[dict, Depends(require_capability("config.write"))],
+    user: Annotated[dict, Depends(require_global_capability("config.write"))],
 ):
     ip = request.client.host if request.client else None
     # Workflow approval — se action está em workflow_approval_actions, registra
@@ -108,7 +108,7 @@ async def get_ratelimit(
 @router.put("/ratelimit/settings")
 async def update_ratelimit(
     body: dict,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> dict:
     n = await dns_security_service.update_ratelimit_settings(body)
     return {"updated": n}
@@ -124,7 +124,7 @@ async def get_privacy(
 @router.put("/privacy/settings")
 async def update_privacy(
     body: dict,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> dict:
     n = await dns_security_service.update_privacy_settings(body)
     return {"updated": n}
@@ -140,7 +140,7 @@ async def get_hardening(
 @router.put("/hardening/settings")
 async def update_hardening(
     body: dict,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> dict:
     n = await dns_security_service.update_hardening_settings(body)
     return {"updated": n}
@@ -156,7 +156,7 @@ async def get_performance(
 @router.put("/performance/settings")
 async def update_performance(
     body: dict,
-    _: Annotated[dict, Depends(require_capability("config.write"))],
+    _: Annotated[dict, Depends(require_global_capability("config.write"))],
 ) -> dict:
     n = await dns_security_service.update_performance_settings(body)
     return {"updated": n}

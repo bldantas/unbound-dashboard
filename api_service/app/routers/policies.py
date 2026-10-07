@@ -32,13 +32,19 @@ def _shape(row: dict) -> dict:
     }
 
 
-def _ensure_tenant_access(policy: dict, viewer_org_id: int | None) -> None:
-    """Levanta 404 se policy é de outra org. Mascara existência."""
+def _ensure_tenant_access(policy: dict, viewer_org_id: int | None, *, write: bool = False) -> None:
+    """Levanta 404 se policy é de outra org (mascara existência). Policy
+    global é visível a todos, mas só o admin global a altera — ela vale
+    para os clientes de todas as orgs."""
     if viewer_org_id is None:
         return  # admin global vê tudo
     policy_org = policy.get("org_id")
     if policy_org is None:
-        return  # policy global é visível
+        if write:
+            raise HTTPException(
+                status_code=403, detail="policy global: só o admin global pode alterá-la"
+            )
+        return
     if int(policy_org) != int(viewer_org_id):
         raise HTTPException(status_code=404, detail="policy não encontrada")
 
@@ -140,7 +146,7 @@ async def update_policy(
     existing = await repo.get(slug)
     if not existing:
         raise HTTPException(status_code=404, detail=f"policy '{slug}' não existe")
-    _ensure_tenant_access(existing, viewer_org)
+    _ensure_tenant_access(existing, viewer_org, write=True)
     await repo.update(
         slug,
         name=body.get("name"),
@@ -159,7 +165,7 @@ async def delete_policy(
     existing = await repo.get(slug)
     if not existing:
         raise HTTPException(status_code=404, detail=f"policy '{slug}' não existe")
-    _ensure_tenant_access(existing, viewer_org)
+    _ensure_tenant_access(existing, viewer_org, write=True)
     deleted = await repo.delete(slug)
     return {"deleted": deleted, "slug": slug}
 
@@ -179,7 +185,7 @@ async def add_range(
     policy = await repo.get(slug)
     if not policy:
         raise HTTPException(status_code=404, detail=f"policy '{slug}' não existe")
-    _ensure_tenant_access(policy, viewer_org)
+    _ensure_tenant_access(policy, viewer_org, write=True)
     cidr = (body.get("cidr") or "").strip()
     label = (body.get("label") or "").strip() or None
     if not repo.validate_cidr(cidr):
@@ -198,8 +204,8 @@ async def remove_range(
     policy = await repo.get(slug)
     if not policy:
         raise HTTPException(status_code=404, detail=f"policy '{slug}' não existe")
-    _ensure_tenant_access(policy, viewer_org)
-    removed = await repo.remove_range(range_id)
+    _ensure_tenant_access(policy, viewer_org, write=True)
+    removed = await repo.remove_range(range_id, policy_id=int(policy["id"]))
     return {"removed": removed, "id": range_id}
 
 
@@ -218,7 +224,7 @@ async def add_block(
     policy = await repo.get(slug)
     if not policy:
         raise HTTPException(status_code=404, detail=f"policy '{slug}' não existe")
-    _ensure_tenant_access(policy, viewer_org)
+    _ensure_tenant_access(policy, viewer_org, write=True)
     domain = (body.get("domain") or "").strip().lower()
     if not domain:
         raise HTTPException(status_code=400, detail="domain é obrigatório")
@@ -236,7 +242,7 @@ async def remove_block(
     policy = await repo.get(slug)
     if not policy:
         raise HTTPException(status_code=404, detail=f"policy '{slug}' não existe")
-    _ensure_tenant_access(policy, viewer_org)
+    _ensure_tenant_access(policy, viewer_org, write=True)
     removed = await repo.remove_block(int(policy["id"]), domain)
     return {"removed": removed, "domain": domain.lower().strip()}
 
@@ -256,7 +262,7 @@ async def add_allow(
     policy = await repo.get(slug)
     if not policy:
         raise HTTPException(status_code=404, detail=f"policy '{slug}' não existe")
-    _ensure_tenant_access(policy, viewer_org)
+    _ensure_tenant_access(policy, viewer_org, write=True)
     domain = (body.get("domain") or "").strip().lower()
     if not domain:
         raise HTTPException(status_code=400, detail="domain é obrigatório")
@@ -274,6 +280,6 @@ async def remove_allow(
     policy = await repo.get(slug)
     if not policy:
         raise HTTPException(status_code=404, detail=f"policy '{slug}' não existe")
-    _ensure_tenant_access(policy, viewer_org)
+    _ensure_tenant_access(policy, viewer_org, write=True)
     removed = await repo.remove_allow(int(policy["id"]), domain)
     return {"removed": removed, "domain": domain.lower().strip()}

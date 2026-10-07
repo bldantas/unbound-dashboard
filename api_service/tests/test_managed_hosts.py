@@ -291,6 +291,7 @@ def test_batch_routes_declared_before_parametric():
         ("/api/v1/hosts/batch/poll", "/api/v1/hosts/{host_id}/poll"),
         ("/api/v1/hosts/batch/restart/{service}", "/api/v1/hosts/{host_id}/restart/{service}"),
         ("/api/v1/hosts/batch/upgrade", "/api/v1/hosts/{host_id}/upgrade"),
+        ("/api/v1/hosts/batch/push-config", "/api/v1/hosts/{host_id}/push-config"),
     ]:
         assert batch_path in paths, f"rota {batch_path} sumiu"
         assert parametric_path in paths, f"rota {parametric_path} sumiu"

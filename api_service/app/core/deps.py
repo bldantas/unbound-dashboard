@@ -127,6 +127,55 @@ async def require_auth(
     return payload
 
 
+_WS_ROLES = frozenset({"admin", "readonly_admin", "operator", "viewer"})
+
+
+async def validate_ws_token(token: str) -> dict | None:
+    """Autenticação dos WebSockets (token na query string — o browser não
+    manda header Authorization no handshake). Mesmas regras de
+    `require_auth`: JWT válido, sem 2FA pendente, fora da denylist (sessão
+    encerrada / conta revogada); ou API token, que se tiver escopo precisa de
+    `dashboard.read`. Retorna o payload ou None."""
+    if not token:
+        return None
+    try:
+        payload = decode_token(token)
+    except JWTError:
+        payload = None
+    if payload is not None:
+        if payload.get("totp_pending") or payload.get("role") not in _WS_ROLES:
+            return None
+        try:
+            user_id = int(payload.get("sub", 0))
+        except (TypeError, ValueError):
+            user_id = 0
+        if user_id and await is_user_revoked(user_id, payload.get("iat")):
+            return None
+        if await is_token_hash_revoked(sessions.hash_token(token)):
+            return None
+        return payload
+
+    from app.services import api_tokens
+
+    try:
+        meta = await api_tokens.verify(token)
+    except Exception:  # noqa: BLE001
+        return None
+    if meta is None:
+        return None
+    caps = meta.get("capabilities") or []
+    if caps and "dashboard.read" not in caps:
+        return None
+    return {
+        "sub": "api-token",
+        "role": "admin",
+        "auth_kind": "api_token",
+        "api_token_id": meta["id"],
+        "api_token_label": meta["label"],
+        "api_token_capabilities": caps,
+    }
+
+
 async def resolve_viewer_org_id(payload: dict) -> int | None:
     """Resolve a org_id do caller pra filtros multi-tenant.
 
@@ -219,6 +268,37 @@ async def require_global_admin(
                    "(sem org_id). Admin org-scoped não tem permissão.",
         )
     return payload
+
+
+def require_global_capability(capability: str):
+    """Como `require_capability`, mas para configuração que vale para o
+    sistema todo (Unbound, updates, DNS security, geo-blocking...): usuário
+    vinculado a uma org é negado mesmo tendo a capability. API token passa se
+    não tiver escopo ou se o escopo incluir a capability."""
+    from app.core.rbac import can
+
+    async def _dep(payload: Annotated[dict, Depends(require_auth)]) -> dict:
+        if payload.get("auth_kind") == "api_token":
+            caps = payload.get("api_token_capabilities") or []
+            if caps and capability not in caps:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"API token sem a capability '{capability}'",
+                )
+            return payload
+        if not can(payload.get("role"), capability):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Acesso negado: requer '{capability}'",
+            )
+        if await resolve_viewer_org_id(payload) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Configuração global: exclusiva do admin global (sem org).",
+            )
+        return payload
+
+    return _dep
 
 
 def require_capability(capability: str):

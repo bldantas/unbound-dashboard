@@ -98,6 +98,14 @@ async def list_all(viewer_org_id: int | None = None) -> list[dict[str, Any]]:
     return out
 
 
+async def get_owner(host_id: int) -> tuple[bool, int | None]:
+    """(existe, org_id) do host — para checagem de acesso multi-tenant."""
+    row = await db_fetchone("SELECT org_id FROM managed_hosts WHERE id = ?", [host_id])
+    if row is None:
+        return False, None
+    return True, (int(row["org_id"]) if row.get("org_id") is not None else None)
+
+
 async def get(host_id: int) -> dict[str, Any] | None:
     """Retorna 1 host (com api_token incluso — só pra uso interno do poller)."""
     return await db_fetchone(

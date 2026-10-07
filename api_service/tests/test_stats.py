@@ -49,10 +49,25 @@ def client(populated_db):
 
     from app.core import config
 
+    from app.core.security import create_access_token
+
     with patch.object(config.settings, "db_path", populated_db):
         from app.main import app
 
-        yield TestClient(app)
+        token = create_access_token({"sub": "999", "role": "viewer"})
+        yield TestClient(app, headers={"Authorization": f"Bearer {token}"})
+
+
+def test_summary_requires_auth(populated_db) -> None:
+    """Expõe IPs e domínios dos clientes — não pode ser público."""
+    from fastapi.testclient import TestClient
+
+    from app.core import config
+
+    with patch.object(config.settings, "db_path", populated_db):
+        from app.main import app
+
+        assert TestClient(app).get("/api/v1/stats/summary").status_code == 401
 
 
 def test_summary_default_window_returns_24h_only(client) -> None:

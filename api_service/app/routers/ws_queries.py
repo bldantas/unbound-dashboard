@@ -13,15 +13,14 @@ Cliente reconnect simples basta — nenhum estado precisa persistir.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import queue
 
 import structlog
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
-from app.core.security import JWTError, decode_token
-from app.services import api_tokens as api_tokens_service
+from app.core.deps import validate_ws_token
+from app.core.ws import queue_get
 from app.services import query_broker
 
 log = structlog.get_logger(__name__)
@@ -30,33 +29,8 @@ router = APIRouter(prefix="/api/v1/ws", tags=["websocket"])
 
 
 async def _validate(token: str) -> dict | None:
-    """
-    Valida JWT ou API token. Retorna payload ou None.
-
-    WS não tem header Authorization fácil de mandar do browser, então
-    aceitamos `?token=<jwt-or-api-token>` no query string. Tentamos JWT
-    primeiro (login humano); se falhar, fallback pra api_tokens
-    (máquinas, X-Api-Token equivalente via query).
-    """
-    if not token:
-        return None
-
-    try:
-        payload = decode_token(token)
-        role = payload.get("role", "")
-        if role in ("admin", "readonly_admin", "operator", "viewer"):
-            return payload
-    except JWTError:
-        pass
-
-    try:
-        info = await api_tokens_service.verify(token)
-        if info:
-            return {"sub": "api_token", "role": "admin", "token_id": info.get("id")}
-    except Exception:  # noqa: BLE001
-        pass
-
-    return None
+    """JWT ou API token via `?token=` (ver deps.validate_ws_token)."""
+    return await validate_ws_token(token)
 
 
 @router.websocket("/queries")
@@ -75,16 +49,10 @@ async def ws_queries(websocket: WebSocket, token: str = Query("")):
         # Envia frame de boas-vindas pra cliente saber que conectou
         await websocket.send_text(json.dumps({"type": "hello", "subscribers": query_broker.subscriber_count()}))
 
-        loop = asyncio.get_running_loop()
-        # Drena queue continuamente — usa `to_thread(q.get, timeout)` pra não
-        # bloquear o event loop quando vazia.
         while True:
             try:
-                event = await asyncio.wait_for(
-                    loop.run_in_executor(None, q.get, True, 30.0),
-                    timeout=35.0,
-                )
-            except (queue.Empty, asyncio.TimeoutError):
+                event = await queue_get(q, 30.0)
+            except queue.Empty:
                 # Heartbeat pra cliente não pensar que está zumbi
                 try:
                     await websocket.send_text(json.dumps({"type": "ping"}))
