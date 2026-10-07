@@ -330,6 +330,12 @@ apply_dashboard() {
         --exclude='Database.php' \
         "$src/" "$DASHBOARD_DIR/"
 
+    # Scripts root que viviam na árvore web (versões anteriores): agora ficam em
+    # /usr/local/bin. O rsync não apaga arquivos removidos do pacote.
+    rm -f "$DASHBOARD_DIR/tools/run-update.sh" \
+          "$DASHBOARD_DIR/tools/restore-backup.sh" \
+          "$DASHBOARD_DIR/tools/setup-apparmor-certs.sh"
+
     log "Frontend PHP atualizado"
 }
 
@@ -448,18 +454,34 @@ apply_system() {
             info "[DRY-RUN] /etc/systemd/system/unbound.service.d/ drop-in"
         else
             mkdir -p /etc/systemd/system/unbound.service.d
-            cp "$sys/systemd/unbound.service.d/"*.conf /etc/systemd/system/unbound.service.d/
-            systemctl daemon-reload
-            # Garante que o arquivo de log existe + permissão (systemd vai
-            # appendar como root, mas o dir/arquivo precisa ser writable)
-            mkdir -p /var/log/unbound
-            touch /var/log/unbound/unbound.log
-            chown unbound:unbound /var/log/unbound/unbound.log 2>/dev/null || true
-            # Restart (não reload) — drop-in muda StandardError, precisa re-exec
-            if systemctl is-active --quiet unbound; then
-                systemctl restart unbound || warn "Falha ao reiniciar unbound após drop-in"
+            # Só reinicia o Unbound (= DNS fora por um instante) se o drop-in mudou.
+            local dropin_changed="false" conf
+            for conf in "$sys/systemd/unbound.service.d/"*.conf; do
+                if ! cmp -s "$conf" "/etc/systemd/system/unbound.service.d/$(basename "$conf")"; then
+                    cp "$conf" /etc/systemd/system/unbound.service.d/
+                    dropin_changed="true"
+                fi
+            done
+            # Arquivo de log do Unbound: só cria se faltar (o systemd faz append
+            # como root). Fora do ReadWritePaths em units anteriores a esta
+            # versão — não aborta o update por isso.
+            if [ ! -f /var/log/unbound/unbound.log ]; then
+                if mkdir -p /var/log/unbound 2>/dev/null && touch /var/log/unbound/unbound.log 2>/dev/null; then
+                    chown unbound:unbound /var/log/unbound/unbound.log 2>/dev/null || true
+                else
+                    warn "Não foi possível criar /var/log/unbound/unbound.log (read-only no sandbox da API)"
+                fi
             fi
-            log "Unbound drop-in instalado (stderr→logfile pra LogWatcher)"
+            if [ "$dropin_changed" = "true" ]; then
+                systemctl daemon-reload
+                # Restart (não reload) — drop-in muda StandardError, precisa re-exec
+                if systemctl is-active --quiet unbound; then
+                    systemctl restart unbound || warn "Falha ao reiniciar unbound após drop-in"
+                fi
+                log "Unbound drop-in atualizado (stderr→logfile pra LogWatcher)"
+            else
+                debug "Drop-in do Unbound sem mudança — Unbound não reiniciado"
+            fi
         fi
     fi
 
