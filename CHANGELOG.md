@@ -5,6 +5,21 @@ release individual. Releases anteriores mantêm o formato antigo (uma
 seção por versão) por histórico — consolidação retroativa só pra
 2026-05-26 (36 releases num dia inflaram o arquivo).
 
+## 2026-10-07
+
+### Isolamento entre organizações, CSRF/XSS, workers e sudoers
+- **v2.115.0**: release de segurança e confiabilidade (PRs #9–#13). **Recomendado atualizar.**
+  - **⚠️ Compatibilidade — admins de organização**: ações globais (configuração do Unbound e do sistema, rede, NTP, backups, blocklists globais, hosts gerenciados, apply-config do multi-host, export em massa) passam a exigir **admin global**. Admins de org continuam gerenciando a própria org, mas deixam de ver ou alterar recursos de outras orgs e configurações do servidor.
+  - **⚠️ Compatibilidade — HA com certificado autoassinado**: a API agora valida o TLS dos peers HA. Se os peers usam cert autoassinado, configure `ha_peer_tls_verify=false` (ou instale um cert válido) antes de atualizar.
+  - **Novo setting `dashboard_public_url`**: base do link do e-mail de reset de senha (ex.: `https://dashboard.exemplo.com`). Sem ele, o link usa o host da requisição.
+  - **Isolamento entre orgs (API)**: hosts, settings/exports (segredos mascarados), policies, approvals (execução atômica), auth e WebSockets checam a org de quem chama; tokens de API com escopo de org não acessam rotas globais.
+  - **Autenticação**: rate limit de login pelo IP real (atrás do proxy), limite de tentativas no 2FA por desafio, lockout de login atômico, token de 2FA pendente não vale como sessão.
+  - **Frontend**: proteção CSRF central para formulários e chamadas fetch/XHR, escape de dados vindos de queries DNS e logs (XSS), checagem de admin global no PHP, e-mail de reset de senha enviado pela API (SMTP configurado).
+  - **Políticas de clientes**: a regeneração do `views.conf` não apaga mais as views quando a API está indisponível (bug que zerava as políticas diariamente).
+  - **Workers**: digest diário (datas com/sem fuso), backup S3 a partir de snapshot consistente do DuckDB, SMTP fora do event loop, LogWatcher e beaconing mais robustos.
+  - **sudoers**: as regras com curinga (`cp … *`, `ifup *`, `systemctl * unbound`…) foram trocadas por `/usr/local/bin/unbound-dashboard-priv.sh`, que só copia do tmp do dashboard para destinos de uma allowlist, com dono e modo fixos. O update corrige o dono de arquivos de `/etc` (ex.: `/etc/network/interfaces`, `/etc/resolv.conf`) que versões anteriores deixavam com dono `www-data`. O deploy hook do certbot passa a ser instalado a partir de `/usr/local/bin`. Gerar certificado DoH pela API volta a funcionar.
+  - **Qualidade**: CI do ruff verde, testes novos de isolamento entre orgs, approvals, workers e autenticação.
+
 ## 2026-10-06
 
 ### Self-update: correção do update pela UI a partir da v2.114.0
