@@ -31,6 +31,14 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 # Quantos conjuntos de backup (código + DuckDB + env) manter, contando o
 # deste update. Cada snapshot do DuckDB pode ter GBs — sem limite o disco enche.
 BACKUP_KEEP="${BACKUP_KEEP:-3}"
+
+# uv: cache e Pythons baixados em dirs do root fora de /root. O self-update
+# roda no sandbox da API (ProtectHome=yes): /root/.cache fica read-only e o
+# `uv sync` falhava; um Python standalone em /root/.local ficaria invisível
+# para a API. Os dois dirs estão no ReadWritePaths do unit.
+export UV_CACHE_DIR=/var/cache/unbound-dashboard/uv
+export UV_PYTHON_INSTALL_DIR=/usr/local/lib/unbound-dashboard/python
+install -d -o root -g root -m 755 "$UV_CACHE_DIR" "$UV_PYTHON_INSTALL_DIR" 2>/dev/null || true
 UPDATE_PACKAGE="${1:-}"
 DRY_RUN="${DRY_RUN:-false}"
 VERBOSE="${VERBOSE:-false}"
@@ -86,7 +94,31 @@ cleanup_extracted() {
         rm -rf "$EXTRACTED_DIR"
     fi
 }
-trap cleanup_extracted EXIT
+
+# Estado para o handler de saída: create_backup para a API (snapshot
+# consistente) e as etapas apply_* alteram o sistema. Se o script abortar no
+# meio (set -e), sem isto a API ficava parada e o código pela metade.
+API_STOPPED_BY_UPDATE="false"
+APPLY_STARTED="false"
+UPDATE_DONE="false"
+ROLLBACK_RAN="false"
+
+on_exit() {
+    local rc=$?
+    cleanup_extracted
+    if [ "$rc" -ne 0 ] && [ "$UPDATE_DONE" != "true" ] && [ "$ROLLBACK_RAN" != "true" ] \
+       && [ "$DRY_RUN" != "true" ]; then
+        if [ "$APPLY_STARTED" = "true" ]; then
+            error "Update abortado no meio (exit $rc) — restaurando o backup"
+            rollback_from_backup
+        elif [ "$API_STOPPED_BY_UPDATE" = "true" ]; then
+            error "Update abortado antes de aplicar (exit $rc) — religando a API"
+            systemctl start unbound-dashboard-api || true
+            echo "ROLLBACK CONCLUÍDO — nada foi aplicado"
+        fi
+    fi
+}
+trap on_exit EXIT
 
 # ============================================================
 # VALIDAÇÃO INICIAL
@@ -255,6 +287,7 @@ create_backup() {
         # sobe de novo no fim.
         if [ "$AUTO_RESTART" = "true" ]; then
             info "Parando unbound-dashboard-api para snapshot consistente do DuckDB..."
+            API_STOPPED_BY_UPDATE="true"
             systemctl stop unbound-dashboard-api 2>/dev/null || true
         else
             warn "AUTO_RESTART=false — api_service segue rodando; snapshot do DuckDB pode ficar inconsistente"
@@ -650,6 +683,7 @@ restart_and_smoke() {
 #   2 = rollback executado com sucesso (estado anterior restaurado)
 #   3 = ROLLBACK FAILED (estado inconsistente — intervenção manual obrigatória)
 rollback_from_backup() {
+    ROLLBACK_RAN="true"
     local code_backup="$BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz"
     local db_backup="$BACKUP_DIR/duckdb-$TIMESTAMP.duckdb"
     local env_backup="$BACKUP_DIR/api-v1.env-$TIMESTAMP"
@@ -775,11 +809,13 @@ main() {
     extract_update
     validate_package_files
     create_backup
+    APPLY_STARTED="true"
     apply_dashboard
     apply_apiservice
     apply_system
     reset_permissions
     restart_and_smoke
+    UPDATE_DONE="true"
     print_report
 }
 

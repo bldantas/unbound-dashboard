@@ -69,7 +69,12 @@ exec >> "$LOG" 2>&1
 
 echo "[..] Job $JOB_ID — pacote $(basename "$TARBALL")"
 
-WORK=$(mktemp -d /var/tmp/unbound-dashboard-update.XXXXXX)
+# Fora de /tmp e /var/tmp: chamado pela API, este processo herda o
+# PrivateTmp dela, e o systemd apaga esse /tmp privado quando o update.sh
+# para a API — o pacote extraído sumia no meio do update.
+# /var/backups/unbound-dashboard é do root (750) e está no ReadWritePaths.
+install -d -o root -g root -m 750 /var/backups/unbound-dashboard
+WORK=$(mktemp -d /var/backups/unbound-dashboard/.update-work.XXXXXX)
 trap 'rm -rf -- "$WORK"' EXIT
 
 # 2. Cópia para área do root (evita troca do arquivo entre verificar e usar)

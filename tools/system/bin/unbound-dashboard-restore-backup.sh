@@ -147,6 +147,10 @@ fi
 # Re-sync .venv pelo uv (o tar exclui .venv do backup, então após
 # restore o .venv pode ficar ausente/desatualizado)
 info "Sincronizando .venv via uv sync..."
+# Cache/Pythons do uv fora de /root (ProtectHome no sandbox da API).
+export UV_CACHE_DIR=/var/cache/unbound-dashboard/uv
+export UV_PYTHON_INSTALL_DIR=/usr/local/lib/unbound-dashboard/python
+install -d -o root -g root -m 755 "$UV_CACHE_DIR" "$UV_PYTHON_INSTALL_DIR" 2>/dev/null || true
 uv_bin="$(command -v uv || echo /root/.local/bin/uv)"
 [ -x "$uv_bin" ] || uv_bin="/usr/local/bin/uv"
 if [ -x "$uv_bin" ]; then

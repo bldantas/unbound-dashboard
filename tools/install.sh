@@ -70,6 +70,14 @@ if [ "$EUID" -ne 0 ]; then
     err "Execute como root: sudo bash install.sh"
 fi
 
+# uv: cache e Pythons baixados em dirs do root fora de /root. O self-update
+# roda no sandbox da API (ProtectHome=yes): /root/.cache fica read-only e o
+# `uv sync` falhava; um Python standalone em /root/.local ficaria invisível
+# para a API. Os dois dirs estão no ReadWritePaths do unit.
+export UV_CACHE_DIR=/var/cache/unbound-dashboard/uv
+export UV_PYTHON_INSTALL_DIR=/usr/local/lib/unbound-dashboard/python
+install -d -o root -g root -m 755 "$UV_CACHE_DIR" "$UV_PYTHON_INSTALL_DIR" 2>/dev/null || true
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DASHBOARD_SRC="$SCRIPT_DIR/dashboard"
 APISERVICE_SRC="$SCRIPT_DIR/api_service"

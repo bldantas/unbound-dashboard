@@ -64,6 +64,8 @@ ReadWritePaths=/var/spool/cron
 ReadWritePaths=-/etc/cron.d
 ReadWritePaths=-/etc/logrotate.d
 ReadWritePaths=-/var/log/unbound-dashboard-update
+ReadWritePaths=-/var/cache/unbound-dashboard
+ReadWritePaths=-/usr/local/lib/unbound-dashboard
 ReadWritePaths=/tmp
 
 [Install]
