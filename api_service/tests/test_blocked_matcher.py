@@ -21,11 +21,14 @@ def test_matches_exact_domain(tmp_path) -> None:
     from app.services.blocked_matcher import BlockedMatcher
 
     conf = tmp_path / "blocked.conf"
-    _write_conf(conf, '''
+    _write_conf(
+        conf,
+        """
 server:
     local-zone: "evil.com" always_nxdomain
     local-zone: "ads.tracker.net" always_nxdomain
-''')
+""",
+    )
     m = BlockedMatcher(conf_path=conf)
     assert m.matches("evil.com") is True
     assert m.matches("ads.tracker.net") is True
@@ -83,7 +86,9 @@ def test_ignores_non_local_zone_lines(tmp_path) -> None:
     from app.services.blocked_matcher import BlockedMatcher
 
     conf = tmp_path / "blocked.conf"
-    _write_conf(conf, '''
+    _write_conf(
+        conf,
+        """
 # Comentário
 server:
     local-zone: "real-block.com" always_nxdomain
@@ -91,7 +96,8 @@ server:
     forward-zone:
         name: "."
         forward-addr: 1.1.1.1
-''')
+""",
+    )
     m = BlockedMatcher(conf_path=conf)
     assert m.matches("real-block.com") is True
     assert m.matches("noise.com") is False
@@ -144,10 +150,13 @@ def test_force_reload(tmp_path) -> None:
     m = BlockedMatcher(conf_path=conf, cache_ttl=999_999)  # cache ~"infinito"
 
     assert m.size() == 1
-    _write_conf(conf, '''
+    _write_conf(
+        conf,
+        """
 local-zone: "a.com" always_nxdomain
 local-zone: "b.com" always_nxdomain
-''')
+""",
+    )
     # Sem force_reload, com TTL alto, ele NÃO recarregaria automaticamente.
     # mas o _maybe_reload checa mtime tb — então pode ou não recarregar.
     # Aqui forçamos pra ser determinístico.

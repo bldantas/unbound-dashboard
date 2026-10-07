@@ -73,6 +73,7 @@ async def _maybe_notify_new_release(rel: dict) -> None:
     if notify_email:
         try:
             from app.services import email_notifier
+
             result = await email_notifier.notify_new_release(rel)
             sent_any = sent_any or (result.get("sent", 0) > 0)
             log.info("update_checker.email_notify", tag=tag, result=result)
@@ -82,6 +83,7 @@ async def _maybe_notify_new_release(rel: dict) -> None:
     if notify_webhook:
         try:
             from app.services import webhook_notifier
+
             result = await webhook_notifier.notify_new_release(rel)
             sent_any = sent_any or result.get("sent", False)
             log.info("update_checker.webhook_notify", tag=tag, result=result)

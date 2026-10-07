@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import structlog
@@ -31,16 +31,18 @@ from app.repositories.duckdb import blocklist_sources_repo, threats_repo
 
 log = structlog.get_logger(__name__)
 
-SYNC_INTERVAL_SECONDS = 3600          # rechecagem horária
-INITIAL_DELAY_SECONDS = 30            # pra não brigar com outros workers no startup
-FRESH_HOURS = 12                      # se last_sync < FRESH_HOURS, pula
+SYNC_INTERVAL_SECONDS = 3600  # rechecagem horária
+INITIAL_DELAY_SECONDS = 30  # pra não brigar com outros workers no startup
+FRESH_HOURS = 12  # se last_sync < FRESH_HOURS, pula
 HTTP_TIMEOUT_SECONDS = 60
 USER_AGENT = "unbound-dashboard/blocklist-syncer"
 
 # Regexes pré-compilados pros parsers
 _RE_LOCALZONE = re.compile(r'^\s*local-zone:\s*"([^"]+?)\.?"\s+', re.IGNORECASE)
 _RE_ADBLOCK = re.compile(r"^\|\|([a-z0-9.\-_]+)\^")
-_RE_DOMAIN_VALIDATE = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+_RE_DOMAIN_VALIDATE = re.compile(
+    r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$"
+)
 
 
 def _parse_hosts(text: str) -> list[str]:
@@ -59,10 +61,16 @@ def _parse_hosts(text: str) -> list[str]:
         # Aceita 0.0.0.0/127.0.0.1/:: como IP de bloqueio. Skip se IP é diferente
         # (alguns hosts files trazem entradas legítimas tipo 192.168.x.x).
         ip = parts[0]
-        if ip not in ("0.0.0.0", "127.0.0.1", "::", "::1"):
+        if ip not in ("0.0.0.0", "127.0.0.1", "::", "::1"):  # noqa: S104 — IPs de sinkhole do hosts file, não bind
             continue
         domain = parts[1].lower().rstrip(".")
-        if domain in ("localhost", "localhost.localdomain", "broadcasthost", "ip6-localhost", "ip6-loopback"):
+        if domain in (
+            "localhost",
+            "localhost.localdomain",
+            "broadcasthost",
+            "ip6-localhost",
+            "ip6-loopback",
+        ):
             continue
         if _RE_DOMAIN_VALIDATE.match(domain):
             out.append(domain)
@@ -147,8 +155,8 @@ async def sync_source(slug: str, *, force: bool = False) -> dict:
         # last_sync é TIMESTAMP — duckdb retorna datetime sem timezone (UTC nominal)
         last = src["last_sync"]
         if isinstance(last, datetime):
-            last_utc = last.replace(tzinfo=timezone.utc) if last.tzinfo is None else last
-            if datetime.now(timezone.utc) - last_utc < timedelta(hours=FRESH_HOURS):
+            last_utc = last.replace(tzinfo=UTC) if last.tzinfo is None else last
+            if datetime.now(UTC) - last_utc < timedelta(hours=FRESH_HOURS):
                 return {"status": "fresh", "count": int(src["last_count"] or 0), "error": None}
 
     fmt = str(src["format"])

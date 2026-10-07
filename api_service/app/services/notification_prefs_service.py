@@ -46,7 +46,8 @@ def _row_to_dict(r: dict | None) -> dict[str, Any]:
         "digest_hour": int(r.get("digest_hour") or 8),
         "last_digest_sent_at": (
             r["last_digest_sent_at"].isoformat()
-            if isinstance(r.get("last_digest_sent_at"), datetime) else None
+            if isinstance(r.get("last_digest_sent_at"), datetime)
+            else None
         ),
     }
 
@@ -69,7 +70,7 @@ async def update(user_id: int, body: dict) -> dict[str, Any]:
         try:
             cats = json.loads(cats)
         except json.JSONDecodeError:
-            raise ValueError("categories: JSON inválido")
+            raise ValueError("categories: JSON inválido") from None
     if not isinstance(cats, list):
         raise ValueError("categories deve ser array")
     cats = [str(c)[:50] for c in cats][:20]
@@ -79,7 +80,7 @@ async def update(user_id: int, body: dict) -> dict[str, Any]:
     try:
         digest_hour = int(body.get("digest_hour", 8))
     except (TypeError, ValueError):
-        raise ValueError("digest_hour deve ser inteiro 0..23")
+        raise ValueError("digest_hour deve ser inteiro 0..23") from None
     if not 0 <= digest_hour <= 23:
         raise ValueError("digest_hour fora do range 0..23")
 
@@ -135,13 +136,15 @@ async def list_due_for_digest(current_hour: int) -> list[dict]:
             cats = json.loads(r.get("categories") or "[]")
         except (json.JSONDecodeError, TypeError):
             cats = []
-        out.append({
-            "user_id": int(r["user_id"]),
-            "email": r["email"],
-            "username": r["username"],
-            "severity_min": r.get("severity_min") or "warning",
-            "categories": cats if isinstance(cats, list) else [],
-        })
+        out.append(
+            {
+                "user_id": int(r["user_id"]),
+                "email": r["email"],
+                "username": r["username"],
+                "severity_min": r.get("severity_min") or "warning",
+                "categories": cats if isinstance(cats, list) else [],
+            }
+        )
     return out
 
 

@@ -15,7 +15,7 @@ startup pelos próprios routers. Idempotência fica por conta do handler.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -115,6 +115,7 @@ def _row_to_dict(r: dict) -> dict[str, Any]:
 
 # ---------- Config helpers ----------
 
+
 async def is_enabled() -> bool:
     return await settings_repo.get_bool("workflow_approval_enabled", False)
 
@@ -139,18 +140,23 @@ async def get_config() -> dict:
 async def update_config(enabled: bool | None, actions: str | None, ttl_hours: int | None) -> dict:
     entries = []
     if enabled is not None:
-        entries.append({"setting_key": "workflow_approval_enabled", "setting_value": "1" if enabled else "0"})
+        entries.append(
+            {"setting_key": "workflow_approval_enabled", "setting_value": "1" if enabled else "0"}
+        )
     if actions is not None:
         entries.append({"setting_key": "workflow_approval_actions", "setting_value": str(actions)})
     if ttl_hours is not None:
         ttl_hours = max(1, min(168, int(ttl_hours)))
-        entries.append({"setting_key": "workflow_approval_ttl_hours", "setting_value": str(ttl_hours)})
+        entries.append(
+            {"setting_key": "workflow_approval_ttl_hours", "setting_value": str(ttl_hours)}
+        )
     if entries:
         await settings_repo.bulk_upsert(entries)
     return await get_config()
 
 
 # ---------- Request lifecycle ----------
+
 
 async def request_approval(
     *,
@@ -162,7 +168,7 @@ async def request_approval(
     payload: dict | None = None,
 ) -> dict:
     ttl_hours = await settings_repo.get_int("workflow_approval_ttl_hours", DEFAULT_TTL_HOURS)
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+    expires_at = datetime.now(UTC) + timedelta(hours=ttl_hours)
     await db_execute(
         """
         INSERT INTO approval_requests
@@ -181,7 +187,8 @@ async def request_approval(
         ],
     )
     row = await db_fetchone(
-        "SELECT * FROM approval_requests WHERE requester_id = ? AND action = ? ORDER BY id DESC LIMIT 1",
+        "SELECT * FROM approval_requests WHERE requester_id = ? AND action = ? ORDER BY id DESC "
+        "LIMIT 1",
         [int(requester_id), action[:80]],
     )
     return _row_to_dict(row) if row else {}
@@ -207,7 +214,8 @@ async def list_all(limit: int = 200) -> list[dict]:
 
 async def get(request_id: int) -> dict | None:
     row = await db_fetchone(
-        "SELECT * FROM approval_requests WHERE id = ?", [int(request_id)],
+        "SELECT * FROM approval_requests WHERE id = ?",
+        [int(request_id)],
     )
     return _row_to_dict(row) if row else None
 
@@ -238,7 +246,9 @@ async def approve(request_id: int, approver_id: int | None, approver_username: s
     return {"ok": True, "request_id": int(request_id)}
 
 
-async def reject(request_id: int, approver_id: int | None, approver_username: str | None, reason: str = "") -> dict:
+async def reject(
+    request_id: int, approver_id: int | None, approver_username: str | None, reason: str = ""
+) -> dict:
     if approver_id is None:
         return {"ok": False, "error": "rejeição exige um usuário (não API token)"}
     row = await db_fetchone(
@@ -287,7 +297,8 @@ async def enforce_approval(
                 payload={"snapshot": "..."},
             )
         except approval_service.ApprovalRequired as exc:
-            return JSONResponse({"approval_pending": True, "request_id": exc.request_id}, status_code=202)
+            return JSONResponse({"approval_pending": True, "request_id": exc.request_id},
+                status_code=202)
         result = await do_the_work(...)
     """
     if not await required_for(action):
@@ -396,13 +407,15 @@ async def mark_executed(request_id: int, result: dict | None = None) -> bool:
 async def _expire_old() -> int:
     """Marca pending com expires_at no passado como 'expired'."""
     row = await db_fetchone(
-        "SELECT COUNT(*) AS n FROM approval_requests WHERE status = 'pending' AND expires_at < NOW()",
+        "SELECT COUNT(*) AS n FROM approval_requests WHERE status = 'pending' AND expires_at < "
+        "NOW()",
         [],
     )
     n = int(row["n"]) if row else 0
     if n > 0:
         await db_execute(
-            "UPDATE approval_requests SET status = 'expired' WHERE status = 'pending' AND expires_at < NOW()",
+            "UPDATE approval_requests SET status = 'expired' WHERE status = 'pending' AND "
+            "expires_at < NOW()",
             [],
         )
     return n

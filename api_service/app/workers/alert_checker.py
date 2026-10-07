@@ -49,12 +49,12 @@ NO_QUERIES_COOLDOWN_HOURS = 6
 # Editáveis via UI (alerts.php → modal "Editar limiares") que faz
 # PUT /api/v1/alerts/thresholds → settings_repo.bulk_upsert.
 THRESHOLD_DEFAULTS = {
-    "alert_threshold_cpu_load1":        4.0,
-    "alert_threshold_mem_percent":      90.0,
-    "alert_threshold_swap_percent":     50.0,
-    "alert_threshold_disk_percent":     90.0,
+    "alert_threshold_cpu_load1": 4.0,
+    "alert_threshold_mem_percent": 90.0,
+    "alert_threshold_swap_percent": 50.0,
+    "alert_threshold_disk_percent": 90.0,
     "alert_threshold_network_counters": 100.0,
-    "alert_threshold_ssh_failed_day":   50.0,
+    "alert_threshold_ssh_failed_day": 50.0,
 }
 
 WEBSERVER_UNIT = "apache2.service"
@@ -134,12 +134,19 @@ class AlertChecker:
         log.warning("alert_checker.created", type=alert_type, severity=severity, message=message)
         # Publish no broker WS pra bell em tempo real
         from app.services import alerts_broker
-        alerts_broker.publish({
-            "event": "created", "type": alert_type, "severity": severity, "message": message,
-        })
+
+        alerts_broker.publish(
+            {
+                "event": "created",
+                "type": alert_type,
+                "severity": severity,
+                "message": message,
+            }
+        )
         # Webhook best-effort — não derruba o worker
         try:
             from app.services.webhook_notifier import notify as webhook_notify
+
             await webhook_notify(alert_type, severity, message)
         except Exception as exc:  # noqa: BLE001
             log.warning("alert_checker.webhook_failed", type=alert_type, error=str(exc))
@@ -157,6 +164,7 @@ class AlertChecker:
             [alert_type],
         )
         from app.services import alerts_broker
+
         for r in rows:
             alerts_broker.publish({"event": "resolved", "type": alert_type, "id": int(r["id"])})
 
@@ -218,7 +226,10 @@ class AlertChecker:
         )
         log.warning("alert_checker.created", type="no_queries")
         from app.services import alerts_broker
-        alerts_broker.publish({"event": "created", "type": "no_queries", "severity": "critical", "message": msg})
+
+        alerts_broker.publish(
+            {"event": "created", "type": "no_queries", "severity": "critical", "message": msg}
+        )
 
     async def _check_cpu(self) -> None:
         load1 = system_health.cpu_load1()

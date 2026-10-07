@@ -91,17 +91,26 @@ class BaselineLearner:
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    int(r["hod"]), int(r["dow"]), int(r["n"]),
-                    float(r["avg_q"] or 0), float(r["sd_q"] or 0),
-                    float(r["avg_b"] or 0), float(r["sd_b"] or 0),
+                    int(r["hod"]),
+                    int(r["dow"]),
+                    int(r["n"]),
+                    float(r["avg_q"] or 0),
+                    float(r["sd_q"] or 0),
+                    float(r["avg_b"] or 0),
+                    float(r["sd_b"] or 0),
                 ],
             )
 
         ts_iso = datetime.now(UTC).isoformat(timespec="seconds")
-        await settings_repo.bulk_upsert([
-            {"setting_key": "anomaly_baseline_last_run", "setting_value": ts_iso},
-            {"setting_key": "anomaly_baseline_buckets_learned", "setting_value": str(len(rows))},
-        ])
+        await settings_repo.bulk_upsert(
+            [
+                {"setting_key": "anomaly_baseline_last_run", "setting_value": ts_iso},
+                {
+                    "setting_key": "anomaly_baseline_buckets_learned",
+                    "setting_value": str(len(rows)),
+                },
+            ]
+        )
         log.info("baseline_learner.completed", buckets=len(rows), weeks=weeks)
         return {"learned": len(rows), "weeks": weeks}
 

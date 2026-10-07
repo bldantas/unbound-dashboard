@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.core.deps import require_capability, require_global_capability
+from app.core.deps import require_global_capability
 from app.services import updater
 
 router = APIRouter(prefix="/api/v1/updates", tags=["updates"])
@@ -31,6 +31,7 @@ async def _username_from_payload(user_id: int | None) -> str | None:
         return None
     try:
         from app.repositories.duckdb import user_repo
+
         user = await user_repo.find_by_id(user_id)
         return str(user["username"]) if user else None
     except Exception:  # noqa: BLE001
@@ -66,7 +67,11 @@ async def check(_: Annotated[dict, Depends(require_global_capability("config.wri
 
 
 class ApplyRequest(BaseModel):
-    version: str = Field(min_length=5, max_length=20, description="Versão semver sem 'v' (ex: 2.17.0) OU sentinel 'latest'")
+    version: str = Field(
+        min_length=5,
+        max_length=20,
+        description="Versão semver sem 'v' (ex: 2.17.0) OU sentinel 'latest'",
+    )
     acknowledge_breaking: bool = Field(default=False, description="Obrigatório em major bumps")
 
 
@@ -164,6 +169,13 @@ def _validate_job_id(job_id: str) -> None:
         )
 
 
+def _read_delta(path: Path, start: int, end: int) -> bytes:
+    """Lê [start, end) do log (I/O bloqueante — chamado via to_thread)."""
+    with path.open("rb") as f:
+        f.seek(start)
+        return f.read(end - start)
+
+
 def _sse(data: str, event: str | None = None) -> bytes:
     """Formata uma mensagem SSE conforme spec."""
     out = ""
@@ -217,9 +229,7 @@ async def _tail_log_generator(request: Request, job_id: str):
             if log_path.exists():
                 size = log_path.stat().st_size
                 if size > last_size:
-                    with log_path.open("rb") as f:
-                        f.seek(last_size)
-                        chunk = f.read(size - last_size)
+                    chunk = await asyncio.to_thread(_read_delta, log_path, last_size, size)
                     last_size = size
                     # Pode ter linhas parciais no fim — emite mesmo assim,
                     # cliente concatena no front
@@ -240,9 +250,7 @@ async def _tail_log_generator(request: Request, job_id: str):
             if log_path.exists():
                 size = log_path.stat().st_size
                 if size > last_size:
-                    with log_path.open("rb") as f:
-                        f.seek(last_size)
-                        chunk = f.read(size - last_size)
+                    chunk = await asyncio.to_thread(_read_delta, log_path, last_size, size)
                     yield _sse(chunk.decode("utf-8", errors="replace"))
             yield _sse(json.dumps(state), event="done")
             return
@@ -279,7 +287,9 @@ async def restore_backup(
     xff = request.headers.get("x-forwarded-for", "")
     ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
     try:
-        job_id = await updater.restore_backup(body.timestamp, user_id=user_id, username=username, ip=ip)
+        job_id = await updater.restore_backup(
+            body.timestamp, user_id=user_id, username=username, ip=ip
+        )
     except updater.InvalidTimestamp as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
     except updater.BackupNotFound as exc:

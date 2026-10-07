@@ -24,7 +24,6 @@ Best-effort: erros HTTP/conexão logam mas NÃO derrubam o caller
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any
 
@@ -46,8 +45,8 @@ _SEVERITY_ORDER = {"info": 1, "warning": 2, "critical": 3}
 
 
 SEVERITY_EMOJI = {
-    "info":     "ℹ️",
-    "warning":  "⚠️",
+    "info": "ℹ️",
+    "warning": "⚠️",
     "critical": "🚨",
 }
 
@@ -56,10 +55,12 @@ async def _load_config() -> dict[str, Any]:
     """Carrega config do webhook do DuckDB."""
     enabled = await settings_repo.get_bool("webhook_enabled", False)
     return {
-        "enabled":      enabled,
-        "url":          await settings_repo.get("webhook_url", "") or "",
-        "type":         (await settings_repo.get("webhook_type", "generic") or "generic").lower(),
-        "severity_min": (await settings_repo.get("webhook_severity_min", "critical") or "critical").lower(),
+        "enabled": enabled,
+        "url": await settings_repo.get("webhook_url", "") or "",
+        "type": (await settings_repo.get("webhook_type", "generic") or "generic").lower(),
+        "severity_min": (
+            await settings_repo.get("webhook_severity_min", "critical") or "critical"
+        ).lower(),
         "telegram_chat_id": await settings_repo.get("webhook_telegram_chat_id", "") or "",
     }
 
@@ -99,11 +100,11 @@ def _build_payload(
         return body
     # generic
     return {
-        "type":      alert_type,
-        "severity":  severity,
-        "message":   message,
+        "type": alert_type,
+        "severity": severity,
+        "message": message,
         "timestamp": int(time.time()),
-        "source":    "unbound-dashboard",
+        "source": "unbound-dashboard",
     }
 
 
@@ -142,7 +143,9 @@ async def notify(alert_type: str, severity: str, message: str) -> dict[str, Any]
     if await _under_cooldown(alert_type):
         return {"sent": False, "reason": "cooldown", "http_status": None}
 
-    payload = _build_payload(cfg["type"], alert_type, severity, message, cfg.get("telegram_chat_id", ""))
+    payload = _build_payload(
+        cfg["type"], alert_type, severity, message, cfg.get("telegram_chat_id", "")
+    )
     try:
         async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT) as client:
             resp = await client.post(cfg["url"], json=payload)
@@ -163,7 +166,11 @@ async def notify(alert_type: str, severity: str, message: str) -> dict[str, Any]
             http_status=resp.status_code,
             body=resp.text[:200],
         )
-        return {"sent": False, "reason": f"http_{resp.status_code}", "http_status": resp.status_code}
+        return {
+            "sent": False,
+            "reason": f"http_{resp.status_code}",
+            "http_status": resp.status_code,
+        }
     except httpx.RequestError as exc:
         log.warning("webhook.network_error", type=alert_type, error=str(exc))
         return {"sent": False, "reason": "network_error", "http_status": None}
@@ -243,7 +250,10 @@ async def send_test(custom_message: str | None = None) -> dict[str, Any]:
     if not cfg["url"]:
         return {"sent": False, "reason": "no_url", "http_status": None}
 
-    msg = custom_message or "Teste de webhook — se você está lendo isso, a integração está funcionando."
+    msg = (
+        custom_message
+        or "Teste de webhook — se você está lendo isso, a integração está funcionando."
+    )
     payload = _build_payload(cfg["type"], "test", "info", msg, cfg.get("telegram_chat_id", ""))
     try:
         async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT) as client:

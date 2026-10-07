@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
-
 import pytest
 
 
@@ -15,9 +13,11 @@ def fresh_db(tmp_path, monkeypatch):
 
     config.settings = config.Settings()  # noqa: SLF001
     from app.repositories.duckdb import connection
+
     connection.settings = config.settings  # type: ignore[attr-defined]
 
     from app.db import run_migrations
+
     run_migrations(str(db))
     return db
 
@@ -88,7 +88,11 @@ async def test_update_preserve_token_when_empty(fresh_db):
     from app.services import managed_hosts
 
     h_id = await managed_hosts.create(
-        label="a", base_url="https://x.com", api_token="ORIGINAL_TOKEN_VALUE", notes=None, added_by=None
+        label="a",
+        base_url="https://x.com",
+        api_token="ORIGINAL_TOKEN_VALUE",
+        notes=None,
+        added_by=None,
     )
     # api_token="" deve preservar o original
     await managed_hosts.update(h_id, api_token="")
@@ -129,14 +133,22 @@ async def test_poll_host_ok(fresh_db, monkeypatch):
 
     class MockResp:
         status_code = 200
+
         def json(self):
             return {"version": "2.21.1", "alerts_active": 0}
+
         text = ""
 
     class MockClient:
-        def __init__(self, *a, **kw): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): pass
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
         async def get(self, url, headers=None):
             assert "X-Api-Token" in headers
             assert headers["X-Api-Token"] == "t" * 30
@@ -162,9 +174,15 @@ async def test_poll_host_auth_failed(fresh_db, monkeypatch):
         text = "Unauthorized"
 
     class MockClient:
-        def __init__(self, *a, **kw): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): pass
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
         async def get(self, url, headers=None):
             return MockResp()
 
@@ -176,16 +194,27 @@ async def test_poll_host_auth_failed(fresh_db, monkeypatch):
 @pytest.mark.asyncio
 async def test_poll_host_unreachable(fresh_db, monkeypatch):
     import httpx as httpx_mod
+
     from app.services import managed_hosts
 
     h_id = await managed_hosts.create(
-        label="a", base_url="https://nonexistent.invalid", api_token="t" * 30, notes=None, added_by=None
+        label="a",
+        base_url="https://nonexistent.invalid",
+        api_token="t" * 30,
+        notes=None,
+        added_by=None,
     )
 
     class MockClient:
-        def __init__(self, *a, **kw): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): pass
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
         async def get(self, url, headers=None):
             raise httpx_mod.ConnectError("connection refused")
 
@@ -208,7 +237,11 @@ async def test_poll_writes_history(fresh_db, monkeypatch):
     from app.services import managed_hosts
 
     h_id = await managed_hosts.create(
-        label="agent", base_url="https://h.example.com", api_token="t" * 30, notes=None, added_by=None
+        label="agent",
+        base_url="https://h.example.com",
+        api_token="t" * 30,
+        notes=None,
+        added_by=None,
     )
 
     # Mock httpx pra retornar JSON ok
@@ -219,9 +252,15 @@ async def test_poll_writes_history(fresh_db, monkeypatch):
             return {"version": "9.9.9", "uptime_seconds": 100}
 
     class MockClient:
-        def __init__(self, *a, **kw): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): pass
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
         async def get(self, url, headers=None):
             return MockResp()
 
@@ -244,10 +283,14 @@ async def test_history_trim_keeps_last_100(fresh_db):
     from app.services import managed_hosts
 
     h_id = await managed_hosts.create(
-        label="agent", base_url="https://h.example.com", api_token="t" * 30, notes=None, added_by=None
+        label="agent",
+        base_url="https://h.example.com",
+        api_token="t" * 30,
+        notes=None,
+        added_by=None,
     )
     # Seed 105 linhas pré-existentes
-    for i in range(105):
+    for _ in range(105):
         await db_execute(
             "INSERT INTO host_poll_history (host_id, status, error, payload) VALUES (?, ?, ?, ?)",
             [h_id, "ok", None, None],
@@ -257,13 +300,20 @@ async def test_history_trim_keeps_last_100(fresh_db):
     import httpx as httpx_mod
 
     class MockClient:
-        def __init__(self, *a, **kw): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): pass
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
         async def get(self, url, headers=None):
             raise httpx_mod.ConnectError("refused")
 
     import pytest as _p
+
     monkeypatch_ctx = _p.MonkeyPatch()
     monkeypatch_ctx.setattr("app.services.managed_hosts.httpx.AsyncClient", MockClient)
     try:

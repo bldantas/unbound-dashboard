@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
-
 import pytest
 from cryptography.fernet import Fernet
 
@@ -12,6 +10,7 @@ from cryptography.fernet import Fernet
 def _reload_cipher(monkeypatch):
     """Limpa o cache module-level entre testes."""
     import app.services.cipher_service as mod
+
     mod._cipher = None
     mod._key_loaded = False
     yield mod

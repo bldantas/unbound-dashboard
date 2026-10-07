@@ -12,7 +12,6 @@ teste no UI).
 from __future__ import annotations
 
 import asyncio
-
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -27,14 +26,15 @@ log = structlog.get_logger(__name__)
 
 async def _load_smtp_config() -> dict[str, Any]:
     return {
-        "enabled":   await settings_repo.get_bool("smtp_enabled", False),
-        "host":      await settings_repo.get("smtp_host", "") or "",
-        "port":      await settings_repo.get_int("smtp_port", 587),
+        "enabled": await settings_repo.get_bool("smtp_enabled", False),
+        "host": await settings_repo.get("smtp_host", "") or "",
+        "port": await settings_repo.get_int("smtp_port", 587),
         "encryption": (await settings_repo.get("smtp_encryption", "tls") or "tls").lower(),
-        "user":      await settings_repo.get("smtp_user", "") or "",
-        "password":  await settings_repo.get("smtp_password", "") or "",
+        "user": await settings_repo.get("smtp_user", "") or "",
+        "password": await settings_repo.get("smtp_password", "") or "",
         "from_addr": await settings_repo.get("smtp_from", "") or "",
-        "from_name": await settings_repo.get("smtp_from_name", "Unbound Dashboard") or "Unbound Dashboard",
+        "from_name": await settings_repo.get("smtp_from_name", "Unbound Dashboard")
+        or "Unbound Dashboard",
     }
 
 
@@ -49,7 +49,9 @@ def _send_via_smtp(
     (text + html) — clientes modernos exibem HTML, clientes texto-only veem o
     fallback. Retorna (success, message)."""
     msg = EmailMessage()
-    msg["From"] = f'{cfg["from_name"]} <{cfg["from_addr"]}>' if cfg["from_name"] else cfg["from_addr"]
+    msg["From"] = (
+        f"{cfg['from_name']} <{cfg['from_addr']}>" if cfg["from_name"] else cfg["from_addr"]
+    )
     msg["To"] = to
     msg["Subject"] = subject
     msg.set_content(body)
@@ -102,10 +104,9 @@ async def notify_new_release(release: dict[str, Any]) -> dict[str, int]:
         return {"sent": 0, "failed": 0, "skipped": 0}
 
     targets = [
-        str(u["email"]) for u in users
-        if u.get("role") == "admin"
-        and u.get("is_active")
-        and u.get("email")
+        str(u["email"])
+        for u in users
+        if u.get("role") == "admin" and u.get("is_active") and u.get("email")
     ]
     if not targets:
         log.info("email_notifier.no_targets")

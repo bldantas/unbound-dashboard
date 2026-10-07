@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import queue
 
-import pytest
-
 
 def _reset_subscribers(mod) -> None:
     """Limpa o set global entre testes — broker é module-level state."""

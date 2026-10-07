@@ -15,13 +15,26 @@ def _set_env() -> None:
 EXPECTED_VERSIONS = list(range(1, 31))  # V1..V30 — adicionar aqui a cada migration nova
 
 CORE_TABLES = {
-    "users", "settings", "alerts", "query_logs", "daily_stats",
-    "blocklist_domains", "auth_sessions", "update_audit", "api_tokens",
-    "managed_hosts", "host_poll_history", "schema_migrations",
+    "users",
+    "settings",
+    "alerts",
+    "query_logs",
+    "daily_stats",
+    "blocklist_domains",
+    "auth_sessions",
+    "update_audit",
+    "api_tokens",
+    "managed_hosts",
+    "host_poll_history",
+    "schema_migrations",
     # V9 blocklist_multisource, V11 client_policies, V12 hourly_stats,
     # V13 geo_blocking, V14 anomaly_whitelist, V15 admin_audit
-    "blocklist_sources", "client_policies", "hourly_stats",
-    "geo_blocks", "anomaly_whitelist", "admin_audit",
+    "blocklist_sources",
+    "client_policies",
+    "hourly_stats",
+    "geo_blocks",
+    "anomaly_whitelist",
+    "admin_audit",
 }
 
 

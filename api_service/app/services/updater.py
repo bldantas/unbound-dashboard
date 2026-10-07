@@ -185,15 +185,17 @@ async def fetch_latest_release(force_refresh: bool = False) -> dict[str, Any]:
     # Reduz pra só o que interessa
     assets = []
     for a in data.get("assets", []):
-        assets.append({
-            "name": a.get("name", ""),
-            "browser_download_url": a.get("browser_download_url", ""),
-            # `url` = API URL (api.github.com/.../assets/<id>). Funciona com
-            # repo privado quando combinada com `Accept: application/octet-stream`.
-            # browser_download_url redireciona pra S3 e descarta Authorization.
-            "api_url": a.get("url", ""),
-            "size": a.get("size", 0),
-        })
+        assets.append(
+            {
+                "name": a.get("name", ""),
+                "browser_download_url": a.get("browser_download_url", ""),
+                # `url` = API URL (api.github.com/.../assets/<id>). Funciona com
+                # repo privado quando combinada com `Accept: application/octet-stream`.
+                # browser_download_url redireciona pra S3 e descarta Authorization.
+                "api_url": a.get("url", ""),
+                "size": a.get("size", 0),
+            }
+        )
 
     payload = {
         "tag_name": data.get("tag_name", ""),
@@ -333,9 +335,7 @@ async def download_and_verify(release: dict[str, Any]) -> Path:
     sha_path = UPDATES_DIR / sha_asset["name"]
     sig_path = UPDATES_DIR / sig_asset["name"]
 
-    has_token = bool(
-        settings.github_token and settings.github_token.get_secret_value()
-    )
+    has_token = bool(settings.github_token and settings.github_token.get_secret_value())
     tarball_url = tarball_asset["api_url"] if has_token else tarball_asset["browser_download_url"]
     sha_url = sha_asset["api_url"] if has_token else sha_asset["browser_download_url"]
     sig_url = sig_asset["api_url"] if has_token else sig_asset["browser_download_url"]
@@ -350,9 +350,7 @@ async def download_and_verify(release: dict[str, Any]) -> Path:
         tarball_path.unlink(missing_ok=True)
         sha_path.unlink(missing_ok=True)
         sig_path.unlink(missing_ok=True)
-        raise ChecksumMismatch(
-            f"SHA256 do tarball ({tarball_asset['name']}) não bate com .sha256"
-        )
+        raise ChecksumMismatch(f"SHA256 do tarball ({tarball_asset['name']}) não bate com .sha256")
 
     log.info("updater.download_verified", tarball=str(tarball_path))
     return tarball_path
@@ -439,7 +437,7 @@ def _spawn_update_process(tarball_path: Path, job_id: str, log_path: Path) -> in
     SSE espera alguns segundos o arquivo aparecer.
     """
     proc = subprocess.Popen(  # noqa: S603
-        ["sudo", "-n", RUN_UPDATE_WRAPPER, job_id, str(tarball_path)],
+        ["/usr/bin/sudo", "-n", RUN_UPDATE_WRAPPER, job_id, str(tarball_path)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL,
@@ -487,9 +485,7 @@ async def apply_update(
         latest = release["tag_name"].lstrip("v")
         # Sentinel "latest" pula a comparação — usa o que o agent acabou de ver no GitHub.
         if version != "latest" and latest != version:
-            raise VersionMismatch(
-                f"Versão pedida v{version} ≠ última publicada v{latest}"
-            )
+            raise VersionMismatch(f"Versão pedida v{version} ≠ última publicada v{latest}")
 
         # 3. Major bump exige ack
         current_local = _read_local_version()
@@ -521,6 +517,7 @@ async def apply_update(
 
         # 6b. Audit trail no DuckDB (best-effort)
         from app.services import audit_service
+
         await audit_service.record_start(
             job_id=job_id,
             kind="update",
@@ -592,6 +589,7 @@ async def _monitor_job(job_id: str, pid: int, log_path: Path, to_version: str) -
     await _save_job_state(job_id, status=status, finished_at=int(time.time()))
     # Audit trail: atualiza entry com status final
     from app.services import audit_service
+
     await audit_service.record_finish(job_id, status)
     await release_lock()
     log.info("updater.job_finished", job_id=job_id, status=status, marker_found=marker_found)
@@ -624,11 +622,14 @@ def _log_has_terminal_marker(log_path: Path) -> bool:
     except Exception:  # noqa: BLE001
         return False
     text = "\n".join(lines)
-    return any(m in text for m in (
-        "Update concluído",
-        "ROLLBACK CONCLUÍDO",
-        "ROLLBACK FAILED",
-    ))
+    return any(
+        m in text
+        for m in (
+            "Update concluído",
+            "ROLLBACK CONCLUÍDO",
+            "ROLLBACK FAILED",
+        )
+    )
 
 
 def _resolve_final_status(log_path: Path, to_version: str, marker_found: bool) -> str:
@@ -697,14 +698,16 @@ def list_backups(limit: int = BACKUPS_LIST_LIMIT) -> list[dict[str, Any]]:
         # Verifica se há DuckDB + env associados pelo mesmo timestamp
         db_path = BACKUP_DIR / f"duckdb-{ts}.duckdb"
         env_path = BACKUP_DIR / f"api-v1.env-{ts}"
-        entries.append({
-            "timestamp": ts,
-            "created_at": int(stat.st_mtime),
-            "size_bytes": stat.st_size,
-            "has_duckdb": db_path.exists(),
-            "has_env": env_path.exists(),
-            "duckdb_size_bytes": db_path.stat().st_size if db_path.exists() else 0,
-        })
+        entries.append(
+            {
+                "timestamp": ts,
+                "created_at": int(stat.st_mtime),
+                "size_bytes": stat.st_size,
+                "has_duckdb": db_path.exists(),
+                "has_env": env_path.exists(),
+                "duckdb_size_bytes": db_path.stat().st_size if db_path.exists() else 0,
+            }
+        )
 
     # Mais recente primeiro (timestamp string sort funciona pra YYYYMMDD_HHMMSS)
     entries.sort(key=lambda e: e["timestamp"], reverse=True)
@@ -723,7 +726,7 @@ def _spawn_restore_process(timestamp: str, job_id: str, log_path: Path) -> int:
     """Spawna `sudo unbound-dashboard-restore-backup.sh <job_id> <timestamp>`
     detachado. O log é criado pelo script (root)."""
     proc = subprocess.Popen(  # noqa: S603
-        ["sudo", "-n", RESTORE_SCRIPT, job_id, timestamp],
+        ["/usr/bin/sudo", "-n", RESTORE_SCRIPT, job_id, timestamp],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL,
@@ -768,6 +771,7 @@ async def restore_backup(
         # Pra inferir to_version corretamente após o restore, tentamos
         # extrair o VERSION de dentro do tarball (sem extrair tudo)
         import tarfile
+
         to_version_guess = "?"
         try:
             with tarfile.open(backup_path, "r:gz") as tf:
@@ -794,6 +798,7 @@ async def restore_backup(
         )
 
         from app.services import audit_service
+
         await audit_service.record_start(
             job_id=job_id,
             kind="restore",

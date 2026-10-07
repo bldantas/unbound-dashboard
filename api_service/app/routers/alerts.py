@@ -21,12 +21,12 @@ class ThresholdsUpdateRequest(BaseModel):
     Campos omitidos não são alterados (PATCH-style).
     """
 
-    alert_threshold_cpu_load1:        float | None = Field(default=None, ge=0)
-    alert_threshold_mem_percent:      float | None = Field(default=None, ge=0, le=100)
-    alert_threshold_swap_percent:     float | None = Field(default=None, ge=0, le=100)
-    alert_threshold_disk_percent:     float | None = Field(default=None, ge=0, le=100)
+    alert_threshold_cpu_load1: float | None = Field(default=None, ge=0)
+    alert_threshold_mem_percent: float | None = Field(default=None, ge=0, le=100)
+    alert_threshold_swap_percent: float | None = Field(default=None, ge=0, le=100)
+    alert_threshold_disk_percent: float | None = Field(default=None, ge=0, le=100)
     alert_threshold_network_counters: float | None = Field(default=None, ge=0)
-    alert_threshold_ssh_failed_day:   float | None = Field(default=None, ge=0)
+    alert_threshold_ssh_failed_day: float | None = Field(default=None, ge=0)
 
 
 def _format_alert_row(row: dict) -> dict:
@@ -100,9 +100,7 @@ async def update_thresholds(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Nenhum threshold informado.",
         )
-    entries = [
-        {"setting_key": k, "setting_value": str(v)} for k, v in payload.items()
-    ]
+    entries = [{"setting_key": k, "setting_value": str(v)} for k, v in payload.items()]
     upserted = await settings_repo.bulk_upsert(entries)
     new_state = {}
     for key, default in THRESHOLD_DEFAULTS.items():

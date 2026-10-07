@@ -56,6 +56,7 @@ async def resolve_by_id(alert_id: int) -> bool:
         [alert_id],
     )
     from app.services import alerts_broker
+
     alerts_broker.publish({"event": "resolved", "id": int(row["id"]), "type": str(row["type"])})
     return True
 
@@ -82,6 +83,7 @@ async def dismiss_by_id(alert_id: int) -> bool:
         [alert_id],
     )
     from app.services import alerts_broker
+
     alerts_broker.publish({"event": "dismissed", "id": int(row["id"]), "type": str(row["type"])})
     return True
 
@@ -93,6 +95,7 @@ async def dismiss_all_active() -> int:
     if n > 0:
         await db_execute("UPDATE alerts SET is_dismissed = true WHERE is_dismissed = false", [])
         from app.services import alerts_broker
+
         alerts_broker.publish({"event": "dismissed_all", "count": n})
     return n
 
@@ -142,7 +145,8 @@ async def list_filtered(
     rows = await db_fetchall(
         f"""
         SELECT id, type, severity, message, started_at, resolved_at, is_dismissed, org_id,
-               EXTRACT(EPOCH FROM (COALESCE(resolved_at, NOW()) - started_at))::BIGINT AS duration_secs
+               EXTRACT(EPOCH FROM (COALESCE(resolved_at, NOW()) - started_at))::BIGINT
+                   AS duration_secs
         FROM alerts
         WHERE {where_sql}
         ORDER BY started_at DESC

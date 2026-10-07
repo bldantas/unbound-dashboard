@@ -64,7 +64,10 @@ async def update_config(
         v = str(body[k]).strip()
         # Valida formato slowapi: "<n>/<unit>" (ex: "200/minute")
         if v and "/" not in v:
-            raise HTTPException(status_code=400, detail=f"{k} formato inválido (esperado 'N/unit', ex: '200/minute')")
+            raise HTTPException(
+                status_code=400,
+                detail=f"{k} formato inválido (esperado 'N/unit', ex: '200/minute')",
+            )
         entries.append({"setting_key": k, "setting_value": v})
     if not entries:
         raise HTTPException(status_code=400, detail="nenhum campo válido fornecido")

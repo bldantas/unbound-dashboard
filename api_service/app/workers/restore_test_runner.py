@@ -65,15 +65,23 @@ class RestoreTestRunner:
         result = await loop.run_in_executor(None, svc.restore_test, cfg, None)
 
         ts_iso = datetime.now(UTC).isoformat(timespec="seconds")
-        await settings_repo.bulk_upsert([
-            {"setting_key": "backup_s3_last_restore_test_at", "setting_value": ts_iso},
-            {"setting_key": "backup_s3_last_restore_test_ok",
-             "setting_value": "1" if result.get("success") else "0"},
-            {"setting_key": "backup_s3_last_restore_test_error",
-             "setting_value": str(result.get("error") or "")},
-            {"setting_key": "backup_s3_last_restore_test_key",
-             "setting_value": str(result.get("key") or "")},
-        ])
+        await settings_repo.bulk_upsert(
+            [
+                {"setting_key": "backup_s3_last_restore_test_at", "setting_value": ts_iso},
+                {
+                    "setting_key": "backup_s3_last_restore_test_ok",
+                    "setting_value": "1" if result.get("success") else "0",
+                },
+                {
+                    "setting_key": "backup_s3_last_restore_test_error",
+                    "setting_value": str(result.get("error") or ""),
+                },
+                {
+                    "setting_key": "backup_s3_last_restore_test_key",
+                    "setting_value": str(result.get("key") or ""),
+                },
+            ]
+        )
         log.info(
             "restore_test_runner.completed",
             ok=result.get("success"),

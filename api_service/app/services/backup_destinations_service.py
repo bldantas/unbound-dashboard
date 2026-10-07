@@ -13,9 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import json
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import structlog
@@ -67,6 +65,7 @@ def _row_to_dict(r: dict, include_secret: bool = False) -> dict:
 
 # ---------- CRUD ----------
 
+
 async def list_destinations() -> list[dict]:
     rows = await db_fetchall(
         "SELECT * FROM backup_destinations ORDER BY priority DESC, label ASC", []
@@ -75,9 +74,7 @@ async def list_destinations() -> list[dict]:
 
 
 async def get_destination(dest_id: int, include_secret: bool = False) -> dict | None:
-    row = await db_fetchone(
-        "SELECT * FROM backup_destinations WHERE id = ?", [int(dest_id)]
-    )
+    row = await db_fetchone("SELECT * FROM backup_destinations WHERE id = ?", [int(dest_id)])
     return _row_to_dict(row, include_secret=include_secret) if row else None
 
 
@@ -118,9 +115,15 @@ async def update_destination(dest_id: int, body: dict) -> bool:
     sets = []
     params: list = []
     allowed = {
-        "label": "STR", "endpoint": "STR", "bucket": "STR", "region": "STR",
-        "prefix": "STR", "access_key": "STR", "retention_count": "INT",
-        "enabled": "BOOL", "priority": "INT",
+        "label": "STR",
+        "endpoint": "STR",
+        "bucket": "STR",
+        "region": "STR",
+        "prefix": "STR",
+        "access_key": "STR",
+        "retention_count": "INT",
+        "enabled": "BOOL",
+        "priority": "INT",
     }
     for k, typ in allowed.items():
         if k not in body:
@@ -155,9 +158,7 @@ async def update_destination(dest_id: int, body: dict) -> bool:
 
 
 async def delete_destination(dest_id: int) -> bool:
-    row = await db_fetchone(
-        "SELECT id FROM backup_destinations WHERE id = ?", [int(dest_id)]
-    )
+    row = await db_fetchone("SELECT id FROM backup_destinations WHERE id = ?", [int(dest_id)])
     if not row:
         return False
     await db_execute("DELETE FROM backup_destinations WHERE id = ?", [int(dest_id)])
@@ -165,6 +166,7 @@ async def delete_destination(dest_id: int) -> bool:
 
 
 # ---------- Upload helpers ----------
+
 
 def _dest_to_cfg(dest: dict) -> dict:
     """Converte row do backup_destinations → cfg que upload_backup espera."""
@@ -206,16 +208,15 @@ async def upload_to_all() -> dict:
 
     # Build do tarball 1x (sync, em executor pra não bloquear o event loop)
     try:
-        archive_path, archive_size = await loop.run_in_executor(
-            None, legacy_svc.create_archive
-        )
+        archive_path, archive_size = await loop.run_in_executor(None, legacy_svc.create_archive)
     except Exception as exc:  # noqa: BLE001
         log.error("backup_destinations.archive_failed", error=str(exc))
         return {"results": [], "count": 0, "error": f"build archive: {exc}"}
 
     log.info(
         "backup_destinations.archive_built",
-        size_bytes=archive_size, destinations=len(rows),
+        size_bytes=archive_size,
+        destinations=len(rows),
     )
 
     results: list[dict] = []
@@ -259,17 +260,21 @@ async def upload_to_all() -> dict:
                     int(row["id"]),
                 ],
             )
-            results.append({
-                "id": int(row["id"]),
-                "label": row["label"],
-                "success": bool(result.get("success")),
-                "error": result.get("error"),
-                "size_bytes": result.get("size_bytes"),
-                "key": result.get("key"),
-            })
+            results.append(
+                {
+                    "id": int(row["id"]),
+                    "label": row["label"],
+                    "success": bool(result.get("success")),
+                    "error": result.get("error"),
+                    "size_bytes": result.get("size_bytes"),
+                    "key": result.get("key"),
+                }
+            )
             log.info(
                 "backup_destinations.upload_done",
-                id=int(row["id"]), label=row["label"], ok=result.get("success"),
+                id=int(row["id"]),
+                label=row["label"],
+                ok=result.get("success"),
             )
     finally:
         # Cleanup central — só depois que TODOS os destinations terminaram

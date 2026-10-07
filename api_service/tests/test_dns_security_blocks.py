@@ -81,8 +81,12 @@ def test_build_ratelimit_block_off():
     from app.services.dns_security_service import _build_ratelimit_block
 
     out = _build_ratelimit_block(
-        ip_enabled=False, ip_qps=0, ip_factor=10,
-        dom_enabled=False, dom_qps=0, dom_factor=10,
+        ip_enabled=False,
+        ip_qps=0,
+        ip_factor=10,
+        dom_enabled=False,
+        dom_qps=0,
+        dom_factor=10,
     )
     assert out == ""
 
@@ -91,8 +95,12 @@ def test_build_ratelimit_block_ip_only():
     from app.services.dns_security_service import _build_ratelimit_block
 
     out = _build_ratelimit_block(
-        ip_enabled=True, ip_qps=100, ip_factor=10,
-        dom_enabled=False, dom_qps=0, dom_factor=10,
+        ip_enabled=True,
+        ip_qps=100,
+        ip_factor=10,
+        dom_enabled=False,
+        dom_qps=0,
+        dom_factor=10,
     )
     # Match exato de linhas — "ratelimit:" e "ratelimit-factor:" são prefixadas
     # com 4 espaços; "ip-ratelimit:" também tem essa terminação como suffix,
@@ -110,8 +118,8 @@ def test_build_performance_block_empty_when_defaults():
     """Defaults → bloco vazio (preserva controle do optimization.conf)."""
     from app.services.dns_security_service import (
         PERFORMANCE_BOOL_KEYS,
-        PERFORMANCE_INT_KEYS,
         PERFORMANCE_DEFAULTS,
+        PERFORMANCE_INT_KEYS,
         _build_performance_block,
     )
 
@@ -122,7 +130,9 @@ def test_build_performance_block_empty_when_defaults():
 
 def test_build_performance_block_with_prefetch():
     from app.services.dns_security_service import (
-        PERFORMANCE_BOOL_KEYS, PERFORMANCE_INT_KEYS, PERFORMANCE_DEFAULTS,
+        PERFORMANCE_BOOL_KEYS,
+        PERFORMANCE_DEFAULTS,
+        PERFORMANCE_INT_KEYS,
         _build_performance_block,
     )
 
@@ -139,7 +149,9 @@ def test_build_performance_block_with_prefetch():
 
 def test_build_performance_block_serve_expired_with_ttl():
     from app.services.dns_security_service import (
-        PERFORMANCE_BOOL_KEYS, PERFORMANCE_INT_KEYS, PERFORMANCE_DEFAULTS,
+        PERFORMANCE_BOOL_KEYS,
+        PERFORMANCE_DEFAULTS,
+        PERFORMANCE_INT_KEYS,
         _build_performance_block,
     )
 
@@ -158,7 +170,9 @@ def test_build_performance_block_serve_expired_with_ttl():
 def test_build_performance_block_cache_size_emit_only_if_different():
     """Default 50m/100m — só emite se != default."""
     from app.services.dns_security_service import (
-        PERFORMANCE_BOOL_KEYS, PERFORMANCE_INT_KEYS, PERFORMANCE_DEFAULTS,
+        PERFORMANCE_BOOL_KEYS,
+        PERFORMANCE_DEFAULTS,
+        PERFORMANCE_INT_KEYS,
         _build_performance_block,
     )
 

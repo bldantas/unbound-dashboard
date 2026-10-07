@@ -9,7 +9,7 @@ em memória (até 50k registros — cap suficiente pra ~1 probe/min × 30d).
 from __future__ import annotations
 
 import statistics
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -31,9 +31,9 @@ async def record_probe(probe: dict) -> int:
         try:
             probed_at = datetime.fromisoformat(probe["probed_at"])
         except (ValueError, TypeError):
-            probed_at = datetime.now(timezone.utc)
+            probed_at = datetime.now(UTC)
     else:
-        probed_at = datetime.now(timezone.utc)
+        probed_at = datetime.now(UTC)
 
     await db_execute(
         """
@@ -49,7 +49,9 @@ async def record_probe(probe: dict) -> int:
             (probe.get("query_name") or "")[:255],
             bool(probe.get("success")),
             int(probe.get("latency_ms")) if probe.get("latency_ms") is not None else None,
-            bool(probe.get("response_correct")) if probe.get("response_correct") is not None else None,
+            bool(probe.get("response_correct"))
+            if probe.get("response_correct") is not None
+            else None,
             (probe.get("error") or "")[:500] or None,
         ],
     )
@@ -57,7 +59,9 @@ async def record_probe(probe: dict) -> int:
     return int(row["id"]) if row else 0
 
 
-async def list_recent(*, probe_source: str | None = None, limit: int = 200, hours: int = 24) -> list[dict]:
+async def list_recent(
+    *, probe_source: str | None = None, limit: int = 200, hours: int = 24
+) -> list[dict]:
     where = ["probed_at >= NOW() - (INTERVAL '1 hour' * ?)"]
     params: list = [int(hours)]
     if probe_source:
@@ -69,7 +73,7 @@ async def list_recent(*, probe_source: str | None = None, limit: int = 200, hour
         SELECT id, probed_at, probe_source, target_host, query_name,
                success, latency_ms, response_correct, error
         FROM external_health_probes
-        WHERE {' AND '.join(where)}
+        WHERE {" AND ".join(where)}
         ORDER BY probed_at DESC
         LIMIT ?
         """,
@@ -77,17 +81,19 @@ async def list_recent(*, probe_source: str | None = None, limit: int = 200, hour
     )
     out = []
     for r in rows:
-        out.append({
-            "id": int(r["id"]),
-            "probed_at": _to_iso(r.get("probed_at")),
-            "probe_source": r.get("probe_source"),
-            "target_host": r.get("target_host"),
-            "query_name": r.get("query_name"),
-            "success": bool(r.get("success")),
-            "latency_ms": r.get("latency_ms"),
-            "response_correct": r.get("response_correct"),
-            "error": r.get("error"),
-        })
+        out.append(
+            {
+                "id": int(r["id"]),
+                "probed_at": _to_iso(r.get("probed_at")),
+                "probe_source": r.get("probe_source"),
+                "target_host": r.get("target_host"),
+                "query_name": r.get("query_name"),
+                "success": bool(r.get("success")),
+                "latency_ms": r.get("latency_ms"),
+                "response_correct": r.get("response_correct"),
+                "error": r.get("error"),
+            }
+        )
     return out
 
 
@@ -168,7 +174,8 @@ async def list_sources(*, hours: int = 168) -> list[dict]:
 
 async def prune_old(days: int) -> int:
     row = await db_fetchone(
-        "SELECT COUNT(*) AS n FROM external_health_probes WHERE probed_at < NOW() - (INTERVAL '1 day' * ?)",
+        "SELECT COUNT(*) AS n FROM external_health_probes WHERE probed_at < NOW() - (INTERVAL "
+        "'1 day' * ?)",
         [int(days)],
     )
     n = int(row["n"]) if row else 0

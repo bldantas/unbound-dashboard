@@ -16,7 +16,6 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
-
 from fastapi.responses import JSONResponse
 
 from app.core.deps import require_capability, require_global_capability
@@ -74,15 +73,19 @@ async def apply(
     # request e responde 202 sem executar
     try:
         await approval_service.enforce_approval(
-            user=user, request_ip=ip,
+            user=user,
+            request_ip=ip,
             action="dns_security.apply",
             description="Aplicar config DNS (forwarders.conf) + restart Unbound",
             payload={},
         )
     except approval_service.ApprovalRequired as exc:
         return JSONResponse(
-            {"approval_pending": True, "request_id": exc.request_id,
-             "message": "Aguardando aprovação de outro admin em /approvals.php"},
+            {
+                "approval_pending": True,
+                "request_id": exc.request_id,
+                "message": "Aguardando aprovação de outro admin em /approvals.php",
+            },
             status_code=202,
         )
 
@@ -173,6 +176,7 @@ async def performance_metrics(
     memory, hit ratio, P50/P95/P99 (do histograma).
     """
     from app.services import unbound_stats_service
+
     s = await unbound_stats_service.get_stats()
     return {
         "online": s.get("online", False),

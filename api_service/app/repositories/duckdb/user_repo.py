@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.repositories.duckdb.connection import db_execute, db_execute_returning, db_fetchall, db_fetchone
+from app.repositories.duckdb.connection import (
+    db_execute,
+    db_execute_returning,
+    db_fetchall,
+    db_fetchone,
+)
 
 
 async def find_by_username(username: str) -> dict | None:
@@ -40,9 +45,7 @@ async def find_by_username_with_hash(user_id: int) -> dict | None:
     )
 
 
-async def register_failed_login(
-    user_id: int, max_failed: int, lock_until: datetime
-) -> int:
+async def register_failed_login(user_id: int, max_failed: int, lock_until: datetime) -> int:
     """Incrementa failed_logins de forma atômica (no writer) e aplica o lock
     ao atingir `max_failed`. Retorna o novo contador.
 
@@ -163,8 +166,7 @@ async def create(
         if same_email:
             return None
     await db_execute(
-        "INSERT INTO users (username, password_hash, role, email, org_id) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO users (username, password_hash, role, email, org_id) VALUES (?, ?, ?, ?, ?)",
         [username, password_hash, role, email, org_id],
     )
     row = await db_fetchone("SELECT id FROM users WHERE username = ?", [username])

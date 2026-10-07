@@ -95,9 +95,7 @@ async def host_status(payload: Annotated[dict, Depends(require_auth)]) -> dict:
         pass
 
     try:
-        row = await db_fetchone(
-            "SELECT COUNT(*) AS n FROM alerts WHERE resolved_at IS NULL"
-        )
+        row = await db_fetchone("SELECT COUNT(*) AS n FROM alerts WHERE resolved_at IS NULL")
         out["alerts_active"] = int(row["n"]) if row else 0
     except Exception:  # noqa: BLE001
         out["alerts_active"] = None
@@ -110,8 +108,7 @@ async def host_status(payload: Annotated[dict, Depends(require_auth)]) -> dict:
 
     try:
         row = await db_fetchone(
-            "SELECT COUNT(*) AS n FROM auth_sessions "
-            "WHERE revoked_at IS NULL AND exp > ?",
+            "SELECT COUNT(*) AS n FROM auth_sessions WHERE revoked_at IS NULL AND exp > ?",
             [int(time.time())],
         )
         out["sessions_active"] = int(row["n"]) if row else 0
@@ -175,6 +172,7 @@ async def host_storage(_: Annotated[dict, Depends(require_auth)]) -> dict:
 
     try:
         from app.infrastructure.redis_client import get_redis
+
         r = await get_redis()
         if r is not None:
             t0 = time.perf_counter()
@@ -231,8 +229,8 @@ async def restart_service(
     log.info("host.restart_service", service=service, unit=systemd_unit, actor=actor)
 
     try:
-        subprocess.Popen(  # noqa: S603
-            ["sudo", "-n", "/usr/bin/systemctl", "restart", systemd_unit],
+        subprocess.Popen(  # noqa: S603, ASYNC220 — só dispara (detached), não espera
+            ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "restart", systemd_unit],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,

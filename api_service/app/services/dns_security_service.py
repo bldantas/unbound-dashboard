@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shlex
 from pathlib import Path
 from typing import Any
 
@@ -122,12 +121,12 @@ PERFORMANCE_BOOL_KEYS = (
     "unbound_perf_rrset_roundrobin",
 )
 PERFORMANCE_INT_KEYS = (
-    "unbound_perf_serve_expired_ttl",          # seg, default 86400
+    "unbound_perf_serve_expired_ttl",  # seg, default 86400
     "unbound_perf_serve_expired_client_timeout",  # ms, default 1800
-    "unbound_perf_cache_min_ttl",              # seg, default 0
-    "unbound_perf_cache_max_ttl",              # seg, default 86400
-    "unbound_perf_msg_cache_size_mb",          # MB, default 50
-    "unbound_perf_rrset_cache_size_mb",        # MB, default 100
+    "unbound_perf_cache_min_ttl",  # seg, default 0
+    "unbound_perf_cache_max_ttl",  # seg, default 86400
+    "unbound_perf_msg_cache_size_mb",  # MB, default 50
+    "unbound_perf_rrset_cache_size_mb",  # MB, default 100
 )
 PERFORMANCE_DEFAULTS = {
     "unbound_perf_prefetch": "0",
@@ -251,9 +250,7 @@ async def update_performance_settings(body: dict[str, Any]) -> int:
     return await settings_repo.bulk_upsert(entries)
 
 
-def _build_performance_block(
-    bools: dict[str, bool], ints: dict[str, int]
-) -> str:
+def _build_performance_block(bools: dict[str, bool], ints: dict[str, int]) -> str:
     """Bloco `server:` com diretivas de performance/cache. Vazio se tudo default.
 
     Só emite linhas que diferem do default — pra evitar override desnecessário
@@ -395,6 +392,7 @@ def _build_forwarders_conf(
     concatenados ao final — unbound aceita múltiplos `server:` blocks
     (são merged), então coexistem com o `server:` do tls-cert-bundle.
     """
+
     def _append_extras(body: str) -> str:
         for extra in (ratelimit_block, privacy_block, hardening_block, performance_block):
             if extra:
@@ -446,7 +444,11 @@ async def _run(cmd: list[str]) -> tuple[int, str, str]:
         stderr=asyncio.subprocess.PIPE,
     )
     out, err = await proc.communicate()
-    return proc.returncode or 0, out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace")
+    return (
+        proc.returncode or 0,
+        out.decode("utf-8", errors="replace"),
+        err.decode("utf-8", errors="replace"),
+    )
 
 
 async def apply() -> dict[str, Any]:
@@ -456,9 +458,18 @@ async def apply() -> dict[str, Any]:
     `unbound-checkconf` não roda dentro do sandbox systemd (precisa AF_NETLINK
     pra getifaddrs); a validação fica por conta do próprio restart.
     """
-    mode = await settings_repo.get("dns_upstream_mode", DEFAULTS["dns_upstream_mode"]) or DEFAULTS["dns_upstream_mode"]
-    provider = await settings_repo.get("dns_upstream_provider", DEFAULTS["dns_upstream_provider"]) or DEFAULTS["dns_upstream_provider"]
-    custom = await settings_repo.get("dns_upstream_custom", DEFAULTS["dns_upstream_custom"]) or DEFAULTS["dns_upstream_custom"]
+    mode = (
+        await settings_repo.get("dns_upstream_mode", DEFAULTS["dns_upstream_mode"])
+        or DEFAULTS["dns_upstream_mode"]
+    )
+    provider = (
+        await settings_repo.get("dns_upstream_provider", DEFAULTS["dns_upstream_provider"])
+        or DEFAULTS["dns_upstream_provider"]
+    )
+    custom = (
+        await settings_repo.get("dns_upstream_custom", DEFAULTS["dns_upstream_custom"])
+        or DEFAULTS["dns_upstream_custom"]
+    )
 
     ratelimit_block = _build_ratelimit_block(
         ip_enabled=await settings_repo.get_bool("dns_ratelimit_ip_enabled", False),
@@ -486,8 +497,13 @@ async def apply() -> dict[str, Any]:
     performance_block = _build_performance_block(perf_bools, perf_ints)
 
     content = _build_forwarders_conf(
-        mode, provider, custom, ratelimit_block, privacy_block,
-        hardening_block, performance_block,
+        mode,
+        provider,
+        custom,
+        ratelimit_block,
+        privacy_block,
+        hardening_block,
+        performance_block,
     )
 
     # Snapshot do conteúdo atual pra rollback
@@ -508,7 +524,9 @@ async def apply() -> dict[str, Any]:
         log.error("dns_security.apply.restart_failed", rc=rc, err=err)
         # Rollback: restaura conteúdo anterior e tenta restart
         TMP_FORWARDERS.write_text(previous, encoding="utf-8")
-        rb_rc, _, rb_err = await _run(["sudo", "/usr/bin/cp", str(TMP_FORWARDERS), TARGET_FORWARDERS])
+        rb_rc, _, rb_err = await _run(
+            ["sudo", "/usr/bin/cp", str(TMP_FORWARDERS), TARGET_FORWARDERS]
+        )
         rs_rc, _, rs_err = await _run(["sudo", "/usr/bin/systemctl", "restart", "unbound"])
         return {
             "ok": False,
@@ -519,7 +537,12 @@ async def apply() -> dict[str, Any]:
         }
 
     log.info("dns_security.apply.ok", mode=mode, provider=provider)
-    return {"ok": True, "mode": mode, "provider": provider, "addresses_written": content.count("forward-addr:")}
+    return {
+        "ok": True,
+        "mode": mode,
+        "provider": provider,
+        "addresses_written": content.count("forward-addr:"),
+    }
 
 
 async def info() -> dict[str, Any]:

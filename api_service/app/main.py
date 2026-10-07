@@ -49,7 +49,6 @@ from app.routers import (
     organizations,
     policies,
     rate_limits,
-    secrets as secrets_router,
     stats,
     threats,
     updates,
@@ -58,6 +57,9 @@ from app.routers import (
     ws_notifications,
     ws_queries,
 )
+from app.routers import (
+    secrets as secrets_router,
+)
 from app.routers import unbound as unbound_router
 from app.workers import (
     AlertChecker,
@@ -65,9 +67,9 @@ from app.workers import (
     AuditPruner,
     BackupUploader,
     BaselineLearner,
-    ExternalHealthPruner,
     BlocklistSyncer,
     DigestSender,
+    ExternalHealthPruner,
     GeoBlockUpdater,
     HAPeerMonitor,
     HostPoller,
@@ -129,16 +131,19 @@ async def lifespan(app: FastAPI):
 
     # Aviso se SECRETS_MASTER_KEY não está configurada (cifra de OIDC/HA secrets)
     from app.services import cipher_service
+
     if not cipher_service.is_available():
         log.warning(
             "secrets_store.master_key_missing",
             hint="Defina SECRETS_MASTER_KEY no env pra cifrar OIDC client_secret + HA tokens. "
-                 "Gere: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'",
+            "Gere: python -c "
+            "'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'",
         )
     else:
         # Cifra secrets legacy plaintext que sobraram de pré-master-key
         try:
             from app.services.secrets_migrator import migrate_legacy_secrets
+
             await migrate_legacy_secrets()
         except Exception as exc:  # noqa: BLE001
             log.warning("secrets_migrator.bootstrap_failed", error=str(exc))
@@ -146,6 +151,7 @@ async def lifespan(app: FastAPI):
     # Rehidrata Redis com sessões persistidas no DuckDB (sobreviver restart Redis)
     try:
         from app.services.sessions import bootstrap_from_duckdb
+
         await bootstrap_from_duckdb()
     except Exception as exc:  # noqa: BLE001
         log.warning("sessions.bootstrap_failed", error=str(exc))
@@ -193,9 +199,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(
                 _supervised("update_checker", update_checker), name="update_checker"
             ),
-            asyncio.create_task(
-                _supervised("host_poller", host_poller), name="host_poller"
-            ),
+            asyncio.create_task(_supervised("host_poller", host_poller), name="host_poller"),
             asyncio.create_task(
                 _supervised("blocklist_syncer", blocklist_syncer_worker), name="blocklist_syncer"
             ),
@@ -211,9 +215,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(
                 _supervised("notification_pruner", notification_pruner), name="notification_pruner"
             ),
-            asyncio.create_task(
-                _supervised("audit_pruner", audit_pruner), name="audit_pruner"
-            ),
+            asyncio.create_task(_supervised("audit_pruner", audit_pruner), name="audit_pruner"),
             asyncio.create_task(
                 _supervised("prometheus_exporter", prometheus_exporter), name="prometheus_exporter"
             ),
@@ -235,9 +237,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(
                 _supervised("geo_block_updater", geo_block_updater), name="geo_block_updater"
             ),
-            asyncio.create_task(
-                _supervised("digest_sender", digest_sender), name="digest_sender"
-            ),
+            asyncio.create_task(_supervised("digest_sender", digest_sender), name="digest_sender"),
         ]
     )
     log.info("workers iniciados, API pronta")
@@ -309,6 +309,7 @@ async def lifespan(app: FastAPI):
 
     # Fecha conexão Redis singleton (denylist JWT, etc)
     from app.infrastructure.redis_client import close_redis
+
     await close_redis()
 
 

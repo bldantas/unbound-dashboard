@@ -35,6 +35,9 @@ import structlog
 from jose import jwt as jose_jwt
 from jose.exceptions import JWTError
 
+from app.repositories.duckdb import user_repo
+from app.repositories.duckdb.connection import db_execute, db_fetchone
+
 
 def _pkce_pair() -> tuple[str, str]:
     """Gera (code_verifier, code_challenge) RFC 7636 S256.
@@ -47,8 +50,6 @@ def _pkce_pair() -> tuple[str, str]:
     challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
     return verifier, challenge
 
-from app.repositories.duckdb import user_repo
-from app.repositories.duckdb.connection import db_execute, db_fetchone
 
 log = structlog.get_logger(__name__)
 
@@ -120,8 +121,10 @@ def _resolve_role_from_groups(claims: dict, cfg: dict) -> str | None:
 
 # ---------- Config ----------
 
+
 async def get_config(include_secret: bool = False) -> dict:
     from app.services import cipher_service
+
     row = await db_fetchone("SELECT * FROM oidc_config WHERE id = 1", [])
     if not row:
         return {"enabled": False}
@@ -142,7 +145,9 @@ async def get_config(include_secret: bool = False) -> dict:
         "sync_role_on_login": bool(row.get("sync_role_on_login")),
         "has_secret": has_secret,
         "secret_encrypted": bool(encrypted),
-        "updated_at": row["updated_at"].isoformat() if isinstance(row.get("updated_at"), datetime) else None,
+        "updated_at": row["updated_at"].isoformat()
+        if isinstance(row.get("updated_at"), datetime)
+        else None,
     }
     if include_secret:
         if encrypted:
@@ -154,14 +159,20 @@ async def get_config(include_secret: bool = False) -> dict:
 
 async def update_config(body: dict) -> dict:
     from app.services import cipher_service
+
     fields = []
     params: list = []
     allowed = {
-        "enabled": "BOOLEAN", "issuer_url": "STR", "client_id": "STR",
-        "client_secret": "SECRET", "scopes": "STR",
-        "allowed_email_domains": "STR", "auto_create_users": "BOOLEAN",
+        "enabled": "BOOLEAN",
+        "issuer_url": "STR",
+        "client_id": "STR",
+        "client_secret": "SECRET",
+        "scopes": "STR",
+        "allowed_email_domains": "STR",
+        "auto_create_users": "BOOLEAN",
         "default_role": "ROLE",
-        "group_claim": "STR", "group_mappings": "MAPPINGS",
+        "group_claim": "STR",
+        "group_mappings": "MAPPINGS",
         "sync_role_on_login": "BOOLEAN",
     }
     for k, typ in allowed.items():
@@ -181,7 +192,7 @@ async def update_config(body: dict) -> dict:
                 try:
                     mapping = json.loads(str(v or "{}"))
                 except json.JSONDecodeError:
-                    raise ValueError("group_mappings: JSON inválido")
+                    raise ValueError("group_mappings: JSON inválido") from None
             if not isinstance(mapping, dict):
                 raise ValueError("group_mappings deve ser objeto/dict")
             for grp, role in mapping.items():
@@ -212,6 +223,7 @@ async def update_config(body: dict) -> dict:
 
 
 # ---------- Discovery + JWKS ----------
+
 
 async def _discover(issuer_url: str) -> dict:
     """GET <issuer>/.well-known/openid-configuration."""
@@ -245,6 +257,7 @@ async def _get_jwks(issuer_url: str) -> dict:
 
 # ---------- Auth URL build + callback ----------
 
+
 async def build_auth_url(base_callback_url: str) -> dict:
     """Constrói URL de autorização do IdP + state pra CSRF.
 
@@ -269,14 +282,21 @@ async def build_auth_url(base_callback_url: str) -> dict:
 
     # Guarda state+nonce+verifier com TTL via settings table (chave temporária)
     from app.repositories.duckdb import settings_repo
-    await settings_repo.bulk_upsert([
-        {"setting_key": f"_oidc_state_{state}",
-         "setting_value": json.dumps({
-             "nonce": nonce,
-             "code_verifier": code_verifier,
-             "expires": int(time.time() + 600),
-         })}
-    ])
+
+    await settings_repo.bulk_upsert(
+        [
+            {
+                "setting_key": f"_oidc_state_{state}",
+                "setting_value": json.dumps(
+                    {
+                        "nonce": nonce,
+                        "code_verifier": code_verifier,
+                        "expires": int(time.time() + 600),
+                    }
+                ),
+            }
+        ]
+    )
 
     params = {
         "client_id": cfg["client_id"],
@@ -292,6 +312,7 @@ async def build_auth_url(base_callback_url: str) -> dict:
         "code_challenge_method": "S256",
     }
     import urllib.parse
+
     return {
         "url": authorize + "?" + urllib.parse.urlencode(params),
         "state": state,
@@ -313,7 +334,7 @@ async def handle_callback(code: str, state: str, redirect_uri: str) -> dict:
     try:
         state_data = json.loads(state_raw)
     except json.JSONDecodeError:
-        raise ValueError("state corrompido")
+        raise ValueError("state corrompido") from None
     if state_data.get("expires", 0) < int(time.time()):
         raise ValueError("state expirado")
     nonce = state_data.get("nonce")
@@ -410,16 +431,26 @@ async def handle_callback(code: str, state: str, redirect_uri: str) -> dict:
             [username, role_to_apply, email],
         )
         user = await user_repo.find_by_email(email)
-        log.info("oidc.user_auto_created", email=email, username=username, role=role_to_apply,
-                 role_source="group_mapping" if mapped_role else "default")
+        log.info(
+            "oidc.user_auto_created",
+            email=email,
+            username=username,
+            role=role_to_apply,
+            role_source="group_mapping" if mapped_role else "default",
+        )
     elif cfg.get("sync_role_on_login") and mapped_role and mapped_role != user.get("role"):
         # Sincroniza role com IdP (se config explicitamente liga isso)
         await db_execute(
             "UPDATE users SET role = ? WHERE id = ?",
             [mapped_role, user["id"]],
         )
-        log.info("oidc.role_synced", email=email, user_id=user["id"],
-                 old_role=user.get("role"), new_role=mapped_role)
+        log.info(
+            "oidc.role_synced",
+            email=email,
+            user_id=user["id"],
+            old_role=user.get("role"),
+            new_role=mapped_role,
+        )
         user["role"] = mapped_role
 
     if not user.get("is_active"):

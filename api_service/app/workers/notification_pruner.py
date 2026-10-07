@@ -50,10 +50,12 @@ class NotificationPruner:
         deleted = await alert_repo.prune_old(days)
 
         ts_iso = datetime.now(UTC).isoformat(timespec="seconds")
-        await settings_repo.bulk_upsert([
-            {"setting_key": "notification_pruner_last_run", "setting_value": ts_iso},
-            {"setting_key": "notification_pruner_last_deleted", "setting_value": str(deleted)},
-        ])
+        await settings_repo.bulk_upsert(
+            [
+                {"setting_key": "notification_pruner_last_run", "setting_value": ts_iso},
+                {"setting_key": "notification_pruner_last_deleted", "setting_value": str(deleted)},
+            ]
+        )
         log.info("notification_pruner.completed", deleted=deleted, retention_days=days)
         return {"deleted": deleted, "retention_days": days}
 

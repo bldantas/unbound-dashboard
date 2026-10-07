@@ -9,6 +9,7 @@ import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 
+from app.core.rbac import VALID_ROLES as _RBAC_VALID_ROLES
 from app.core.security import hash_password
 from app.repositories.duckdb import user_repo
 
@@ -51,7 +52,7 @@ def _utc_naive_in(minutes: int) -> datetime:
 
 # Mantemos sincronizado com app.core.rbac.VALID_ROLES (centralizado lá).
 # Aqui só pra validação local de input antes de hit no banco.
-from app.core.rbac import VALID_ROLES as _RBAC_VALID_ROLES
+
 VALID_ROLES = set(_RBAC_VALID_ROLES)
 
 
@@ -126,6 +127,7 @@ async def toggle_active(user_id: int, requesting_user_id: int) -> None:
     user_now = await user_repo.find_by_id(user_id)
     if user_now is not None and not user_now.get("is_active"):
         from app.services import jwt_denylist  # late import — evita ciclo
+
         await jwt_denylist.revoke_user_tokens(user_id)
 
 
@@ -138,6 +140,7 @@ async def delete_user(user_id: int, requesting_user_id: int) -> None:
     # User deletado: revoga tokens (defesa em depth — find_by_id já falha
     # depois, mas se algum middleware esquecer o check, o revoke pega).
     from app.services import jwt_denylist
+
     await jwt_denylist.revoke_user_tokens(user_id)
 
 
@@ -163,6 +166,7 @@ async def update_role(user_id: int, role: str, requesting_user_id: int) -> None:
         raise UserNotFound
     # Revoga tokens — força re-login com role novo no claim
     from app.services import jwt_denylist
+
     await jwt_denylist.revoke_user_tokens(user_id)
 
 

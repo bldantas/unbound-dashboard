@@ -33,8 +33,8 @@ async def snapshot(
     Lista flat de métricas atuais. Cada item: {name, value, unit, timestamp}.
     Formato pensado pro "Infinity" datasource (parser JSON do Grafana).
     """
-    from app.services import unbound_stats_service
     from app.repositories.duckdb.connection import db_fetchone
+    from app.services import unbound_stats_service
 
     stats = await unbound_stats_service.get_stats()
     now_iso = datetime.now(UTC).isoformat()
@@ -49,17 +49,62 @@ async def snapshot(
     blocked_today = int(daily["blocked_count"]) if daily else 0
 
     return [
-        {"name": "qps", "value": float(stats.get("qps", 0) or 0), "unit": "qps", "timestamp": now_iso},
-        {"name": "hit_ratio", "value": float(stats.get("hit_ratio", 0) or 0), "unit": "percent", "timestamp": now_iso},
-        {"name": "latency_avg_ms", "value": float(stats.get("latency_avg", 0) or 0), "unit": "ms", "timestamp": now_iso},
-        {"name": "latency_median_ms", "value": float(stats.get("latency_median", 0) or 0), "unit": "ms", "timestamp": now_iso},
-        {"name": "dnssec_ratio", "value": float(stats.get("dnssec_ratio", 0) or 0), "unit": "percent", "timestamp": now_iso},
-        {"name": "dnssec_secure", "value": int(stats.get("dnssec_secure", 0) or 0), "unit": "count", "timestamp": now_iso},
-        {"name": "dnssec_bogus", "value": int(stats.get("dnssec_bogus", 0) or 0), "unit": "count", "timestamp": now_iso},
-        {"name": "uptime_seconds", "value": int(stats.get("uptime", 0) or 0), "unit": "seconds", "timestamp": now_iso},
+        {
+            "name": "qps",
+            "value": float(stats.get("qps", 0) or 0),
+            "unit": "qps",
+            "timestamp": now_iso,
+        },
+        {
+            "name": "hit_ratio",
+            "value": float(stats.get("hit_ratio", 0) or 0),
+            "unit": "percent",
+            "timestamp": now_iso,
+        },
+        {
+            "name": "latency_avg_ms",
+            "value": float(stats.get("latency_avg", 0) or 0),
+            "unit": "ms",
+            "timestamp": now_iso,
+        },
+        {
+            "name": "latency_median_ms",
+            "value": float(stats.get("latency_median", 0) or 0),
+            "unit": "ms",
+            "timestamp": now_iso,
+        },
+        {
+            "name": "dnssec_ratio",
+            "value": float(stats.get("dnssec_ratio", 0) or 0),
+            "unit": "percent",
+            "timestamp": now_iso,
+        },
+        {
+            "name": "dnssec_secure",
+            "value": int(stats.get("dnssec_secure", 0) or 0),
+            "unit": "count",
+            "timestamp": now_iso,
+        },
+        {
+            "name": "dnssec_bogus",
+            "value": int(stats.get("dnssec_bogus", 0) or 0),
+            "unit": "count",
+            "timestamp": now_iso,
+        },
+        {
+            "name": "uptime_seconds",
+            "value": int(stats.get("uptime", 0) or 0),
+            "unit": "seconds",
+            "timestamp": now_iso,
+        },
         {"name": "queries_today", "value": queries_today, "unit": "count", "timestamp": now_iso},
         {"name": "blocked_today", "value": blocked_today, "unit": "count", "timestamp": now_iso},
-        {"name": "online", "value": 1 if stats.get("online") else 0, "unit": "bool", "timestamp": now_iso},
+        {
+            "name": "online",
+            "value": 1 if stats.get("online") else 0,
+            "unit": "bool",
+            "timestamp": now_iso,
+        },
     ]
 
 

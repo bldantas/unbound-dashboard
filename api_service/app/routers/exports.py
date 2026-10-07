@@ -49,7 +49,9 @@ async def export_query_logs(
 
 
 @router.get("/stats-report")
-async def export_stats_report(_: Annotated[dict, Depends(require_capability("blocklist.read"))]) -> dict:
+async def export_stats_report(
+    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
+) -> dict:
     """
     Sumário pra o JSON de stats: daily_history (90d) + top_domains_24h +
     top_clients_24h. NÃO inclui current_metrics (PHP lê data/latest_stats.json).
@@ -147,7 +149,11 @@ async def import_settings_bulk(
     Settings são globais (SMTP, destino de backup S3...): só admin global.
     Chaves internas são recusadas, e um valor mascarado (vindo de um export
     feito por não-admin) não sobrescreve o valor real."""
-    bad = [str(e.get("setting_key", "")) for e in entries if _is_internal_setting(str(e.get("setting_key", "")))]
+    bad = [
+        str(e.get("setting_key", ""))
+        for e in entries
+        if _is_internal_setting(str(e.get("setting_key", "")))
+    ]
     if bad:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -159,7 +165,9 @@ async def import_settings_bulk(
 
 
 @router.get("/blocklist")
-async def export_blocklist(_: Annotated[dict, Depends(require_capability("blocklist.read"))]) -> list[dict]:
+async def export_blocklist(
+    _: Annotated[dict, Depends(require_capability("blocklist.read"))],
+) -> list[dict]:
     """Lista todos blocklist_domains pra export CSV."""
     # threats_repo não tem list_all; usa db_fetchall direto
     rows = await db_fetchall(

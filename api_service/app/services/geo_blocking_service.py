@@ -41,8 +41,8 @@ IWIK_UA = "unbound-dashboard/geo-blocking"
 
 SETTING_KEYS = ("geo_blocking_enabled", "geo_blocking_include_ipv6")
 DEFAULTS = {
-    "geo_blocking_enabled": "0",      # master switch (precisa apply pra valer)
-    "geo_blocking_include_ipv6": "0", # IPv6 opt-in (lista bem maior)
+    "geo_blocking_enabled": "0",  # master switch (precisa apply pra valer)
+    "geo_blocking_include_ipv6": "0",  # IPv6 opt-in (lista bem maior)
 }
 
 
@@ -104,9 +104,7 @@ async def add_country(country_code: str, country_name: str, blocked: bool = True
         return {"ok": False, "error": "country_code inválido (use ISO-2)"}
     name = (country_name or cc).strip()[:120]
 
-    existing = await db_fetchone(
-        "SELECT country_code FROM geo_blocks WHERE country_code = ?", [cc]
-    )
+    existing = await db_fetchone("SELECT country_code FROM geo_blocks WHERE country_code = ?", [cc])
     if existing:
         await db_execute(
             "UPDATE geo_blocks SET country_name = ?, blocked = ? WHERE country_code = ?",
@@ -255,9 +253,7 @@ async def _build_geo_acl_content() -> tuple[str, int, int, int]:
         await settings_repo.get("geo_blocking_enabled", DEFAULTS["geo_blocking_enabled"])
     ) == "1"
     include_v6 = (
-        await settings_repo.get(
-            "geo_blocking_include_ipv6", DEFAULTS["geo_blocking_include_ipv6"]
-        )
+        await settings_repo.get("geo_blocking_include_ipv6", DEFAULTS["geo_blocking_include_ipv6"])
     ) == "1"
 
     header = [
@@ -341,12 +337,8 @@ async def apply() -> dict[str, Any]:
         log.error("geo_blocking.apply.restart_failed", rc=rc, err=err)
         # rollback
         TMP_GEO_ACL.write_text(previous, encoding="utf-8")
-        rb_rc, _, rb_err = await _run(
-            ["sudo", "/usr/bin/cp", str(TMP_GEO_ACL), TARGET_GEO_ACL]
-        )
-        rs_rc, _, rs_err = await _run(
-            ["sudo", "/usr/bin/systemctl", "restart", "unbound"]
-        )
+        rb_rc, _, rb_err = await _run(["sudo", "/usr/bin/cp", str(TMP_GEO_ACL), TARGET_GEO_ACL])
+        rs_rc, _, rs_err = await _run(["sudo", "/usr/bin/systemctl", "restart", "unbound"])
         return {
             "ok": False,
             "stage": "restart",

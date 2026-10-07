@@ -3,9 +3,9 @@ from app.workers.anomaly_detector import AnomalyDetector
 from app.workers.audit_pruner import AuditPruner
 from app.workers.backup_uploader import BackupUploader
 from app.workers.baseline_learner import BaselineLearner
-from app.workers.external_health_pruner import ExternalHealthPruner
 from app.workers.blocklist_syncer import BlocklistSyncer
 from app.workers.digest_sender import DigestSender
+from app.workers.external_health_pruner import ExternalHealthPruner
 from app.workers.geo_block_updater import GeoBlockUpdater
 from app.workers.ha_peer_monitor import HAPeerMonitor
 from app.workers.host_poller import HostPoller

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from cryptography import x509
@@ -21,10 +20,12 @@ def _set_env() -> None:
 def _make_cert(cn: str, valid_days: int = 365, san_list: list[str] | None = None) -> bytes:
     """Gera cert PEM válido pra usar nos tests sem tocar no FS real."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, cn),
-    ])
-    now = datetime.now(timezone.utc)
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, cn),
+        ]
+    )
+    now = datetime.now(UTC)
     builder = (
         x509.CertificateBuilder()
         .subject_name(subject)
@@ -54,7 +55,9 @@ def test_read_cert_info_self_signed_valid(tmp_path):
     from app.services.doh_inbound_service import _read_cert_info
 
     crt = tmp_path / "dashboard.crt"
-    crt.write_bytes(_make_cert("dns.test.example", valid_days=365, san_list=["dns.test.example", "alt.test"]))
+    crt.write_bytes(
+        _make_cert("dns.test.example", valid_days=365, san_list=["dns.test.example", "alt.test"])
+    )
 
     info = _read_cert_info(crt)
     assert info["present"] is True
@@ -95,12 +98,12 @@ def test_parse_general_conf_extracts_ports_and_paths(tmp_path, monkeypatch):
 
     conf = tmp_path / "general.conf"
     conf.write_text(
-        '    verbosity: 1\n'
-        '    tls-port: 1853\n'
-        '    https-port: 9443\n'
+        "    verbosity: 1\n"
+        "    tls-port: 1853\n"
+        "    https-port: 9443\n"
         '    tls-service-pem: "/custom/path/cert.pem"\n'
         '    tls-service-key: "/custom/path/key.pem"\n'
-        '    # comentário deve ser ignorado\n'
+        "    # comentário deve ser ignorado\n"
     )
     monkeypatch.setattr(mod, "GENERAL_CONF", conf)
     out = mod._parse_general_conf()

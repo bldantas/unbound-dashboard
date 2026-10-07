@@ -39,15 +39,11 @@ def _row_to_dict(r: dict) -> dict:
 
 async def list_orgs(include_inactive: bool = True) -> list[dict]:
     where = "" if include_inactive else "WHERE is_active = true"
-    rows = await db_fetchall(
-        f"SELECT * FROM organizations {where} ORDER BY name ASC", []
-    )
+    rows = await db_fetchall(f"SELECT * FROM organizations {where} ORDER BY name ASC", [])
     out = []
     for r in rows:
         d = _row_to_dict(r)
-        cnt_row = await db_fetchone(
-            "SELECT COUNT(*) AS n FROM users WHERE org_id = ?", [d["id"]]
-        )
+        cnt_row = await db_fetchone("SELECT COUNT(*) AS n FROM users WHERE org_id = ?", [d["id"]])
         d["user_count"] = int(cnt_row["n"]) if cnt_row else 0
         out.append(d)
     return out
@@ -94,14 +90,13 @@ async def update_org(org_id: int, body: dict) -> bool:
 
 async def delete_org(org_id: int) -> dict:
     """Bloqueia delete se houver users vinculados — força realocação primeiro."""
-    cnt_row = await db_fetchone(
-        "SELECT COUNT(*) AS n FROM users WHERE org_id = ?", [int(org_id)]
-    )
+    cnt_row = await db_fetchone("SELECT COUNT(*) AS n FROM users WHERE org_id = ?", [int(org_id)])
     if cnt_row and int(cnt_row["n"]) > 0:
-        return {"ok": False, "error": f"{int(cnt_row['n'])} usuários ainda vinculados — realoque antes"}
-    row = await db_fetchone(
-        "SELECT id FROM organizations WHERE id = ?", [int(org_id)]
-    )
+        return {
+            "ok": False,
+            "error": f"{int(cnt_row['n'])} usuários ainda vinculados — realoque antes",
+        }
+    row = await db_fetchone("SELECT id FROM organizations WHERE id = ?", [int(org_id)])
     if not row:
         return {"ok": False, "error": "org não encontrada"}
     await db_execute("DELETE FROM organizations WHERE id = ?", [int(org_id)])
@@ -111,9 +106,7 @@ async def delete_org(org_id: int) -> dict:
 async def assign_user(user_id: int, org_id: int | None) -> bool:
     """Atribui org_id a um usuário. None = remover (vira system global)."""
     if org_id is not None:
-        row = await db_fetchone(
-            "SELECT id FROM organizations WHERE id = ?", [int(org_id)]
-        )
+        row = await db_fetchone("SELECT id FROM organizations WHERE id = ?", [int(org_id)])
         if not row:
             return False
     await db_execute(

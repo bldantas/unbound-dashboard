@@ -117,15 +117,19 @@ async def apply(
     ip = request.client.host if request.client else None
     try:
         await approval_service.enforce_approval(
-            user=user, request_ip=ip,
+            user=user,
+            request_ip=ip,
             action="geo_blocking.apply",
             description="Aplicar bloqueio geográfico (regrava geo_acl.conf + restart Unbound)",
             payload={},
         )
     except approval_service.ApprovalRequired as exc:
         return JSONResponse(
-            {"approval_pending": True, "request_id": exc.request_id,
-             "message": "Aguardando aprovação de outro admin em /approvals.php"},
+            {
+                "approval_pending": True,
+                "request_id": exc.request_id,
+                "message": "Aguardando aprovação de outro admin em /approvals.php",
+            },
             status_code=202,
         )
     return await geo_blocking_service.apply()

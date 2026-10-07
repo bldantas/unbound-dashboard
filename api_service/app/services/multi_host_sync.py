@@ -53,10 +53,7 @@ async def build_policies_payload() -> list[dict[str, Any]]:
                 "name": full["name"],
                 "description": full.get("description") or "",
                 "enabled": bool(full["enabled"]),
-                "ranges": [
-                    {"cidr": r["cidr"], "label": r.get("label")}
-                    for r in full["ranges"]
-                ],
+                "ranges": [{"cidr": r["cidr"], "label": r.get("label")} for r in full["ranges"]],
                 "blocks": full["blocks"],
                 "allows": full["allows"],
             }

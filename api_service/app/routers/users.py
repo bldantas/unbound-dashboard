@@ -15,6 +15,7 @@ from app.services import approval_service, users_service
 async def _get_user_org(user_id: int) -> int | None:
     """Lê org_id de users.id. Retorna None se user não existe ou é global."""
     from app.repositories.duckdb.connection import db_fetchone
+
     row = await db_fetchone("SELECT org_id FROM users WHERE id = ?", [int(user_id)])
     if not row:
         return None
@@ -101,8 +102,10 @@ async def list_users(
     # Hoje users_service.list_all() não filtra por org — fazemos filter no router.
     # (alternativa seria adicionar viewer_org_id no service, mais invasivo.)
     from app.repositories.duckdb.connection import db_fetchall
+
     own_rows = await db_fetchall(
-        "SELECT id FROM users WHERE org_id = ?", [viewer_org],
+        "SELECT id FROM users WHERE org_id = ?",
+        [viewer_org],
     )
     own_ids = {int(r["id"]) for r in own_rows}
     return [r for r in rows if int(r["id"]) in own_ids]
@@ -153,6 +156,7 @@ async def update_email(
 ) -> None:
     # Auth model: permite users.manage OR self editar email
     from app.core.rbac import can
+
     is_manager = can(payload.get("role"), "users.manage")
     is_self = int(payload.get("sub", 0)) == user_id
     if not (is_manager or is_self):
@@ -198,15 +202,19 @@ async def delete_user(
     ip = request.client.host if request.client else None
     try:
         await approval_service.enforce_approval(
-            user=payload, request_ip=ip,
+            user=payload,
+            request_ip=ip,
             action="users.delete",
             description=f"Excluir usuário id={user_id}",
             payload={"user_id": user_id, "requesting_user_id": requesting_id},
         )
     except approval_service.ApprovalRequired as exc:
         return JSONResponse(
-            {"approval_pending": True, "request_id": exc.request_id,
-             "message": "Aguardando aprovação de outro admin em /approvals.php"},
+            {
+                "approval_pending": True,
+                "request_id": exc.request_id,
+                "message": "Aguardando aprovação de outro admin em /approvals.php",
+            },
             status_code=202,
         )
     try:
@@ -231,9 +239,7 @@ async def update_role(
 ) -> None:
     await _ensure_can_target_user(payload, user_id)
     try:
-        await users_service.update_role(
-            user_id, body.role, requesting_user_id=int(payload["sub"])
-        )
+        await users_service.update_role(user_id, body.role, requesting_user_id=int(payload["sub"]))
     except users_service.InvalidRole:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

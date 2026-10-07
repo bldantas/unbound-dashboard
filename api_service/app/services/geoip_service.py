@@ -29,12 +29,18 @@ _IP_API_URL = "http://ip-api.com/json/{ip}?fields=status,country,countryCode,as,
 
 # Códigos especiais
 _PRIVATE_RESULT = {
-    "country_code": "--", "country_name": "Rede privada",
-    "asn": "", "asn_name": "", "source": "local",
+    "country_code": "--",
+    "country_name": "Rede privada",
+    "asn": "",
+    "asn_name": "",
+    "source": "local",
 }
 _UNKNOWN_RESULT = {
-    "country_code": "??", "country_name": "Desconhecido",
-    "asn": "", "asn_name": "", "source": "fallback",
+    "country_code": "??",
+    "country_name": "Desconhecido",
+    "asn": "",
+    "asn_name": "",
+    "source": "fallback",
 }
 
 
@@ -57,11 +63,20 @@ async def _cache_get(ip: str) -> dict[str, Any] | None:
         parts = raw.split("|", 3)
         if len(parts) == 2:
             cc, name = parts
-            return {"country_code": cc, "country_name": name, "asn": "", "asn_name": "", "source": "cache"}
+            return {
+                "country_code": cc,
+                "country_name": name,
+                "asn": "",
+                "asn_name": "",
+                "source": "cache",
+            }
         cc, name, asn, asn_name = (parts + ["", "", "", ""])[:4]
         return {
-            "country_code": cc, "country_name": name,
-            "asn": asn, "asn_name": asn_name, "source": "cache",
+            "country_code": cc,
+            "country_name": name,
+            "asn": asn,
+            "asn_name": asn_name,
+            "source": "cache",
         }
     except Exception:  # noqa: BLE001
         return None
@@ -111,8 +126,12 @@ async def lookup(ip: str) -> dict[str, Any]:
         asn, asn_name = _split_asn_field(str(d.get("as") or ""))
         await _cache_set(ip, cc, name, asn, asn_name)
         return {
-            "ip": ip, "country_code": cc, "country_name": name,
-            "asn": asn, "asn_name": asn_name, "source": "api",
+            "ip": ip,
+            "country_code": cc,
+            "country_name": name,
+            "asn": asn,
+            "asn_name": asn_name,
+            "source": "api",
         }
     except (httpx.RequestError, ValueError) as exc:
         log.debug("geoip.lookup_failed", ip=ip, error=str(exc))
@@ -146,6 +165,7 @@ async def top_countries(
                 (None = todas as ações).
     """
     from datetime import UTC, datetime
+
     from app.repositories.duckdb.connection import db_fetchall
 
     cutoff = int(datetime.now(UTC).timestamp()) - (hours * 3600)
@@ -209,6 +229,7 @@ async def top_asns(
     por ASN. Útil pra ver "quais ISPs estão originando o tráfego ruim".
     """
     from datetime import UTC, datetime
+
     from app.repositories.duckdb.connection import db_fetchall
 
     cutoff = int(datetime.now(UTC).timestamp()) - (hours * 3600)

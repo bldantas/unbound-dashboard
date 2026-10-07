@@ -13,7 +13,6 @@ request.
 from __future__ import annotations
 
 import hashlib
-import time
 
 from slowapi import Limiter
 from starlette.requests import Request

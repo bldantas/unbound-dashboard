@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from jose import ExpiredSignatureError, JWTError, jwt
+from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -48,9 +48,13 @@ async def login(request: Request, body: LoginRequest) -> dict:
         return {"requires_totp": True, "challenge_token": exc.challenge_token}
     except (auth_service.InvalidCredentials, auth_service.AccountInactive):
         from app.services import admin_audit_service
+
         await admin_audit_service.log(
-            actor_id=None, actor_username=body.username, actor_ip=ip,
-            action="login.fail", category="auth",
+            actor_id=None,
+            actor_username=body.username,
+            actor_ip=ip,
+            action="login.fail",
+            category="auth",
             details={"reason": "invalid_credentials_or_inactive"},
         )
         raise HTTPException(
@@ -59,9 +63,13 @@ async def login(request: Request, body: LoginRequest) -> dict:
         ) from None
     except auth_service.AccountLocked:
         from app.services import admin_audit_service
+
         await admin_audit_service.log(
-            actor_id=None, actor_username=body.username, actor_ip=ip,
-            action="login.locked", category="auth",
+            actor_id=None,
+            actor_username=body.username,
+            actor_ip=ip,
+            action="login.locked",
+            category="auth",
             details={"reason": "account_locked"},
         )
         raise HTTPException(
@@ -70,9 +78,13 @@ async def login(request: Request, body: LoginRequest) -> dict:
         ) from None
     # Login OK (sem 2FA required)
     from app.services import admin_audit_service
+
     await admin_audit_service.log(
-        actor_id=None, actor_username=body.username, actor_ip=ip,
-        action="login.success", category="auth",
+        actor_id=None,
+        actor_username=body.username,
+        actor_ip=ip,
+        action="login.success",
+        category="auth",
     )
     return result
 
@@ -199,7 +211,7 @@ async def refresh(
         )
 
     new_token = create_access_token({"sub": str(user["id"]), "role": user["role"]})
-    return TokenResponse(access_token=new_token, token_type="bearer", role=user["role"])
+    return TokenResponse(access_token=new_token, token_type="bearer", role=user["role"])  # noqa: S106
 
 
 # Grace window pra refresh (em minutos). JWT expirado há ≤ N min ainda
@@ -279,6 +291,7 @@ async def revoke_user(
             detail="Apenas admin ou o próprio user pode revogar tokens",
         )
     from app.services import jwt_denylist
+
     if requester_id != user_id:
         from app.routers.users import _ensure_can_target_user
 
@@ -413,7 +426,10 @@ async def _send_reset_email(email: str, raw_token: str, link_base: str | None) -
     )
     ok, reason = await asyncio.to_thread(
         email_notifier._send_via_smtp,  # noqa: SLF001
-        cfg, email, "Recuperação de Senha - Unbound Dashboard", body,
+        cfg,
+        email,
+        "Recuperação de Senha - Unbound Dashboard",
+        body,
     )
     if not ok:
         log.warning("auth.password_reset_email_failed", reason=reason)
@@ -503,7 +519,9 @@ async def disable_2fa(
     user_id = int(payload["sub"])
     user = await user_repo.find_by_id(user_id)
     if user is None or not user.get("totp_enabled"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA não está habilitado.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="2FA não está habilitado."
+        )
     if not totp_service.verify(user.get("totp_secret") or "", body.code):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -63,7 +63,7 @@ def _with_retry(fn, *args):
             if not _is_retriable_duckdb_error(exc):
                 raise
             last_exc = exc
-            time.sleep(_RETRY_BASE_SLEEP * (2 ** attempt))
+            time.sleep(_RETRY_BASE_SLEEP * (2**attempt))
     # Esgotamos retries — levanta o último erro
     if last_exc is not None:
         raise last_exc
@@ -76,6 +76,7 @@ def _sync_fetchall(sql: str, params: list[Any]) -> list[dict[str, Any]]:
             result = conn.execute(sql, params)
             cols = [d[0] for d in result.description]
             return [dict(zip(cols, row, strict=True)) for row in result.fetchall()]
+
     return _with_retry(_run)
 
 
@@ -86,6 +87,7 @@ def _sync_fetchone(sql: str, params: list[Any]) -> dict[str, Any] | None:
             cols = [d[0] for d in result.description]
             row = result.fetchone()
             return dict(zip(cols, row, strict=True)) if row else None
+
     return _with_retry(_run)
 
 
@@ -129,6 +131,7 @@ def _sync_execute(sql: str, params: list[Any]) -> None:
 async def db_execute_returning(sql: str, params: list[Any] | None = None) -> dict[str, Any] | None:
     """Escrita com `RETURNING` (ex.: transição de status atômica), serializada
     pelo writer executor. Retorna a primeira linha devolvida ou None."""
+
     def _run(sql: str, params: list[Any]) -> dict[str, Any] | None:
         with duckdb.connect(settings.db_path) as conn:
             result = conn.execute(sql, params)

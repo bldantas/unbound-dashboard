@@ -70,7 +70,8 @@ async def recent_blocked(
         cat AS (
             SELECT e.domain,
                    ANY_VALUE(s.category) AS category,
-                   MAX(CASE s.severity WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END) AS sev_rank
+                   MAX(CASE s.severity WHEN 'high' THEN 3 WHEN 'medium' THEN 2
+                                       WHEN 'low' THEN 1 ELSE 0 END) AS sev_rank
             FROM blocklist_entries e
             JOIN blocklist_sources s ON e.source_slug = s.slug
             WHERE e.domain IN (SELECT domain FROM recent)
@@ -78,7 +79,8 @@ async def recent_blocked(
         )
         SELECT r.timestamp, r.client_ip, r.domain, r.action,
                c.category,
-               CASE c.sev_rank WHEN 3 THEN 'high' WHEN 2 THEN 'medium' WHEN 1 THEN 'low' ELSE NULL END AS severity
+               CASE c.sev_rank WHEN 3 THEN 'high' WHEN 2 THEN 'medium'
+                               WHEN 1 THEN 'low' ELSE NULL END AS severity
         FROM recent r
         LEFT JOIN cat c ON r.domain = c.domain
         ORDER BY r.timestamp DESC
@@ -171,7 +173,9 @@ async def clear_category(category: str) -> int:
     return n
 
 
-async def bulk_insert_for_source(source_slug: str, domains: list[str], *, batch_size: int = 5000) -> int:
+async def bulk_insert_for_source(
+    source_slug: str, domains: list[str], *, batch_size: int = 5000
+) -> int:
     """Bulk INSERT de domínios em UMA source. Idempotente (ON CONFLICT DO NOTHING).
 
     Bate VALUES multi-row em lotes grandes — fonte com 400k domínios fica em
@@ -324,8 +328,10 @@ async def search_blocklist(
         select="""
         SELECT e.domain,
                ANY_VALUE(s.category) AS category,
-               CASE MAX(CASE s.severity WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END)
-                    WHEN 3 THEN 'high' WHEN 2 THEN 'medium' WHEN 1 THEN 'low' ELSE NULL END AS severity
+               CASE MAX(CASE s.severity WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1
+                   ELSE 0 END)
+                    WHEN 3 THEN 'high' WHEN 2 THEN 'medium' WHEN 1 THEN 'low' ELSE NULL END AS
+                        severity
         """,
         suffix="GROUP BY e.domain ORDER BY e.domain ASC LIMIT ? OFFSET ?",
         args_tail=[limit, offset],

@@ -94,8 +94,7 @@ async def get_policy(
     return {
         **_shape(p),
         "ranges": [
-            {"id": r["id"], "cidr": r["cidr"], "label": r.get("label")}
-            for r in p["ranges"]
+            {"id": r["id"], "cidr": r["cidr"], "label": r.get("label")} for r in p["ranges"]
         ],
         "blocks": p["blocks"],
         "allows": p["allows"],
@@ -111,7 +110,9 @@ async def create_policy(
     name = (body.get("name") or "").strip()
     description = (body.get("description") or "").strip() or None
     if not repo.validate_slug(slug):
-        raise HTTPException(status_code=400, detail="slug inválido (use a-z 0-9 _ -, 2-50 chars, começa com letra)")
+        raise HTTPException(
+            status_code=400, detail="slug inválido (use a-z 0-9 _ -, 2-50 chars, começa com letra)"
+        )
     if not name:
         raise HTTPException(status_code=400, detail="name é obrigatório")
     if await repo.get(slug):
@@ -125,11 +126,13 @@ async def create_policy(
         try:
             requested_org = int(requested_org)
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="org_id inválido")
+            raise HTTPException(status_code=400, detail="org_id inválido") from None
     if viewer_org is not None:
         # user org-scoped: força org_id = própria org
         if requested_org is not None and requested_org != viewer_org:
-            raise HTTPException(status_code=403, detail="não é permitido criar policy em outra organização")
+            raise HTTPException(
+                status_code=403, detail="não é permitido criar policy em outra organização"
+            )
         target_org = viewer_org
     else:
         target_org = requested_org  # admin global escolhe
@@ -191,7 +194,9 @@ async def add_range(
     cidr = (body.get("cidr") or "").strip()
     label = (body.get("label") or "").strip() or None
     if not repo.validate_cidr(cidr):
-        raise HTTPException(status_code=400, detail="CIDR inválido (use ex: 192.168.1.0/24 ou 10.0.0.5)")
+        raise HTTPException(
+            status_code=400, detail="CIDR inválido (use ex: 192.168.1.0/24 ou 10.0.0.5)"
+        )
     range_id = await repo.add_range(int(policy["id"]), cidr, label)
     return {"added": range_id is not None, "id": range_id, "cidr": cidr}
 

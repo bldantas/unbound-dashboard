@@ -79,22 +79,28 @@ async def list_all(viewer_org_id: int | None = None) -> list[dict[str, Any]]:
                 payload = json.loads(r["last_status_payload"])
             except json.JSONDecodeError:
                 pass
-        out.append({
-            "id": int(r["id"]),
-            "label": r["label"],
-            "base_url": r["base_url"],
-            "notes": r.get("notes") or "",
-            "added_by": r.get("added_by"),
-            "added_at": r["added_at"].isoformat() if r.get("added_at") else None,
-            "last_polled_at": r["last_polled_at"].isoformat() if r.get("last_polled_at") else None,
-            "last_status_at": r["last_status_at"].isoformat() if r.get("last_status_at") else None,
-            "last_status": r.get("last_status"),
-            "last_status_payload": payload,
-            "last_error": r.get("last_error"),
-            "org_id": int(r["org_id"]) if r.get("org_id") is not None else None,
-            "org_name": r.get("org_name"),
-            "org_slug": r.get("org_slug"),
-        })
+        out.append(
+            {
+                "id": int(r["id"]),
+                "label": r["label"],
+                "base_url": r["base_url"],
+                "notes": r.get("notes") or "",
+                "added_by": r.get("added_by"),
+                "added_at": r["added_at"].isoformat() if r.get("added_at") else None,
+                "last_polled_at": r["last_polled_at"].isoformat()
+                if r.get("last_polled_at")
+                else None,
+                "last_status_at": r["last_status_at"].isoformat()
+                if r.get("last_status_at")
+                else None,
+                "last_status": r.get("last_status"),
+                "last_status_payload": payload,
+                "last_error": r.get("last_error"),
+                "org_id": int(r["org_id"]) if r.get("org_id") is not None else None,
+                "org_name": r.get("org_name"),
+                "org_slug": r.get("org_slug"),
+            }
+        )
     return out
 
 
@@ -137,8 +143,14 @@ async def create(
         INSERT INTO managed_hosts (label, base_url, api_token, notes, added_by, org_id)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        [label[:100], base_url[:255], api_token[:255], (notes or "")[:500], added_by,
-         int(org_id) if org_id else None],
+        [
+            label[:100],
+            base_url[:255],
+            api_token[:255],
+            (notes or "")[:500],
+            added_by,
+            int(org_id) if org_id else None,
+        ],
     )
     row = await db_fetchone(
         "SELECT id FROM managed_hosts WHERE base_url = ?",
@@ -182,9 +194,7 @@ async def set_org(host_id: int, org_id: int | None) -> bool:
     if not existing:
         return False
     if org_id is not None:
-        org_row = await db_fetchone(
-            "SELECT id FROM organizations WHERE id = ?", [int(org_id)]
-        )
+        org_row = await db_fetchone("SELECT id FROM organizations WHERE id = ?", [int(org_id)])
         if not org_row:
             return False
     await db_execute(
@@ -349,13 +359,15 @@ async def list_history(host_id: int, limit: int = 100) -> list[dict[str, Any]]:
                 payload = json.loads(raw)
             except Exception:  # noqa: BLE001
                 pass
-        out.append({
-            "id": int(r["id"]),
-            "polled_at": r["polled_at"].isoformat() if r.get("polled_at") else None,
-            "status": r.get("status"),
-            "error": r.get("error"),
-            "payload": payload,
-        })
+        out.append(
+            {
+                "id": int(r["id"]),
+                "polled_at": r["polled_at"].isoformat() if r.get("polled_at") else None,
+                "status": r.get("status"),
+                "error": r.get("error"),
+                "payload": payload,
+            }
+        )
     return out
 
 
@@ -478,8 +490,13 @@ async def batch(
                 raise ValueError(f"op desconhecida: {op}")
             results.append({"id": host_id, "label": label, **res})
         except Exception as exc:  # noqa: BLE001
-            results.append({
-                "id": host_id, "label": label, "ok": False,
-                "status_code": 0, "error": f"{type(exc).__name__}: {exc}",
-            })
+            results.append(
+                {
+                    "id": host_id,
+                    "label": label,
+                    "ok": False,
+                    "status_code": 0,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
     return results

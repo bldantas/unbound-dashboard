@@ -10,7 +10,7 @@ Por ser síncrono (boto3 não é nativo async), o upload roda via
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -65,7 +65,7 @@ class BackupUploader:
 
         # Verifica schedule (compartilhado pelos dois modos)
         schedule_h = float(cfg.get("backup_s3_schedule_hours", "24") or "24")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         last_ok = _parse_iso(await settings_repo.get("backup_s3_last_upload_at"))
         if last_ok is not None and (now - last_ok).total_seconds() / 3600 < schedule_h:
             return
@@ -79,6 +79,7 @@ class BackupUploader:
         # Modo multi-destination: se ≥1 enabled na tabela backup_destinations,
         # usa esse caminho ao invés do legacy single-bucket.
         from app.services import backup_destinations_service as bd
+
         n_dests = await bd.count_enabled()
         if n_dests > 0:
             log.info("backup_uploader.starting_multi", destinations=n_dests)
@@ -103,7 +104,9 @@ class BackupUploader:
             )
             log.info(
                 "backup_uploader.completed_multi",
-                ok=successes, total=out["count"], status=global_status,
+                ok=successes,
+                total=out["count"],
+                status=global_status,
             )
             return
 

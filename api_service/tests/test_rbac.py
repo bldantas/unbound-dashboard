@@ -6,9 +6,19 @@ from app.core.rbac import VALID_ROLES, can
 
 
 def test_admin_can_everything():
-    for cap in ["config.write", "users.manage", "webhooks.manage", "smtp.manage",
-                "alerts.resolve", "blocklist.write", "alerts.read", "blocklist.read",
-                "users.read", "config.read_sensitive", "dashboard.read"]:
+    for cap in [
+        "config.write",
+        "users.manage",
+        "webhooks.manage",
+        "smtp.manage",
+        "alerts.resolve",
+        "blocklist.write",
+        "alerts.read",
+        "blocklist.read",
+        "users.read",
+        "config.read_sensitive",
+        "dashboard.read",
+    ]:
         assert can("admin", cap) is True, f"admin should have {cap}"
 
 

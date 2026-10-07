@@ -53,8 +53,10 @@ async def create_org(
         actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
         actor_username=user.get("username"),
         actor_ip=request.client.host if request.client else None,
-        action="org.create", category="user",
-        target_type="org", target_id=str(out.get("id", "?")),
+        action="org.create",
+        category="user",
+        target_type="org",
+        target_id=str(out.get("id", "?")),
         details={"name": out.get("name"), "slug": out.get("slug")},
     )
     return out
@@ -77,8 +79,10 @@ async def update_org(
         actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
         actor_username=user.get("username"),
         actor_ip=request.client.host if request.client else None,
-        action="org.update", category="user",
-        target_type="org", target_id=str(org_id),
+        action="org.update",
+        category="user",
+        target_type="org",
+        target_id=str(org_id),
         details={"fields": list(body.keys())},
     )
     return {"updated": True}
@@ -97,8 +101,10 @@ async def delete_org(
         actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
         actor_username=user.get("username"),
         actor_ip=request.client.host if request.client else None,
-        action="org.delete", category="user",
-        target_type="org", target_id=str(org_id),
+        action="org.delete",
+        category="user",
+        target_type="org",
+        target_id=str(org_id),
     )
 
 
@@ -120,8 +126,10 @@ async def assign_user(
         actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
         actor_username=user.get("username"),
         actor_ip=request.client.host if request.client else None,
-        action="org.assign_user", category="user",
-        target_type="user", target_id=str(user_id),
+        action="org.assign_user",
+        category="user",
+        target_type="user",
+        target_id=str(user_id),
         details={"org_id": org_id},
     )
     return {"ok": True}

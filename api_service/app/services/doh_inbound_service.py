@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +32,12 @@ GENERAL_CONF = Path("/etc/unbound/includes/general.conf")
 
 def _parse_general_conf() -> dict[str, str]:
     """Lê general.conf e extrai pares chave: valor relevantes pra DoH/DoT."""
-    out = {"tls_port": "853", "https_port": "8443", "tls_cert_path": str(CERT_PATH), "tls_key_path": str(KEY_PATH)}
+    out = {
+        "tls_port": "853",
+        "https_port": "8443",
+        "tls_cert_path": str(CERT_PATH),
+        "tls_key_path": str(KEY_PATH),
+    }
     if not GENERAL_CONF.exists():
         return out
     txt = GENERAL_CONF.read_text(encoding="utf-8", errors="replace")
@@ -65,9 +70,17 @@ def _read_cert_info(path: Path) -> dict[str, Any]:
 
     subject = cert.subject.rfc4514_string()
     issuer = cert.issuer.rfc4514_string()
-    not_before = cert.not_valid_before_utc if hasattr(cert, "not_valid_before_utc") else cert.not_valid_before.replace(tzinfo=timezone.utc)
-    not_after = cert.not_valid_after_utc if hasattr(cert, "not_valid_after_utc") else cert.not_valid_after.replace(tzinfo=timezone.utc)
-    now = datetime.now(timezone.utc)
+    not_before = (
+        cert.not_valid_before_utc
+        if hasattr(cert, "not_valid_before_utc")
+        else cert.not_valid_before.replace(tzinfo=UTC)
+    )
+    not_after = (
+        cert.not_valid_after_utc
+        if hasattr(cert, "not_valid_after_utc")
+        else cert.not_valid_after.replace(tzinfo=UTC)
+    )
+    now = datetime.now(UTC)
     days_left = (not_after - now).days
 
     san: list[str] = []
@@ -79,7 +92,7 @@ def _read_cert_info(path: Path) -> dict[str, Any]:
 
     fp = cert.fingerprint(hashes.SHA256()).hex(":").upper()
     # quebra a cada 2 chars: AA:BB:...
-    fp = ":".join(fp[i:i+2] for i in range(0, len(fp), 2)) if ":" not in fp else fp
+    fp = ":".join(fp[i : i + 2] for i in range(0, len(fp), 2)) if ":" not in fp else fp
 
     return {
         "present": True,
@@ -119,10 +132,16 @@ async def _run(cmd: list[str]) -> tuple[int, str, str]:
         stderr=asyncio.subprocess.PIPE,
     )
     out, err = await proc.communicate()
-    return proc.returncode or 0, out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace")
+    return (
+        proc.returncode or 0,
+        out.decode("utf-8", errors="replace"),
+        err.decode("utf-8", errors="replace"),
+    )
 
 
-async def generate_self_signed(common_name: str, days: int = 365, restart: bool = False) -> dict[str, Any]:
+async def generate_self_signed(
+    common_name: str, days: int = 365, restart: bool = False
+) -> dict[str, Any]:
     """Gera novo par RSA 2048 + self-signed cert e instala no path padrão.
 
     Sandbox systemd pode bloquear write em /etc/unbound — então geramos em
@@ -140,11 +159,13 @@ async def generate_self_signed(common_name: str, days: int = 365, restart: bool 
 
     # Geração
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, cn),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Unbound Dashboard"),
-    ])
-    now = datetime.now(timezone.utc)
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, cn),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Unbound Dashboard"),
+        ]
+    )
+    now = datetime.now(UTC)
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)

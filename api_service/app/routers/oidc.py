@@ -18,8 +18,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
-from app.core.config import settings
-from app.core.deps import require_auth, require_global_admin as require_admin
+from app.core.deps import require_global_admin as require_admin
 from app.core.security import create_access_token
 from app.services import admin_audit_service, oidc_service
 
@@ -102,20 +101,25 @@ async def probe_issuer(
 
             # Issuer no discovery deve bater (modulo trailing slash)
             disc_issuer = str(meta.get("issuer") or "").rstrip("/")
-            issuer_match = (disc_issuer == issuer)
+            issuer_match = disc_issuer == issuer
             out["meta_issuer"] = disc_issuer
             out["issuer_match"] = issuer_match
             for k in (
-                "authorization_endpoint", "token_endpoint", "userinfo_endpoint",
-                "jwks_uri", "end_session_endpoint",
+                "authorization_endpoint",
+                "token_endpoint",
+                "userinfo_endpoint",
+                "jwks_uri",
+                "end_session_endpoint",
             ):
                 v = meta.get(k)
                 if v:
                     out[k] = v
             for k in (
-                "scopes_supported", "response_types_supported",
+                "scopes_supported",
+                "response_types_supported",
                 "id_token_signing_alg_values_supported",
-                "grant_types_supported", "code_challenge_methods_supported",
+                "grant_types_supported",
+                "code_challenge_methods_supported",
             ):
                 v = meta.get(k)
                 if isinstance(v, list):
@@ -176,8 +180,11 @@ async def oidc_callback(
 
     if error:
         await admin_audit_service.log(
-            actor_id=None, actor_username=None, actor_ip=ip,
-            action="oidc.callback.idp_error", category="auth",
+            actor_id=None,
+            actor_username=None,
+            actor_ip=ip,
+            action="oidc.callback.idp_error",
+            category="auth",
             details={"error": error},
         )
         return RedirectResponse(url="/login.php?error=oidc_idp", status_code=302)
@@ -187,8 +194,11 @@ async def oidc_callback(
         user = await oidc_service.handle_callback(code, state, callback)
     except ValueError as exc:
         await admin_audit_service.log(
-            actor_id=None, actor_username=None, actor_ip=ip,
-            action="oidc.callback.fail", category="auth",
+            actor_id=None,
+            actor_username=None,
+            actor_ip=ip,
+            action="oidc.callback.fail",
+            category="auth",
             details={"reason": str(exc)},
         )
         return RedirectResponse(
@@ -197,16 +207,21 @@ async def oidc_callback(
         )
 
     # Emite JWT local
-    token = create_access_token({
-        "sub": str(user["id"]),
-        "role": user["role"],
-        "user_id": user["id"],
-        "username": user["username"],
-    })
+    token = create_access_token(
+        {
+            "sub": str(user["id"]),
+            "role": user["role"],
+            "user_id": user["id"],
+            "username": user["username"],
+        }
+    )
 
     await admin_audit_service.log(
-        actor_id=user["id"], actor_username=user["username"], actor_ip=ip,
-        action="login.oidc.success", category="auth",
+        actor_id=user["id"],
+        actor_username=user["username"],
+        actor_ip=ip,
+        action="login.oidc.success",
+        category="auth",
         details={"email": user.get("email")},
     )
 

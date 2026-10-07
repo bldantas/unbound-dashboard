@@ -27,8 +27,12 @@ async def _new_request(action: str = "test.action") -> int:
     from app.services import approval_service
 
     out = await approval_service.request_approval(
-        requester_id=1, requester_username="req", requester_ip=None,
-        action=action, description="teste", payload={"x": 1},
+        requester_id=1,
+        requester_username="req",
+        requester_ip=None,
+        action=action,
+        description="teste",
+        payload={"x": 1},
     )
     return int(out["id"])
 

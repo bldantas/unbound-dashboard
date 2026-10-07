@@ -45,9 +45,7 @@ class GeoBlockUpdater:
         self._running = False
 
     async def _run_once(self) -> dict:
-        enabled = (
-            await settings_repo.get("geo_blocking_enabled", "0")
-        ) == "1"
+        enabled = (await settings_repo.get("geo_blocking_enabled", "0")) == "1"
         if not enabled:
             log.debug("geo_block_updater.disabled")
             return {"skipped": "disabled"}
@@ -57,8 +55,14 @@ class GeoBlockUpdater:
         await settings_repo.bulk_upsert(
             [
                 {"setting_key": "geo_block_updater_last_run", "setting_value": ts_iso},
-                {"setting_key": "geo_block_updater_last_total", "setting_value": str(result.get("total", 0))},
-                {"setting_key": "geo_block_updater_last_ok", "setting_value": str(result.get("successful", 0))},
+                {
+                    "setting_key": "geo_block_updater_last_total",
+                    "setting_value": str(result.get("total", 0)),
+                },
+                {
+                    "setting_key": "geo_block_updater_last_ok",
+                    "setting_value": str(result.get("successful", 0)),
+                },
             ]
         )
         log.info(

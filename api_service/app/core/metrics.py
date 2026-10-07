@@ -51,7 +51,7 @@ unbound_hit_ratio = Gauge(
 unbound_latency_ms = Gauge(
     "unbound_latency_milliseconds",
     "Latência DNS em milissegundos por percentil/agregação",
-    labelnames=["kind"],   # avg | median | p50 | p95 | p99
+    labelnames=["kind"],  # avg | median | p50 | p95 | p99
 )
 unbound_total_queries = Gauge(
     "unbound_total_queries",
@@ -60,22 +60,22 @@ unbound_total_queries = Gauge(
 unbound_cache = Gauge(
     "unbound_cache",
     "Counters de cache (hits/miss/prefetch)",
-    labelnames=["kind"],   # hits | miss | prefetch
+    labelnames=["kind"],  # hits | miss | prefetch
 )
 unbound_cache_memory_bytes = Gauge(
     "unbound_cache_memory_bytes",
     "Memória usada pelos caches em bytes",
-    labelnames=["kind"],   # rrset | msg
+    labelnames=["kind"],  # rrset | msg
 )
 unbound_request_list = Gauge(
     "unbound_request_list",
     "Profundidade da fila de requests em andamento",
-    labelnames=["kind"],   # avg | max
+    labelnames=["kind"],  # avg | max
 )
 unbound_dnssec = Gauge(
     "unbound_dnssec",
     "Counters DNSSEC (secure/bogus/ratio)",
-    labelnames=["kind"],   # secure | bogus | ratio
+    labelnames=["kind"],  # secure | bogus | ratio
 )
 unbound_uptime_seconds = Gauge(
     "unbound_uptime_seconds",
@@ -84,12 +84,12 @@ unbound_uptime_seconds = Gauge(
 unbound_alerts_active = Gauge(
     "unbound_alerts_active",
     "Alertas ativos (resolved_at IS NULL) por severidade",
-    labelnames=["severity"],   # critical | warning | info
+    labelnames=["severity"],  # critical | warning | info
 )
 unbound_blocks = Gauge(
     "unbound_blocks",
     "Domínios bloqueados por categoria",
-    labelnames=["category"],   # adware | phishing | judicial
+    labelnames=["category"],  # adware | phishing | judicial
 )
 
 

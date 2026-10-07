@@ -51,8 +51,13 @@ async def list_admin_audit(
     """Lista filtrada do admin_audit."""
     viewer_org = await resolve_viewer_org_id(user)
     return await admin_audit_service.list_filtered(
-        category=category, actor_id=actor_id, action_prefix=action_prefix,
-        from_ts=from_ts, to_ts=to_ts, limit=limit, offset=offset,
+        category=category,
+        actor_id=actor_id,
+        action_prefix=action_prefix,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        limit=limit,
+        offset=offset,
         viewer_org_id=viewer_org,
     )
 
@@ -70,8 +75,11 @@ async def export_admin_audit_csv(
     """Export CSV (cap 10k linhas). Loga o próprio export no audit."""
     viewer_org = await resolve_viewer_org_id(user)
     csv_str = await admin_audit_service.export_csv(
-        category=category, actor_id=actor_id, action_prefix=action_prefix,
-        from_ts=from_ts, to_ts=to_ts,
+        category=category,
+        actor_id=actor_id,
+        action_prefix=action_prefix,
+        from_ts=from_ts,
+        to_ts=to_ts,
         viewer_org_id=viewer_org,
     )
     await admin_audit_service.log(
@@ -80,10 +88,15 @@ async def export_admin_audit_csv(
         actor_ip=request.client.host if request.client else None,
         action="audit.export_csv",
         category="data_export",
-        details={"filters": {
-            "category": category, "actor_id": actor_id,
-            "action_prefix": action_prefix, "from_ts": from_ts, "to_ts": to_ts,
-        }},
+        details={
+            "filters": {
+                "category": category,
+                "actor_id": actor_id,
+                "action_prefix": action_prefix,
+                "from_ts": from_ts,
+                "to_ts": to_ts,
+            }
+        },
     )
     return PlainTextResponse(
         csv_str,
@@ -105,8 +118,13 @@ async def export_admin_audit_pdf(
     """Export PDF (cap 2000 linhas — pra mais use CSV). Loga em audit."""
     viewer_org = await resolve_viewer_org_id(user)
     out = await admin_audit_service.list_filtered(
-        category=category, actor_id=actor_id, action_prefix=action_prefix,
-        from_ts=from_ts, to_ts=to_ts, limit=2000, offset=0,
+        category=category,
+        actor_id=actor_id,
+        action_prefix=action_prefix,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        limit=2000,
+        offset=0,
         viewer_org_id=viewer_org,
     )
     pdf_bytes = pdf_report_service.admin_audit_pdf(
@@ -119,7 +137,10 @@ async def export_admin_audit_pdf(
         actor_ip=request.client.host if request.client else None,
         action="audit.export_pdf",
         category="data_export",
-        details={"filters": {"category": category, "action_prefix": action_prefix, "from_ts": from_ts}, "rows": len(out["items"])},
+        details={
+            "filters": {"category": category, "action_prefix": action_prefix, "from_ts": from_ts},
+            "rows": len(out["items"]),
+        },
     )
     return Response(
         content=pdf_bytes,
@@ -145,9 +166,9 @@ async def update_audit_retention(
     days = int(body.get("days", 365))
     if days < 30 or days > 3650:
         raise HTTPException(status_code=400, detail="days must be 30..3650")
-    await settings_repo.bulk_upsert([
-        {"setting_key": "audit_retention_days", "setting_value": str(days)}
-    ])
+    await settings_repo.bulk_upsert(
+        [{"setting_key": "audit_retention_days", "setting_value": str(days)}]
+    )
     await admin_audit_service.log(
         actor_id=user.get("user_id") or _coerce_int(user.get("sub")),
         actor_username=user.get("username"),
