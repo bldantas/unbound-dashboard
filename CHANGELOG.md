@@ -5,6 +5,18 @@ release individual. Releases anteriores mantêm o formato antigo (uma
 seção por versão) por histórico — consolidação retroativa só pra
 2026-05-26 (36 releases num dia inflaram o arquivo).
 
+## 2026-10-06
+
+### Update assinado, instalador revisado e correções de autenticação
+- **v2.114.0**: release de manutenção (PRs #2–#6).
+  - **⚠️ Transição — servidores em v2.113.0 ou anterior**: o self-update pela UI dessas versões falha dentro do sandbox da API (`uv sync` sem acesso a `/root`). Aplique esta versão via SSH com o `update.sh` do próprio pacote: `mkdir -p /tmp/u && tar xzf unbound-dashboard-update-v2.114.0-*.tar.gz -C /tmp/u && sudo bash /tmp/u/update.sh /tmp/u`. Depois disso o self-update pela UI volta a funcionar.
+  - **Update assinado**: os pacotes de update são assinados (Ed25519) e o script root `/usr/local/bin/unbound-dashboard-run-update.sh` só aplica pacote com assinatura válida, executando o `update.sh` do próprio pacote. Scripts executados via sudo saíram da árvore web para `/usr/local/bin`. Logs de update em `/var/log/unbound-dashboard-update`.
+  - **Self-update pela UI**: corrigidos extração em `/tmp` privado (apagado ao parar a API), `uv sync` sem cache acessível, escrita em `/var/log/unbound` fora do sandbox, abort no meio deixando a API parada (agora faz rollback), rollback extraindo o backup no diretório errado e restore sendo encerrado pelo próprio `systemctl stop`. O Unbound só é reiniciado quando o drop-in muda.
+  - **Autenticação**: validação do login SSO pela API, fluxo de 2FA, rota interna de reset de senha, API tokens com escopo e `/auth/refresh` respeitando sessões encerradas. Recomendado atualizar.
+  - **DuckDB**: `CHECKPOINT` após migrations e no shutdown (bug de replay de WAL do DuckDB 1.5.x que impedia a API de subir); instalador recupera WAL quebrado em instalação nova.
+  - **Operação**: logrotate do log de queries do Unbound (pula a rotação se a cópia não couber no disco), LogWatcher segue truncates, retenção de backups do update (`BACKUP_KEEP`), checagem de espaço antes do update, snapshot do DuckDB com a API parada, tela de saúde mostra crash-loop.
+  - **Instalador**: cron em `/etc/cron.d` como `www-data` (limpa entradas duplicadas do crontab do root), backups fora do DocumentRoot, pastas internas negadas no Apache, `SECRETS_MASTER_KEY` gerada em instalação nova, drop-in do Unbound incluído no pacote de instalação, novo `tools/uninstall.sh`.
+
 ## 2026-05-28
 
 ### Sidebar: seções colapsáveis com chevron
