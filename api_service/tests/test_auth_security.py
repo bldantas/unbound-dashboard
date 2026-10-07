@@ -48,9 +48,11 @@ def client(populated_db):
 
 
 def _challenge_token() -> str:
+    import secrets
+
     from app.core.security import create_access_token
 
-    return create_access_token({"sub": "1", "totp_pending": True})
+    return create_access_token({"sub": "1", "totp_pending": True, "jti": secrets.token_hex(16)})
 
 
 # ---------------------------------------------------------------------------
@@ -151,3 +153,42 @@ def test_password_reset_request_refused_for_remote_caller(client) -> None:
     )
     assert resp.status_code == 403
     assert "token" not in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Rate limit por IP real e limite de códigos 2FA por challenge
+# ---------------------------------------------------------------------------
+
+
+def test_client_ip_key_uses_last_forwarded_hop() -> None:
+    from app.core.rate_limit import client_ip_key
+
+    # Atrás do Apache: o primeiro item do XFF é do cliente (forjável); o último é do Apache
+    assert client_ip_key(_request("127.0.0.1", {"X-Forwarded-For": "6.6.6.6, 203.0.113.9"})) == "ip:203.0.113.9"
+    # uvicorn já resolveu o IP real (proxy_headers): usa direto
+    assert client_ip_key(_request("203.0.113.9", {"X-Forwarded-For": "6.6.6.6"})) == "ip:203.0.113.9"
+
+
+async def test_totp_challenge_dies_after_too_many_wrong_codes(populated_db) -> None:
+    import pyotp
+
+    from app.core import config
+    from app.repositories.duckdb import connection
+    from app.services import auth_service
+
+    secret = pyotp.random_base32()
+    with duckdb.connect(populated_db) as c:
+        c.execute("UPDATE users SET totp_enabled = true, totp_secret = ? WHERE id = 1", [secret])
+
+    with patch.object(config.settings, "db_path", populated_db), \
+            patch.object(connection.settings, "db_path", populated_db):
+        challenge = _challenge_token()
+        for _ in range(5):
+            with pytest.raises(auth_service.InvalidTOTPCode):
+                await auth_service.login_2fa_verify(challenge, "000000")
+        # Mesmo com o código certo, o challenge esgotado não vale mais
+        with pytest.raises(auth_service.InvalidChallengeToken):
+            await auth_service.login_2fa_verify(challenge, pyotp.TOTP(secret).now())
+        # Novo challenge (novo login) funciona
+        out = await auth_service.login_2fa_verify(_challenge_token(), pyotp.TOTP(secret).now())
+        assert out["access_token"]

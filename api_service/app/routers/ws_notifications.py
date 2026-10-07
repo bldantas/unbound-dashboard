@@ -10,7 +10,6 @@ Auth: query param `?token=<jwt-or-api-token>` (mesmo padrão de ws_queries).
 
 from __future__ import annotations
 
-import asyncio
 import json
 import queue
 
@@ -18,6 +17,7 @@ import structlog
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
 from app.core.deps import validate_ws_token
+from app.core.ws import queue_get
 from app.services import alerts_broker
 
 log = structlog.get_logger(__name__)
@@ -44,14 +44,10 @@ async def ws_notifications(websocket: WebSocket, token: str = Query("")):
 
     try:
         await websocket.send_text(json.dumps({"type": "hello", "subscribers": alerts_broker.subscriber_count()}))
-        loop = asyncio.get_running_loop()
         while True:
             try:
-                event = await asyncio.wait_for(
-                    loop.run_in_executor(None, q.get, True, 30.0),
-                    timeout=35.0,
-                )
-            except (queue.Empty, asyncio.TimeoutError):
+                event = await queue_get(q, 30.0)
+            except queue.Empty:
                 try:
                     await websocket.send_text(json.dumps({"type": "ping"}))
                 except Exception:

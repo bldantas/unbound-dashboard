@@ -13,7 +13,6 @@ Cliente reconnect simples basta — nenhum estado precisa persistir.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import queue
 
@@ -21,6 +20,7 @@ import structlog
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
 from app.core.deps import validate_ws_token
+from app.core.ws import queue_get
 from app.services import query_broker
 
 log = structlog.get_logger(__name__)
@@ -49,16 +49,10 @@ async def ws_queries(websocket: WebSocket, token: str = Query("")):
         # Envia frame de boas-vindas pra cliente saber que conectou
         await websocket.send_text(json.dumps({"type": "hello", "subscribers": query_broker.subscriber_count()}))
 
-        loop = asyncio.get_running_loop()
-        # Drena queue continuamente — usa `to_thread(q.get, timeout)` pra não
-        # bloquear o event loop quando vazia.
         while True:
             try:
-                event = await asyncio.wait_for(
-                    loop.run_in_executor(None, q.get, True, 30.0),
-                    timeout=35.0,
-                )
-            except (queue.Empty, asyncio.TimeoutError):
+                event = await queue_get(q, 30.0)
+            except queue.Empty:
                 # Heartbeat pra cliente não pensar que está zumbi
                 try:
                     await websocket.send_text(json.dumps({"type": "ping"}))

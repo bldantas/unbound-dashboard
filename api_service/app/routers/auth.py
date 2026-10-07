@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.deps import require_auth
-from app.core.rate_limit import limiter
+from app.core.rate_limit import client_ip_key, limiter
 from app.core.security import create_access_token
 from app.repositories.duckdb import user_repo
 from app.services import auth_service, sessions
@@ -32,7 +32,7 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/login")
-@limiter.limit(settings.rate_limit_auth)
+@limiter.limit(settings.rate_limit_auth, key_func=client_ip_key)
 async def login(request: Request, body: LoginRequest) -> dict:
     """
     Retorna TokenResponse normal OU `{requires_totp: true, challenge_token}`
@@ -81,7 +81,7 @@ class Login2FARequest(BaseModel):
 
 
 @router.post("/login/2fa-verify", response_model=TokenResponse)
-@limiter.limit(settings.rate_limit_auth)
+@limiter.limit(settings.rate_limit_auth, key_func=client_ip_key)
 async def login_2fa_verify(request: Request, body: Login2FARequest) -> TokenResponse:
     """
     Segundo passo do login pra users com 2FA habilitado. Recebe o
@@ -119,7 +119,7 @@ async def me(payload: Annotated[dict, Depends(require_auth)]) -> dict:
 
 
 @router.post("/refresh", response_model=TokenResponse)
-@limiter.limit(settings.rate_limit_auth)
+@limiter.limit(settings.rate_limit_auth, key_func=client_ip_key)
 async def refresh(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
@@ -349,7 +349,7 @@ class PasswordResetConfirm(BaseModel):
 
 
 @router.post("/password-reset/request")
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=client_ip_key)
 async def request_password_reset(request: Request, body: PasswordResetRequest) -> dict:
     """
     Gera token de reset se email pertence a user ativo. Retorna o token (cru)
@@ -374,7 +374,7 @@ async def request_password_reset(request: Request, body: PasswordResetRequest) -
 
 
 @router.post("/password-reset/confirm", status_code=status.HTTP_204_NO_CONTENT)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=client_ip_key)
 async def confirm_password_reset(request: Request, body: PasswordResetConfirm) -> None:
     from app.services import users_service
 

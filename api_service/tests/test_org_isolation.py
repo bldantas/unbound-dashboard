@@ -237,3 +237,28 @@ async def test_global_capability_respects_api_token_scope() -> None:
     with pytest.raises(HTTPException) as exc:
         await dep({**token, "api_token_capabilities": ["dashboard.read"]})
     assert exc.value.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# WebSocket: leitura da fila não ocupa thread do executor
+# ---------------------------------------------------------------------------
+
+
+async def test_ws_queue_get_does_not_use_executor_threads() -> None:
+    import asyncio
+    import queue
+    import threading
+
+    from app.core.ws import queue_get
+
+    q: queue.Queue = queue.Queue()
+    before = threading.active_count()
+    waiters = [asyncio.create_task(queue_get(q, 1.0)) for _ in range(50)]
+    await asyncio.sleep(0.3)
+    assert threading.active_count() - before < 5  # 50 conexões esperando, sem 50 threads
+    for _ in range(50):
+        q.put({"ok": True})
+    assert all(r == {"ok": True} for r in await asyncio.gather(*waiters))
+
+    with pytest.raises(queue.Empty):
+        await queue_get(queue.Queue(), 0.3)

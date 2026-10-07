@@ -11,6 +11,8 @@ Lições aplicadas (audit memory):
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 from datetime import UTC, datetime, timedelta
 
 from app.core.security import (
@@ -97,7 +99,8 @@ async def login(username: str, password: str) -> dict:
     # 2FA: se totp_enabled, NÃO emite JWT real ainda — devolve challenge.
     if user.get("totp_enabled"):
         challenge = create_access_token(
-            {"sub": str(user["id"]), "totp_pending": True},
+            # jti: cada login gera um challenge único (contador de códigos errados é por jti)
+            {"sub": str(user["id"]), "totp_pending": True, "jti": secrets.token_hex(16)},
             expires_delta=timedelta(minutes=_TOTP_CHALLENGE_MINUTES),
         )
         raise TOTPRequired(challenge_token=challenge)
@@ -143,7 +146,15 @@ async def login_2fa_verify(challenge_token: str, code: str) -> dict:
     if user is None or not user.get("is_active") or not user.get("totp_enabled"):
         raise InvalidChallengeToken
 
+    # Limite de códigos errados por challenge: o rate limit é por IP e um
+    # código de 6 dígitos não aguenta tentativas ilimitadas durante a
+    # validade do challenge. Esgotado, o challenge morre (novo login).
+    challenge_id = payload.get("jti") or hashlib.sha256(challenge_token.encode()).hexdigest()[:32]
+    fail_key = f"udash:totp_fail:{challenge_id}"
+    if await _totp_failures(fail_key) >= _TOTP_MAX_FAILURES:
+        raise InvalidChallengeToken
     if not totp_service.verify(user.get("totp_secret") or "", code):
+        await _record_totp_failure(fail_key)
         raise InvalidTOTPCode
 
     await user_repo.touch_last_login(user_id)
@@ -153,6 +164,30 @@ async def login_2fa_verify(challenge_token: str, code: str) -> dict:
         "token_type": "bearer",
         "role": user["role"],
     }
+
+
+_TOTP_MAX_FAILURES = 5
+
+
+async def _totp_failures(key: str) -> int:
+    from app.infrastructure.redis_client import get_redis
+
+    try:
+        r = await get_redis()
+        return int(await r.get(key) or 0)
+    except Exception:  # noqa: BLE001
+        return 0  # Redis fora: cai só no rate limit por IP
+
+
+async def _record_totp_failure(key: str) -> None:
+    from app.infrastructure.redis_client import get_redis
+
+    try:
+        r = await get_redis()
+        await r.incr(key)
+        await r.expire(key, _TOTP_CHALLENGE_MINUTES * 60 + 60)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def change_password(user_id: int, old_password: str, new_password: str) -> None:
