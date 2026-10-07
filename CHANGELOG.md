@@ -7,6 +7,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-10-07
 
+### Tela de update reconecta ao log
+- **v2.115.2**: durante o update pela UI a API é parada e reiniciada, e a conexão do log caía com "Erro no stream do log: Error in input stream" — a janela ficava girando sem mostrar o fim, embora o update terminasse normalmente no servidor. Agora a tela reconecta sozinha (a cada 3 s, por até ~10 min), redesenha o log completo e mostra o resultado final. Se não conseguir, libera o botão de fechar. Vale também para a restauração de backup. Como a correção roda na página aberta, ela passa a valer a partir do update **seguinte** ao da v2.115.2.
+
 ### Correções da v2.115.0
 - **v2.115.1**:
   - **Webhooks (Configurações)**: os formulários de configurar e testar webhook saíam com o token CSRF vazio e eram sempre recusados. Corrigido; o wrapper de CSRF também preenche tokens vazios em qualquer formulário.

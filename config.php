@@ -3369,16 +3369,23 @@ function field($key, $label, $desc = '', $def = '')
                 }
             });
 
-            function streamLog(jobId) {
-                // Apache proxy não passa Authorization em EventSource por default.
-                // Alternativa: ?jwt=... como query param. Mas como o endpoint já está
-                // protegido por require_capability e é admin, posso passar o JWT
-                // via query (vai no log do Apache mas não é mais sensível que o cookie).
-                // Solução robusta: usar fetch() + ReadableStream (mantém Authorization
-                // header funcionando).
+            // O update para e reinicia a API (snapshot do DuckDB, restart do
+            // serviço): a conexão do stream cai no meio, como esperado. O
+            // endpoint reenvia o log inteiro a cada conexão, então
+            // reconectamos e redesenhamos o console até chegar o `done`.
+            let streamDone = false;
+            function streamLog(jobId, attempt = 0) {
+                const MAX_ATTEMPTS = 200;  // ~10 min com 3s entre tentativas
+                if (attempt === 0) streamDone = false;
+                let firstChunk = true;
                 fetch('/api/v1/updates/log/' + jobId, {
                     headers: { 'Authorization': 'Bearer ' + JWT, 'Accept': 'text/event-stream' },
                 }).then(async (resp) => {
+                    if (resp.status === 401 || resp.status === 403 || resp.status === 404) {
+                        const e = new Error(`HTTP ${resp.status}`);
+                        e.fatal = true;
+                        throw e;
+                    }
                     if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
                     const reader = resp.body.getReader();
                     const decoder = new TextDecoder();
@@ -3392,11 +3399,26 @@ function field($key, $label, $desc = '', $def = '')
                         while ((idx = buf.indexOf('\n\n')) >= 0) {
                             const raw = buf.slice(0, idx);
                             buf = buf.slice(idx + 2);
+                            if (firstChunk && !raw.startsWith(':')) {
+                                el.consoleEl.textContent = '';  // log completo vem de novo
+                                firstChunk = false;
+                            }
                             handleSseEvent(raw);
                         }
                     }
+                    if (!streamDone) throw new Error('conexão encerrada');
                 }).catch((err) => {
-                    appendLine(`\n[!] Erro no stream do log: ${err.message}\n`);
+                    if (streamDone) return;
+                    if (err.fatal || attempt >= MAX_ATTEMPTS) {
+                        appendLine(`\n[!] Não foi possível acompanhar o log (${err.message}). O update continua no servidor — recarregue a página em alguns minutos.\n`);
+                        el.modalClose.classList.remove('hidden');
+                        window.__updateRunning = false;
+                        return;
+                    }
+                    if (attempt === 0 || attempt % 10 === 0) {
+                        appendLine(`\n[..] API reiniciando — reconectando ao log...\n`);
+                    }
+                    setTimeout(() => streamLog(jobId, attempt + 1), 3000);
                 });
             }
 
@@ -3410,6 +3432,7 @@ function field($key, $label, $desc = '', $def = '')
                 }
                 const data = dataLines.join('\n');
                 if (event === 'done') {
+                    streamDone = true;
                     try {
                         const final = JSON.parse(data);
                         renderFinal(final);
