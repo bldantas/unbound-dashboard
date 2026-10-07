@@ -187,20 +187,19 @@ else
     warn "Health-fix script não encontrado em /usr/local/bin/"
 fi
 
-# --- Setup-unbound-logs script
-SRC_LOGS_SH="$DASHBOARD_DIR/tools/system/bin/setup-unbound-logs.sh"
-if [ -f "$SRC_LOGS_SH" ]; then
-    cp "$SRC_LOGS_SH" "$STAGING/system/bin/setup-unbound-logs.sh"
-    chmod +x "$STAGING/system/bin/setup-unbound-logs.sh"
-    log "Setup-unbound-logs script copiado"
-else
-    warn "Setup-unbound-logs script não encontrado em tools/system/bin/"
-fi
+# --- Scripts de sistema versionados (setup-unbound-logs e os executados via
+#     sudo: run-update, restore-backup, setup-apparmor-certs)
+for src_sh in "$DASHBOARD_DIR"/tools/system/bin/*.sh; do
+    [ -f "$src_sh" ] || continue
+    cp "$src_sh" "$STAGING/system/bin/"
+    chmod +x "$STAGING/system/bin/$(basename "$src_sh")"
+done
+log "Scripts de sistema copiados: $(cd "$DASHBOARD_DIR/tools/system/bin" && ls *.sh | tr '\n' ' ')"
 
-# --- Crons (limpa MariaDB do conteúdo se ainda existir referência)
-SRC_CRONS="$DASHBOARD_DIR/tools/system/cron/unbound-dashboard-crons"
+# --- Cron (/etc/cron.d)
+SRC_CRONS="$DASHBOARD_DIR/tools/system/cron/unbound-dashboard.cron"
 if [ -f "$SRC_CRONS" ]; then
-    cp "$SRC_CRONS" "$STAGING/system/cron/unbound-dashboard-crons"
+    cp "$SRC_CRONS" "$STAGING/system/cron/unbound-dashboard.cron"
     log "Definição de crons copiada"
 else
     warn "Arquivo de crons não encontrado em tools/system/cron/"
@@ -261,7 +260,7 @@ Conteúdo do pacote:
   system/logrotate/                → rotação do log de queries do Unbound
   system/apache/                   → conf-available proxy /api/v1
   system/etc/api-v1.env.example    → template do EnvironmentFile
-  system/bin/                      → unbound-health-fix.sh, setup-unbound-logs.sh
+  system/bin/                      → scripts root em /usr/local/bin (health-fix, logs, update, restore, apparmor)
   system/cron/                     → definições cron do dashboard
   install.sh                       → Instalação automatizada
   LEIAME.txt                       → Este arquivo

@@ -347,10 +347,11 @@ class TlsCertManager
      */
     private function _ensureApparmorRules(): void
     {
-        $scriptPath = realpath(__DIR__ . '/../tools/setup-apparmor-certs.sh');
-        if (!$scriptPath) return;
+        // Script root-owned em /usr/local/bin (fora da árvore que www-data escreve).
+        $scriptPath = '/usr/local/bin/unbound-dashboard-setup-apparmor-certs.sh';
+        if (!is_file($scriptPath)) return;
         $out = []; $ret = 0;
-        ShellHelper::exec('/usr/bin/bash', [$scriptPath], $out, $ret, true);
+        ShellHelper::exec($scriptPath, [], $out, $ret, true);
         // Não retornamos erro — o usuário pode estar num sistema sem AppArmor
         // (CentOS, Alpine) ou sem permissão de sudo. O install do cert pode
         // falhar depois com mensagem mais clara se for o caso.

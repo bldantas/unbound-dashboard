@@ -119,10 +119,11 @@ if [ "$LEGACY_ONLY" != "true" ]; then
     echo "  - $INSTALL_DIR"
     echo "  - $DUCKDB_DIR (DuckDB e pacotes de update baixados)"
     echo "  - $ETC_DIR (api-v1.env: JWT_SECRET, SECRETS_MASTER_KEY)"
-    echo "  - $BACKUP_DIR, $LOG_DIR"
+    echo "  - $BACKUP_DIR, $LOG_DIR, /var/log/unbound-dashboard-update"
+    echo "  - cache/Python do uv: /var/cache/unbound-dashboard, /usr/local/lib/unbound-dashboard"
     echo "  - conf Apache unbound-dashboard-api, sudoers, /etc/cron.d/unbound-dashboard,"
     echo "    /etc/logrotate.d/unbound-dashboard, drop-in unbound.service.d/logfile.conf,"
-    echo "    /usr/local/bin/{unbound-health-fix.sh,setup-unbound-logs.sh}"
+    echo "    scripts do painel em /usr/local/bin (unbound-dashboard-*.sh, health-fix, setup-unbound-logs)"
 fi
 echo "  - entradas do dashboard no crontab do root"
 [ -n "$LEGACY_WEB_BACKUPS" ] && printf '  - cópia antiga no DocumentRoot: %s\n' $LEGACY_WEB_BACKUPS
@@ -216,7 +217,10 @@ rm -f /etc/sudoers.d/unbound-dashboard \
       /etc/cron.d/unbound-dashboard \
       /etc/logrotate.d/unbound-dashboard \
       /usr/local/bin/unbound-health-fix.sh \
-      /usr/local/bin/setup-unbound-logs.sh
+      /usr/local/bin/setup-unbound-logs.sh \
+      /usr/local/bin/unbound-dashboard-run-update.sh \
+      /usr/local/bin/unbound-dashboard-restore-backup.sh \
+      /usr/local/bin/unbound-dashboard-setup-apparmor-certs.sh
 log "Sudoers, cron, logrotate e scripts removidos"
 
 if [ -f /etc/systemd/system/unbound.service.d/logfile.conf ]; then
@@ -225,7 +229,9 @@ if [ -f /etc/systemd/system/unbound.service.d/logfile.conf ]; then
     log "Drop-in do Unbound removido (vale no próximo restart do Unbound)"
 fi
 
-for d in "$INSTALL_DIR" "$DUCKDB_DIR" "$ETC_DIR" "$BACKUP_DIR" "$LOG_DIR"; do
+for d in "$INSTALL_DIR" "$DUCKDB_DIR" "$ETC_DIR" "$BACKUP_DIR" "$LOG_DIR" \
+         /var/log/unbound-dashboard-update /var/cache/unbound-dashboard \
+         /usr/local/lib/unbound-dashboard; do
     if [ -e "$d" ]; then
         rm -rf --one-file-system -- "$d"
         log "Removido: $d"

@@ -38,7 +38,7 @@ pkg_installed() {
 # de cabeçalho que versões anteriores duplicavam a cada instalação.
 install_dashboard_cron() {
     local src="$1"
-    install -m 0644 -o root -g root "$src" /etc/cron.d/unbound-dashboard
+    install -m 0644 -o root -g root "$src" /etc/cron.d/unbound-dashboard || return 1
     local cur new
     cur=$(crontab -l 2>/dev/null || true)
     [ -n "$cur" ] || return 0
@@ -69,6 +69,14 @@ install_dashboard_cron() {
 if [ "$EUID" -ne 0 ]; then
     err "Execute como root: sudo bash install.sh"
 fi
+
+# uv: cache e Pythons baixados em dirs do root fora de /root. O self-update
+# roda no sandbox da API (ProtectHome=yes): /root/.cache fica read-only e o
+# `uv sync` falhava; um Python standalone em /root/.local ficaria invisível
+# para a API. Os dois dirs estão no ReadWritePaths do unit.
+export UV_CACHE_DIR=/var/cache/unbound-dashboard/uv
+export UV_PYTHON_INSTALL_DIR=/usr/local/lib/unbound-dashboard/python
+install -d -o root -g root -m 755 "$UV_CACHE_DIR" "$UV_PYTHON_INSTALL_DIR" 2>/dev/null || true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DASHBOARD_SRC="$SCRIPT_DIR/dashboard"
@@ -479,18 +487,20 @@ else
     err "Apache conf ausente em $SYSTEM_SRC/apache/"
 fi
 
-# Health-fix + setup-unbound-logs
-for sh in unbound-health-fix.sh setup-unbound-logs.sh; do
-    if [ -f "$SYSTEM_SRC/bin/$sh" ]; then
-        cp "$SYSTEM_SRC/bin/$sh" /usr/local/bin/
-        chmod +x "/usr/local/bin/$sh"
-        log "$sh instalado em /usr/local/bin/"
-    fi
+# Scripts de sistema (health-fix, logs, e os executados via sudo: update,
+# restore, apparmor). root:root 755 em /usr/local/bin — fora da árvore web.
+for src_sh in "$SYSTEM_SRC"/bin/*.sh; do
+    [ -f "$src_sh" ] || continue
+    install -m 0755 -o root -g root "$src_sh" "/usr/local/bin/$(basename "$src_sh")"
+    log "$(basename "$src_sh") instalado em /usr/local/bin/"
 done
 
+# Logs de update/restore: escritos pelos scripts root, lidos pela API (SSE).
+install -d -o root -g www-data -m 750 /var/log/unbound-dashboard-update
+
 # Crons (/etc/cron.d, como www-data) + limpeza das entradas antigas do root
-if [ -f "$SYSTEM_SRC/cron/unbound-dashboard-crons" ]; then
-    install_dashboard_cron "$SYSTEM_SRC/cron/unbound-dashboard-crons"
+if [ -f "$SYSTEM_SRC/cron/unbound-dashboard.cron" ]; then
+    install_dashboard_cron "$SYSTEM_SRC/cron/unbound-dashboard.cron"
     log "Cron instalado em /etc/cron.d/unbound-dashboard (www-data)"
 fi
 

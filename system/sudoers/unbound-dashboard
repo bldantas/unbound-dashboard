@@ -48,8 +48,8 @@ www-data ALL=(ALL) NOPASSWD: \
     /usr/bin/systemctl restart ntp, \
     /usr/bin/systemctl restart ntpd, \
     /usr/bin/systemctl restart ntpsec, \
-    /usr/bin/bash /var/www/html/unbound-dashboard/tools/run-update.sh * /var/lib/unbound-dashboard/updates/unbound-dashboard-update-v[0-9]*.tar.gz, \
-    /usr/bin/bash /var/www/html/unbound-dashboard/tools/restore-backup.sh * [0-9]*, \
+    /usr/local/bin/unbound-dashboard-run-update.sh [0-9a-f]* /var/lib/unbound-dashboard/updates/unbound-dashboard-update-v[0-9]*.tar.gz, \
+    /usr/local/bin/unbound-dashboard-restore-backup.sh [0-9a-f]* [0-9]*, \
     /usr/bin/systemctl restart unbound-dashboard-api, \
     /usr/bin/mkdir -p /etc/unbound/certs, \
     /usr/bin/install -o unbound -g unbound -m 0644 /var/www/html/unbound-dashboard/src/data/tmp/unbound_dashboard_cert.crt /etc/unbound/certs/dashboard.crt, \
@@ -62,4 +62,4 @@ www-data ALL=(ALL) NOPASSWD: \
     /usr/bin/install -o unbound -g unbound -m 0640 /etc/letsencrypt/live/*/privkey.pem /etc/unbound/certs/dashboard.key, \
     /usr/bin/install -o unbound -g unbound -m 0644 /var/www/html/unbound-dashboard/src/data/tmp/unbound_le_lineage /etc/unbound/certs/.le-lineage, \
     /usr/bin/install -m 0755 /var/www/html/unbound-dashboard/system/letsencrypt/unbound-dashboard-deploy.sh /etc/letsencrypt/renewal-hooks/deploy/unbound-dashboard.sh, \
-    /usr/bin/bash /var/www/html/unbound-dashboard/tools/setup-apparmor-certs.sh
+    /usr/local/bin/unbound-dashboard-setup-apparmor-certs.sh ""

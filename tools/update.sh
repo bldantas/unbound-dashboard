@@ -31,6 +31,14 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 # Quantos conjuntos de backup (código + DuckDB + env) manter, contando o
 # deste update. Cada snapshot do DuckDB pode ter GBs — sem limite o disco enche.
 BACKUP_KEEP="${BACKUP_KEEP:-3}"
+
+# uv: cache e Pythons baixados em dirs do root fora de /root. O self-update
+# roda no sandbox da API (ProtectHome=yes): /root/.cache fica read-only e o
+# `uv sync` falhava; um Python standalone em /root/.local ficaria invisível
+# para a API. Os dois dirs estão no ReadWritePaths do unit.
+export UV_CACHE_DIR=/var/cache/unbound-dashboard/uv
+export UV_PYTHON_INSTALL_DIR=/usr/local/lib/unbound-dashboard/python
+install -d -o root -g root -m 755 "$UV_CACHE_DIR" "$UV_PYTHON_INSTALL_DIR" 2>/dev/null || true
 UPDATE_PACKAGE="${1:-}"
 DRY_RUN="${DRY_RUN:-false}"
 VERBOSE="${VERBOSE:-false}"
@@ -53,7 +61,7 @@ debug() { [ "$VERBOSE" = "true" ] && echo "[??] $1" || true; }
 # de cabeçalho que versões anteriores duplicavam a cada instalação.
 install_dashboard_cron() {
     local src="$1"
-    install -m 0644 -o root -g root "$src" /etc/cron.d/unbound-dashboard
+    install -m 0644 -o root -g root "$src" /etc/cron.d/unbound-dashboard || return 1
     local cur new
     cur=$(crontab -l 2>/dev/null || true)
     [ -n "$cur" ] || return 0
@@ -86,7 +94,31 @@ cleanup_extracted() {
         rm -rf "$EXTRACTED_DIR"
     fi
 }
-trap cleanup_extracted EXIT
+
+# Estado para o handler de saída: create_backup para a API (snapshot
+# consistente) e as etapas apply_* alteram o sistema. Se o script abortar no
+# meio (set -e), sem isto a API ficava parada e o código pela metade.
+API_STOPPED_BY_UPDATE="false"
+APPLY_STARTED="false"
+UPDATE_DONE="false"
+ROLLBACK_RAN="false"
+
+on_exit() {
+    local rc=$?
+    cleanup_extracted
+    if [ "$rc" -ne 0 ] && [ "$UPDATE_DONE" != "true" ] && [ "$ROLLBACK_RAN" != "true" ] \
+       && [ "$DRY_RUN" != "true" ]; then
+        if [ "$APPLY_STARTED" = "true" ]; then
+            error "Update abortado no meio (exit $rc) — restaurando o backup"
+            rollback_from_backup
+        elif [ "$API_STOPPED_BY_UPDATE" = "true" ]; then
+            error "Update abortado antes de aplicar (exit $rc) — religando a API"
+            systemctl start unbound-dashboard-api || true
+            echo "ROLLBACK CONCLUÍDO — nada foi aplicado"
+        fi
+    fi
+}
+trap on_exit EXIT
 
 # ============================================================
 # VALIDAÇÃO INICIAL
@@ -255,6 +287,7 @@ create_backup() {
         # sobe de novo no fim.
         if [ "$AUTO_RESTART" = "true" ]; then
             info "Parando unbound-dashboard-api para snapshot consistente do DuckDB..."
+            API_STOPPED_BY_UPDATE="true"
             systemctl stop unbound-dashboard-api 2>/dev/null || true
         else
             warn "AUTO_RESTART=false — api_service segue rodando; snapshot do DuckDB pode ficar inconsistente"
@@ -296,6 +329,12 @@ apply_dashboard() {
         --exclude='api_service/' \
         --exclude='Database.php' \
         "$src/" "$DASHBOARD_DIR/"
+
+    # Scripts root que viviam na árvore web (versões anteriores): agora ficam em
+    # /usr/local/bin. O rsync não apaga arquivos removidos do pacote.
+    rm -f "$DASHBOARD_DIR/tools/run-update.sh" \
+          "$DASHBOARD_DIR/tools/restore-backup.sh" \
+          "$DASHBOARD_DIR/tools/setup-apparmor-certs.sh"
 
     log "Frontend PHP atualizado"
 }
@@ -376,6 +415,12 @@ apply_system() {
     local sys="$EXTRACTED_DIR/system"
     [ -d "$sys" ] || { warn "system/ ausente no pacote — pulando configs"; return 0; }
 
+    # Logs de update/restore (scripts root escrevem, API lê via SSE)
+    if [ "$DRY_RUN" != "true" ]; then
+        install -d -o root -g www-data -m 750 /var/log/unbound-dashboard-update 2>/dev/null \
+            || warn "Não foi possível criar /var/log/unbound-dashboard-update"
+    fi
+
     info "Atualizando configurações do sistema..."
 
     # --- Sudoers
@@ -409,18 +454,34 @@ apply_system() {
             info "[DRY-RUN] /etc/systemd/system/unbound.service.d/ drop-in"
         else
             mkdir -p /etc/systemd/system/unbound.service.d
-            cp "$sys/systemd/unbound.service.d/"*.conf /etc/systemd/system/unbound.service.d/
-            systemctl daemon-reload
-            # Garante que o arquivo de log existe + permissão (systemd vai
-            # appendar como root, mas o dir/arquivo precisa ser writable)
-            mkdir -p /var/log/unbound
-            touch /var/log/unbound/unbound.log
-            chown unbound:unbound /var/log/unbound/unbound.log 2>/dev/null || true
-            # Restart (não reload) — drop-in muda StandardError, precisa re-exec
-            if systemctl is-active --quiet unbound; then
-                systemctl restart unbound || warn "Falha ao reiniciar unbound após drop-in"
+            # Só reinicia o Unbound (= DNS fora por um instante) se o drop-in mudou.
+            local dropin_changed="false" conf
+            for conf in "$sys/systemd/unbound.service.d/"*.conf; do
+                if ! cmp -s "$conf" "/etc/systemd/system/unbound.service.d/$(basename "$conf")"; then
+                    cp "$conf" /etc/systemd/system/unbound.service.d/
+                    dropin_changed="true"
+                fi
+            done
+            # Arquivo de log do Unbound: só cria se faltar (o systemd faz append
+            # como root). Fora do ReadWritePaths em units anteriores a esta
+            # versão — não aborta o update por isso.
+            if [ ! -f /var/log/unbound/unbound.log ]; then
+                if mkdir -p /var/log/unbound 2>/dev/null && touch /var/log/unbound/unbound.log 2>/dev/null; then
+                    chown unbound:unbound /var/log/unbound/unbound.log 2>/dev/null || true
+                else
+                    warn "Não foi possível criar /var/log/unbound/unbound.log (read-only no sandbox da API)"
+                fi
             fi
-            log "Unbound drop-in instalado (stderr→logfile pra LogWatcher)"
+            if [ "$dropin_changed" = "true" ]; then
+                systemctl daemon-reload
+                # Restart (não reload) — drop-in muda StandardError, precisa re-exec
+                if systemctl is-active --quiet unbound; then
+                    systemctl restart unbound || warn "Falha ao reiniciar unbound após drop-in"
+                fi
+                log "Unbound drop-in atualizado (stderr→logfile pra LogWatcher)"
+            else
+                debug "Drop-in do Unbound sem mudança — Unbound não reiniciado"
+            fi
         fi
     fi
 
@@ -429,11 +490,16 @@ apply_system() {
         if [ "$DRY_RUN" = "true" ]; then
             info "[DRY-RUN] /etc/logrotate.d/unbound-dashboard"
         else
-            install -m 0644 -o root -g root "$sys/logrotate/unbound-dashboard" /etc/logrotate.d/unbound-dashboard
-            if command -v logrotate >/dev/null 2>&1 && ! logrotate -d /etc/logrotate.d/unbound-dashboard >/dev/null 2>&1; then
+            # Self-update pela UI herda o sandbox da API (ProtectSystem=strict):
+            # com um unit anterior a esta versão /etc/logrotate.d é read-only.
+            # Não aborta o update por isso — o próximo update instala.
+            if ! install -m 0644 -o root -g root "$sys/logrotate/unbound-dashboard" /etc/logrotate.d/unbound-dashboard 2>/dev/null; then
+                warn "Não foi possível gravar /etc/logrotate.d (read-only no sandbox da API) — rode o update de novo após este"
+            elif command -v logrotate >/dev/null 2>&1 && ! logrotate -d /etc/logrotate.d/unbound-dashboard >/dev/null 2>&1; then
                 warn "logrotate -d acusou erro em /etc/logrotate.d/unbound-dashboard — revise"
+            else
+                log "Logrotate do log do Unbound instalado"
             fi
-            log "Logrotate do log do Unbound instalado"
             # copytruncate copia o arquivo antes de truncar: na 1ª rotação de
             # um log que cresceu sem limite (instalações antigas) a cópia pode
             # não caber e encher o disco. Não truncamos sozinhos (o log pode
@@ -549,13 +615,20 @@ APACHE_PHP_FPM
     fi
 
     # --- Crontabs
-    if [ -f "$sys/cron/unbound-dashboard-crons" ]; then
+    # Nome novo de propósito: o update.sh de versões anteriores procura
+    # "unbound-dashboard-crons" e colaria este arquivo (formato /etc/cron.d,
+    # com coluna de usuário) no crontab do root. Com o nome novo ele pula.
+    if [ -f "$sys/cron/unbound-dashboard.cron" ]; then
         if [ "$DRY_RUN" = "true" ]; then
             info "[DRY-RUN] crontab"
         else
             install -d -o www-data -g www-data -m 750 /var/log/unbound-dashboard
-            install_dashboard_cron "$sys/cron/unbound-dashboard-crons"
-            log "Cron instalado em /etc/cron.d/unbound-dashboard (www-data)"
+            # Mesmo caso do logrotate: /etc/cron.d pode ser read-only no sandbox.
+            if ( install_dashboard_cron "$sys/cron/unbound-dashboard.cron" ) 2>/dev/null; then
+                log "Cron instalado em /etc/cron.d/unbound-dashboard (www-data)"
+            else
+                warn "Não foi possível gravar /etc/cron.d (read-only no sandbox da API) — rode o update de novo após este"
+            fi
         fi
     fi
 }
@@ -632,6 +705,7 @@ restart_and_smoke() {
 #   2 = rollback executado com sucesso (estado anterior restaurado)
 #   3 = ROLLBACK FAILED (estado inconsistente — intervenção manual obrigatória)
 rollback_from_backup() {
+    ROLLBACK_RAN="true"
     local code_backup="$BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz"
     local db_backup="$BACKUP_DIR/duckdb-$TIMESTAMP.duckdb"
     local env_backup="$BACKUP_DIR/api-v1.env-$TIMESTAMP"
@@ -652,8 +726,21 @@ rollback_from_backup() {
     systemctl stop unbound-dashboard-api 2>/dev/null || true
 
     info "Restaurando código a partir de $code_backup..."
-    if tar xzf "$code_backup" -C /; then
+    # O backup é criado relativo ao dir pai (entradas "unbound-dashboard/..."),
+    # então extrai lá — com -C / os arquivos iam para /unbound-dashboard.
+    if tar xzf "$code_backup" -C "$(dirname "$DASHBOARD_DIR")"; then
         log "Código restaurado"
+        # A .venv pode ter sido alterada pelo uv sync da versão nova.
+        if command -v uv >/dev/null 2>&1 || [ -x /usr/local/bin/uv ]; then
+            local uv_bin
+            uv_bin=$(command -v uv || echo /usr/local/bin/uv)
+            if (cd "$APISERVICE_DIR" && "$uv_bin" sync --no-dev --quiet); then
+                log ".venv ressincronizada com a versão restaurada"
+            else
+                warn "uv sync falhou no rollback — .venv pode estar inconsistente"
+            fi
+        fi
+        chown -R www-data:www-data "$DASHBOARD_DIR" 2>/dev/null || true
     else
         error "Falha ao restaurar código"
         rollback_ok=0
@@ -686,9 +773,15 @@ rollback_from_backup() {
     info "Reiniciando api_service após rollback..."
     systemctl start unbound-dashboard-api
 
-    sleep 5
-    if systemctl is-active --quiet unbound-dashboard-api \
-       && curl -sf --max-time 5 http://127.0.0.1:8001/api/v1/healthz >/dev/null 2>&1; then
+    local rb_healthy=0
+    for _ in $(seq 1 60); do
+        if curl -sf --max-time 2 http://127.0.0.1:8001/api/v1/healthz >/dev/null 2>&1; then
+            rb_healthy=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "$rb_healthy" -eq 1 ]; then
         log "api_service saudável após rollback"
     else
         error "api_service AINDA falha após rollback"
@@ -733,7 +826,7 @@ print_report() {
     echo ""
     echo "Rollback (se necessário):"
     echo "  sudo systemctl stop unbound-dashboard-api"
-    echo "  sudo tar xzf $BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz -C /"
+    echo "  sudo tar xzf $BACKUP_DIR/dashboard-$TIMESTAMP.tar.gz -C $(dirname "$DASHBOARD_DIR")"
     echo "  sudo cp -a $BACKUP_DIR/duckdb-$TIMESTAMP.duckdb $DUCKDB_PATH"
     echo "  sudo cp -a $BACKUP_DIR/api-v1.env-$TIMESTAMP $ENV_FILE"
     echo "  sudo systemctl start unbound-dashboard-api"
@@ -757,11 +850,13 @@ main() {
     extract_update
     validate_package_files
     create_backup
+    APPLY_STARTED="true"
     apply_dashboard
     apply_apiservice
     apply_system
     reset_permissions
     restart_and_smoke
+    UPDATE_DONE="true"
     print_report
 }
 

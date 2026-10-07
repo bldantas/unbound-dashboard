@@ -93,6 +93,7 @@ copy_dashboard() {
         --exclude='src/data/official_blocklist.conf' \
         --exclude='test_help.php' \
         --exclude='tools/docker' \
+        --exclude='tools/*.tar.gz' \
         "$DASHBOARD_DIR/" "$BUILD_DIR/dashboard/"
 
     # Força inclusão de CHANGELOG.md (excluído pelo *.md acima)
@@ -170,12 +171,16 @@ copy_system() {
     [ -f /usr/local/bin/unbound-health-fix.sh ] && cp /usr/local/bin/unbound-health-fix.sh "$BUILD_DIR/system/bin/"
 
     # Setup-unbound-logs script
-    [ -f "$DASHBOARD_DIR/tools/system/bin/setup-unbound-logs.sh" ] && \
-        cp "$DASHBOARD_DIR/tools/system/bin/setup-unbound-logs.sh" "$BUILD_DIR/system/bin/"
+    # Scripts versionados (setup-unbound-logs e os executados via sudo).
+    # O update.sh de versões anteriores já instala system/bin/*.sh em
+    # /usr/local/bin — é assim que os scripts root chegam no 1º update.
+    for src_sh in "$DASHBOARD_DIR"/tools/system/bin/*.sh; do
+        [ -f "$src_sh" ] && cp "$src_sh" "$BUILD_DIR/system/bin/"
+    done
 
     # Crons
-    [ -f "$DASHBOARD_DIR/tools/system/cron/unbound-dashboard-crons" ] && \
-        cp "$DASHBOARD_DIR/tools/system/cron/unbound-dashboard-crons" "$BUILD_DIR/system/cron/"
+    [ -f "$DASHBOARD_DIR/tools/system/cron/unbound-dashboard.cron" ] && \
+        cp "$DASHBOARD_DIR/tools/system/cron/unbound-dashboard.cron" "$BUILD_DIR/system/cron/"
 
     log "system/ pronto"
 }
@@ -219,7 +224,7 @@ sudo bash /var/www/html/unbound-dashboard/tools/update.sh /tmp/unbound-dashboard
 
 \`\`\`bash
 sudo systemctl stop unbound-dashboard-api
-sudo tar xzf /var/backups/unbound-dashboard/dashboard-<TS>.tar.gz -C /
+sudo tar xzf /var/backups/unbound-dashboard/dashboard-<TS>.tar.gz -C /var/www/html
 sudo cp -a /var/backups/unbound-dashboard/duckdb-<TS>.duckdb /var/lib/unbound-dashboard/unbound_dash.duckdb
 sudo cp -a /var/backups/unbound-dashboard/api-v1.env-<TS> /etc/unbound-dashboard/api-v1.env
 sudo systemctl start unbound-dashboard-api

@@ -77,11 +77,13 @@ def test_find_assets_complete():
         "assets": [
             {"name": "unbound-dashboard-update-v2.16.3-123.tar.gz", "browser_download_url": "http://x/tar"},
             {"name": "unbound-dashboard-update-v2.16.3-123.tar.gz.sha256", "browser_download_url": "http://x/sha"},
+            {"name": "unbound-dashboard-update-v2.16.3-123.tar.gz.sig", "browser_download_url": "http://x/sig"},
         ]
     }
-    tar, sha = _find_assets(release)
+    tar, sha, sig = _find_assets(release)
     assert tar is not None and tar["name"].endswith(".tar.gz")
     assert sha is not None and sha["name"].endswith(".sha256")
+    assert sig is not None and sig["name"] == tar["name"] + ".sig"
 
 
 def test_find_assets_incomplete():
@@ -89,8 +91,27 @@ def test_find_assets_incomplete():
 
     # Só tarball, sem sha
     release = {"assets": [{"name": "x.tar.gz", "browser_download_url": "http://x"}]}
-    tar, sha = _find_assets(release)
-    assert tar is None and sha is None
+    tar, sha, sig = _find_assets(release)
+    assert tar is None and sha is None and sig is None
+
+
+def test_find_assets_requires_signature_of_same_tarball():
+    from app.services.updater import _find_assets
+
+    base = "unbound-dashboard-update-v2.16.3-123.tar.gz"
+    release = {
+        "assets": [
+            {"name": base, "browser_download_url": "http://x/tar"},
+            {"name": base + ".sha256", "browser_download_url": "http://x/sha"},
+        ]
+    }
+    # Sem assinatura: release recusada
+    assert _find_assets(release) == (None, None, None)
+    # Assinatura de outro tarball também não serve
+    release["assets"].append(
+        {"name": "unbound-dashboard-update-v2.16.2-1.tar.gz.sig", "browser_download_url": "http://x/s"}
+    )
+    assert _find_assets(release) == (None, None, None)
 
 
 def test_infer_status_success(tmp_path):
