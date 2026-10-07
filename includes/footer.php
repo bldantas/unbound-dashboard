@@ -71,7 +71,7 @@ if (!isset($unbound)) {
                 toastEl.innerHTML = `
                     <div class="app-toast-icon">${getToastIcon(type)}</div>
                     <div class="app-toast-content">
-                        <div class="app-toast-title">${options.title || (type === 'success' ? 'Concluído' : type === 'error' ? 'Falha' : type === 'warning' ? 'Atenção' : 'Informação')}</div>
+                        <div class="app-toast-title">${escHtml(options.title || (type === 'success' ? 'Concluído' : type === 'error' ? 'Falha' : type === 'warning' ? 'Atenção' : 'Informação'))}</div>
                         <div class="app-toast-message"></div>
                     </div>
                     <button type="button" class="app-toast-close" aria-label="Fechar notificação">×</button>

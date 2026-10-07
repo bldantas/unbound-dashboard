@@ -262,3 +262,11 @@ async def test_ws_queue_get_does_not_use_executor_threads() -> None:
 
     with pytest.raises(queue.Empty):
         await queue_get(queue.Queue(), 0.3)
+
+
+def test_full_enabled_policies_is_global_scope_only(api) -> None:
+    """Lista as policies de todas as orgs (para o views.conf global)."""
+    client, _, as_, _ = api
+    assert client.get("/api/v1/policies/full-enabled", headers=as_("admin_a")).status_code == 403
+    r = client.get("/api/v1/policies/full-enabled", headers=as_("global"))
+    assert r.status_code == 200

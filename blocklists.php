@@ -294,7 +294,7 @@ $currentPage = 'blocklists.php';
                 sources.forEach(s => lastBlockFlags.set(s.slug, s.block_enabled));
             }
         } catch (err) {
-            sourcesBody.innerHTML = `<tr><td colspan="7" class="px-6 py-12 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro ao carregar fontes: ${err.message}</td></tr>`;
+            sourcesBody.innerHTML = `<tr><td colspan="7" class="px-6 py-12 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro ao carregar fontes: ${escHtml(err.message)}</td></tr>`;
         }
     }
 
@@ -467,7 +467,7 @@ $currentPage = 'blocklists.php';
             const data = await res.json();
             renderSearch(data);
         } catch (err) {
-            body.innerHTML = `<tr><td colspan="4" class="px-6 py-12 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro: ${err.message}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="4" class="px-6 py-12 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro: ${escHtml(err.message)}</td></tr>`;
         }
     }
 
@@ -567,7 +567,7 @@ $currentPage = 'blocklists.php';
             document.getElementById('exCount').textContent = data.count || 0;
             renderExceptions(data.exceptions || []);
         } catch (err) {
-            body.innerHTML = `<tr><td colspan="6" class="px-6 py-12 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro: ${err.message}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="6" class="px-6 py-12 text-center text-red-500 text-xs uppercase font-black tracking-widest">Erro: ${escHtml(err.message)}</td></tr>`;
         }
     }
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
+import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from jose import ExpiredSignatureError, JWTError, jwt
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ from app.repositories.duckdb import user_repo
 from app.services import auth_service, sessions
 from app.services.jwt_denylist import is_token_hash_revoked, is_user_revoked
 
+log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
@@ -341,6 +343,9 @@ def _is_direct_local_request(request: Request) -> bool:
 
 class PasswordResetRequest(BaseModel):
     email: str
+    # Base do link (ex.: https://painel.exemplo/unbound-dashboard/reset.php),
+    # montada pelo PHP. Ignorada se `dashboard_public_url` estiver configurado.
+    link_base: str | None = None
 
 
 class PasswordResetConfirm(BaseModel):
@@ -370,7 +375,49 @@ async def request_password_reset(request: Request, body: PasswordResetRequest) -
         )
 
     raw_token = await users_service.request_password_reset(body.email)
-    return {"token": raw_token, "valid_for_minutes": 10 if raw_token else 0}
+    if raw_token and await _send_reset_email(body.email, raw_token, body.link_base):
+        # Enviado pelo SMTP configurado: o token não precisa sair daqui.
+        return {"token": None, "email_sent": True, "valid_for_minutes": 10}
+    # Sem SMTP: devolve o token para o PHP tentar mail() / registrar em log.
+    return {"token": raw_token, "email_sent": False, "valid_for_minutes": 10 if raw_token else 0}
+
+
+async def _send_reset_email(email: str, raw_token: str, link_base: str | None) -> bool:
+    """Envia o link de reset pelo SMTP do painel. Antes o envio ficava com o
+    Mailer do PHP, que só lê a config SMTP com sessão logada — no recover.php
+    caía sempre no mail(). O link usa `dashboard_public_url` quando
+    configurado: o `Host` da requisição é controlado por quem pede o reset."""
+    import asyncio
+    from urllib.parse import urlsplit
+
+    from app.repositories.duckdb import settings_repo
+    from app.services import email_notifier
+
+    cfg = await email_notifier._load_smtp_config()  # noqa: SLF001
+    if not cfg["enabled"] or not cfg["host"] or not cfg["from_addr"]:
+        return False
+    public = (await settings_repo.get("dashboard_public_url", "") or "").strip().rstrip("/")
+    if public:
+        base = f"{public}/reset.php"
+    else:
+        base = (link_base or "").strip()
+        parts = urlsplit(base)
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            return False
+    link = f"{base}?token={raw_token}"
+    body = (
+        "Você solicitou a recuperação de senha do Unbound Dashboard.\n\n"
+        "Acesse o link abaixo para criar uma nova senha. Ele expira em 10 minutos:\n"
+        f"{link}\n\n"
+        "Se você não solicitou, ignore este email."
+    )
+    ok, reason = await asyncio.to_thread(
+        email_notifier._send_via_smtp,  # noqa: SLF001
+        cfg, email, "Recuperação de Senha - Unbound Dashboard", body,
+    )
+    if not ok:
+        log.warning("auth.password_reset_email_failed", reason=reason)
+    return ok
 
 
 @router.post("/password-reset/confirm", status_code=status.HTTP_204_NO_CONTENT)

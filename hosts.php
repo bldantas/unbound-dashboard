@@ -337,7 +337,7 @@ $currentPage = 'hosts.php';
                     const data = await resp.json();
                     render(data.hosts || []);
                 } catch (err) {
-                    el.list.innerHTML = `<div class="glass-panel col-span-full text-center py-6"><p class="text-sm text-red-500">Erro: ${err.message}</p></div>`;
+                    el.list.innerHTML = `<div class="glass-panel col-span-full text-center py-6"><p class="text-sm text-red-500">Erro: ${escHtml(err.message)}</p></div>`;
                 } finally {
                     el.refreshBtn.disabled = false;
                 }

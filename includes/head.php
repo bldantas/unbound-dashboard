@@ -9,6 +9,36 @@ if (!empty($_SESSION['logged_in']) && !empty($_SESSION['api_jwt'])) {
     echo '<meta name="api-jwt" content="' . htmlspecialchars((string) $_SESSION['api_jwt'], ENT_QUOTES, 'UTF-8') . '">' . "\n";
 }
 
+// escHtml global: texto -> HTML seguro (para templates com innerHTML).
+// Páginas que definem a própria função escHtml continuam funcionando.
+echo "<script>window.escHtml=window.escHtml||function(v){return String(v==null?'':v)"
+    . ".replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')"
+    . ".replace(/\"/g,'&quot;').replace(/'/g,'&#39;');};</script>\n";
+
+// CSRF: token da sessão anexado automaticamente a todo <form method=post> e a
+// todo fetch/XHR não-GET para o mesmo site (header X-CSRF-Token). Os
+// endpoints PHP que alteram estado validam com Auth::requireCsrf().
+if (!empty($_SESSION['logged_in']) && !empty($_SESSION['csrf_token'])) {
+    $__csrf = htmlspecialchars((string) $_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8');
+    echo '<meta name="csrf-token" content="' . $__csrf . '">' . "\n";
+    echo "<script>(function(){"
+        . "var tok=document.querySelector('meta[name=\"csrf-token\"]').content;"
+        . "function same(u){try{return new URL(u,location.href).origin===location.origin;}catch(e){return false;}}"
+        . "var of=window.fetch;window.fetch=function(input,init){init=init||{};"
+        . "var m=(init.method||(input&&input.method)||'GET').toUpperCase();"
+        . "var url=typeof input==='string'?input:(input&&input.url)||'';"
+        . "if(m!=='GET'&&m!=='HEAD'&&same(url)){var h=new Headers(init.headers||(input&&input.headers)||{});"
+        . "if(!h.has('X-CSRF-Token'))h.set('X-CSRF-Token',tok);init.headers=h;}"
+        . "return of.call(this,input,init);};"
+        . "var oo=XMLHttpRequest.prototype.open,os=XMLHttpRequest.prototype.send;"
+        . "XMLHttpRequest.prototype.open=function(m,u){this.__m=String(m).toUpperCase();this.__u=u;return oo.apply(this,arguments);};"
+        . "XMLHttpRequest.prototype.send=function(){if(this.__m!=='GET'&&this.__m!=='HEAD'&&same(this.__u)){try{this.setRequestHeader('X-CSRF-Token',tok);}catch(e){}}return os.apply(this,arguments);};"
+        . "document.addEventListener('submit',function(ev){var f=ev.target;"
+        . "if(f&&f.method&&f.method.toLowerCase()==='post'&&!f.querySelector('input[name=\"csrf_token\"]')){"
+        . "var i=document.createElement('input');i.type='hidden';i.name='csrf_token';i.value=tok;f.appendChild(i);}},true);"
+        . "})();</script>\n";
+}
+
 // i18n: serializa o dict da locale atual num global JS pra window.t() resolver
 // no client. Páginas que carregam I18n via require_once ganham o helper.
 if (class_exists('\\App\\I18n')) {

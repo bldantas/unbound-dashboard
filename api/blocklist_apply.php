@@ -17,11 +17,13 @@ use App\Auth;
 use App\UnboundConfigManager;
 
 Auth::check();
-if (!Auth::can('blocklist.write')) {
+// Regenera o blocked_domains.conf global do Unbound: exige escopo global
+if (!Auth::can('blocklist.write') || !Auth::isGlobalScope()) {
     http_response_code(403);
     echo json_encode(['success' => false, 'message' => 'Acesso negado — requer blocklist.write']);
     exit;
 }
+Auth::requireCsrf();
 
 header('Content-Type: application/json');
 

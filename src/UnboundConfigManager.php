@@ -618,8 +618,9 @@ class UnboundConfigManager
      *   - 1..N blocos `view: name: "<slug>"` com view-first: yes + blocks
      *     (always_nxdomain) + allows (transparent)
      *
-     * Se a sessão não tem JWT (cron CLI) ou a API falha, gera arquivo vazio
-     * inofensivo — Unbound continua funcionando, só não tem split-horizon.
+     * Se a sessão não tem JWT (cron CLI) ou a API falha/nega, MANTÉM o
+     * views.conf atual. Antes gerava arquivo vazio: o cron diário da lista
+     * judicial (sem sessão) apagava todas as policies por cliente do Unbound.
      */
     public function generateViewsConf(): void
     {
@@ -627,7 +628,7 @@ class UnboundConfigManager
         $content .= "# Auto-gerado pelo Unbound Dashboard. NÃO edite à mão.\n";
         $content .= "# Gerencie em Políticas por Cliente.\n\n";
 
-        $policies = [];
+        $policies = null;
         $jwt = $_SESSION['api_jwt'] ?? '';
         if ($jwt !== '') {
             require_once __DIR__ . '/ApiClient.php';
@@ -635,6 +636,16 @@ class UnboundConfigManager
             if (($resp['ok'] ?? false) && is_array($resp['data']['policies'] ?? null)) {
                 $policies = $resp['data']['policies'];
             }
+        }
+        if ($policies === null) {
+            // Sem a lista: reaproveita o arquivo em produção (o cp adiante vira no-op)
+            if (is_readable($this->viewsConfPath)) {
+                @copy($this->viewsConfPath, $this->tempViewsConfPath);
+            } elseif (!file_exists($this->tempViewsConfPath)) {
+                file_put_contents($this->tempViewsConfPath, $content);
+            }
+            @chmod($this->tempViewsConfPath, 0664);
+            return;
         }
 
         // Policies sem range são inúteis (nenhum cliente cai nelas) — skip

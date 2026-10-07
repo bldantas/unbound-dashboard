@@ -3,7 +3,7 @@ require_once dirname(__DIR__) . '/src/Auth.php';
 require_once dirname(__DIR__) . '/src/ShellHelper.php';
 
 \App\Auth::check();
-if (!\App\Auth::isAdmin()) { http_response_code(403); echo json_encode(['success' => false, 'error' => 'Acesso Negado']); exit; }
+if (!\App\Auth::isGlobalAdmin()) { http_response_code(403); echo json_encode(['success' => false, 'error' => 'Acesso Negado']); exit; }
 
 header('Content-Type: application/json');
 
@@ -12,6 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(['success' => false, 'message' => 'Método inválido']);
     exit;
 }
+\App\Auth::requireCsrf();
 
 $output = [];
 $returnVar = 0;

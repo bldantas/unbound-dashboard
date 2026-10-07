@@ -192,3 +192,46 @@ async def test_totp_challenge_dies_after_too_many_wrong_codes(populated_db) -> N
         # Novo challenge (novo login) funciona
         out = await auth_service.login_2fa_verify(_challenge_token(), pyotp.TOTP(secret).now())
         assert out["access_token"]
+
+
+# ---------------------------------------------------------------------------
+# E-mail de reset enviado pela API (SMTP do painel)
+# ---------------------------------------------------------------------------
+
+
+async def test_reset_email_uses_public_url_not_request_host(monkeypatch) -> None:
+    from app.repositories.duckdb import settings_repo
+    from app.routers import auth as auth_router
+    from app.services import email_notifier
+
+    sent = {}
+
+    async def _cfg():
+        return {"enabled": True, "host": "smtp", "from_addr": "x@y.z"}
+
+    def _send(cfg, to, subject, body, html_body=None):
+        sent["body"] = body
+        return True, "ok"
+
+    async def _get(key, default=None):
+        return "https://painel.exemplo/unbound-dashboard" if key == "dashboard_public_url" else default
+
+    monkeypatch.setattr(email_notifier, "_load_smtp_config", _cfg)
+    monkeypatch.setattr(email_notifier, "_send_via_smtp", _send)
+    monkeypatch.setattr(settings_repo, "get", _get)
+
+    ok = await auth_router._send_reset_email("a@b.c", "tok123", "https://evil.example/reset.php")
+    assert ok is True
+    assert "https://painel.exemplo/unbound-dashboard/reset.php?token=tok123" in sent["body"]
+    assert "evil.example" not in sent["body"]
+
+
+async def test_reset_email_falls_back_when_smtp_disabled(monkeypatch) -> None:
+    from app.routers import auth as auth_router
+    from app.services import email_notifier
+
+    async def _cfg():
+        return {"enabled": False, "host": "", "from_addr": ""}
+
+    monkeypatch.setattr(email_notifier, "_load_smtp_config", _cfg)
+    assert await auth_router._send_reset_email("a@b.c", "tok", "https://h/reset.php") is False

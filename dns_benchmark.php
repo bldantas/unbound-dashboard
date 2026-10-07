@@ -12,7 +12,7 @@ $defaultDomain = 'google.com';
 $defaultQueries = 5;
 $benchmark_domain = trim($_POST['benchmark_domain'] ?? $defaultDomain);
 // Hostname-like validation: a-z0-9.-_ — bloqueia injection no shell
-if (!preg_match('/^[a-zA-Z0-9._-]+$/', $benchmark_domain) || strlen($benchmark_domain) > 253) {
+if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/', $benchmark_domain) || strlen($benchmark_domain) > 253) {
     $benchmark_domain = $defaultDomain;
 }
 $num_queries = (int) ($_POST['num_queries'] ?? $defaultQueries);
@@ -21,6 +21,7 @@ if ($num_queries < 1 || $num_queries > 20) $num_queries = $defaultQueries;
 $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'run_benchmark') {
+    \App\Auth::requireCsrf();
     $servers = [
         'Local (Unbound)' => '127.0.0.1',
         'Cloudflare' => '1.1.1.1',

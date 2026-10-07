@@ -4,7 +4,7 @@ require_once __DIR__ . '/../src/ApiClient.php';
 require_once __DIR__ . '/../src/ShellHelper.php';
 
 \App\Auth::check();
-if (!\App\Auth::isAdmin()) {
+if (!\App\Auth::isGlobalAdmin()) {
     http_response_code(403);
     exit('Acesso negado.');
 }

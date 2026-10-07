@@ -388,13 +388,13 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 
                 if (json.status === 'success') {
                     result.className = 'mt-6 rounded-xl p-4 text-xs font-mono leading-relaxed max-h-48 overflow-auto bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300';
-                    result.innerHTML = `<p class="font-black mb-2">✅ ${json.message}</p><p class="opacity-70">Arquivos restaurados:</p><ul class="list-disc ml-4 mt-1">${json.files.map(f => `<li>${f}</li>`).join('')}</ul>`;
+                    result.innerHTML = `<p class="font-black mb-2">✅ ${escHtml(json.message)}</p><p class="opacity-70">Arquivos restaurados:</p><ul class="list-disc ml-4 mt-1">${json.files.map(f => `<li>${escHtml(f)}</li>`).join('')}</ul>`;
                 } else if (json.status === 'warning') {
                     result.className = 'mt-6 rounded-xl p-4 text-xs font-mono leading-relaxed max-h-48 overflow-auto bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300';
-                    result.innerHTML = `<p class="font-black mb-2">⚠️ ${json.message}</p><pre class="opacity-70 mt-2 whitespace-pre-wrap">${json.validation || ''}</pre>`;
+                    result.innerHTML = `<p class="font-black mb-2">⚠️ ${escHtml(json.message)}</p><pre class="opacity-70 mt-2 whitespace-pre-wrap">${escHtml(json.validation || '')}</pre>`;
                 } else {
                     result.className = 'mt-6 rounded-xl p-4 text-xs font-mono leading-relaxed max-h-48 overflow-auto bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300';
-                    result.innerHTML = `<p class="font-black">❌ ${json.message}</p>`;
+                    result.innerHTML = `<p class="font-black">❌ ${escHtml(json.message)}</p>`;
                 }
             } catch (err) {
                 result.classList.remove('hidden');

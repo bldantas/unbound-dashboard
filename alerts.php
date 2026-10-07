@@ -12,6 +12,12 @@ if (!\App\Auth::can('alerts.read')) {
 $alertManager = new \App\AlertManager();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // Resolver/limpar alertas altera estado: exige alerts.resolve (não basta ler)
+    if (!\App\Auth::can('alerts.resolve')) {
+        http_response_code(403);
+        exit('Acesso negado — requer alerts.resolve');
+    }
+    \App\Auth::requireCsrf(false);
     require_once __DIR__ . '/src/ApiClient.php';
     $jwt = $_SESSION['api_jwt'] ?? '';
     if ($_POST['action'] === 'resolve' && isset($_POST['alert_id'])) {

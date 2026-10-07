@@ -7,7 +7,16 @@ require_once __DIR__ . '/ApiClient.php';
 // auto-load de Database.php via Auth.php. Manter até MariaDB tear-down completo.
 require_once __DIR__ . '/Database.php';
 
-session_start();
+// Cookie de sessão: sem SameSite explícito a proteção contra POST de outro
+// site dependia do default de cada navegador.
+if (session_status() === PHP_SESSION_NONE) {
+    session_set_cookie_params([
+        'httponly' => true,
+        'samesite' => 'Lax',
+        'secure'   => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+    ]);
+    session_start();
+}
 
 /**
  * Auth — agora 100% via FastAPI (api_service em 127.0.0.1:8001).
@@ -252,13 +261,21 @@ class Auth
 
         // FastAPI gera token + grava em DuckDB; PHP entrega via Mailer (SMTP ou
         // mail() fallback) + sempre grava no log file pra debug/recuperação manual.
-        $resp  = self::_unauthedPost('/api/v1/auth/password-reset/request', ['email' => $email]);
+        $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $domain   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $linkBase = "$protocol://$domain" . rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/') . '/reset.php';
+
+        // A API envia pelo SMTP configurado (e usa `dashboard_public_url` no
+        // link quando definido). Só sem SMTP ela devolve o token para o
+        // fallback abaixo (mail() + log local).
+        $resp  = self::_unauthedPost('/api/v1/auth/password-reset/request', [
+            'email'     => $email,
+            'link_base' => $linkBase,
+        ]);
         $token = is_array($resp) ? ($resp['token'] ?? null) : null;
 
         if ($token) {
-            $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            $domain   = $_SERVER['HTTP_HOST'] ?? 'localhost';
-            $resetLink = "$protocol://$domain/reset.php?token=" . $token;
+            $resetLink = $linkBase . '?token=' . $token;
             $subject = 'Recuperação de Senha - UnboundDNS';
             $message = "Você solicitou a recuperação de senha.\n\n" .
                        "Acesse o link abaixo para criar uma nova senha. Este link expira em 10 minutos:\n" .
@@ -556,6 +573,28 @@ class Auth
         return (int) ($data['exp'] ?? 0);
     }
 
+    /**
+     * Valida o token CSRF (campo POST `csrf_token` ou header `X-CSRF-Token`,
+     * enviado automaticamente pelo script de includes/head.php). Responde 403
+     * e encerra se inválido. Usar em todo endpoint que altera estado.
+     */
+    public static function requireCsrf(bool $json = true): void
+    {
+        $sent = (string) ($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''));
+        $expected = (string) ($_SESSION['csrf_token'] ?? '');
+        if ($expected !== '' && $sent !== '' && hash_equals($expected, $sent)) {
+            return;
+        }
+        http_response_code(403);
+        if ($json) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'message' => 'CSRF inválido — recarregue a página']);
+        } else {
+            echo 'CSRF inválido — recarregue a página.';
+        }
+        exit;
+    }
+
     public static function isAdmin(): bool
     {
         return isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
@@ -574,7 +613,19 @@ class Auth
     public static function isGlobalAdmin(): bool
     {
         if (!self::isAdmin()) return false;
-        return ($_SESSION['org_id'] ?? null) === null;
+        // org_id vem do /auth/me no login. Sem a chave (falha no /me), nega
+        // em vez de tratar como global.
+        return array_key_exists('org_id', $_SESSION) && $_SESSION['org_id'] === null;
+    }
+
+    /**
+     * True se o usuário não está vinculado a nenhuma org (qualquer papel).
+     * Para ações que afetam o servidor inteiro mas não exigem admin (ex.:
+     * operator global regenerando a blocklist do Unbound).
+     */
+    public static function isGlobalScope(): bool
+    {
+        return array_key_exists('org_id', $_SESSION) && $_SESSION['org_id'] === null;
     }
 
     /** Retorna a org_id do user atual (null = system admin / global). */
