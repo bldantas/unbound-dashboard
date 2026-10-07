@@ -7,6 +7,9 @@ seção por versão) por histórico — consolidação retroativa só pra
 
 ## 2026-10-06
 
+### Self-update: correção do update pela UI a partir da v2.114.0
+- **v2.114.1**: na v2.114.0 o update pela UI podia terminar "concluído" sem aplicar nada (o `sudo` repassava o SIGTERM da parada da API ao wrapper, que apagava o pacote extraído). Corrigido no wrapper e no `update.sh`, que agora trabalha numa cópia própria do pacote — por isso o update **para** a v2.114.1 já funciona pela UI a partir da v2.114.0. O `update.sh` também passa a abortar (com rollback) se o pacote estiver incompleto, e a API retoma o acompanhamento do job após o restart (status final e lock liberado sem esperar 30 min).
+
 ### Update assinado, instalador revisado e correções de autenticação
 - **v2.114.0**: release de manutenção (PRs #2–#6).
   - **⚠️ Transição — servidores em v2.113.0 ou anterior**: o self-update pela UI dessas versões falha dentro do sandbox da API (`uv sync` sem acesso a `/root`). Aplique esta versão via SSH com o `update.sh` do próprio pacote: `mkdir -p /tmp/u && tar xzf unbound-dashboard-update-v2.114.0-*.tar.gz -C /tmp/u && sudo bash /tmp/u/update.sh /tmp/u`. Depois disso o self-update pela UI volta a funcionar.
