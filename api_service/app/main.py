@@ -242,6 +242,17 @@ async def lifespan(app: FastAPI):
     )
     log.info("workers iniciados, API pronta")
 
+    # Job de update/restore que reiniciou a API: retoma o monitor para
+    # finalizar o status e liberar o lock (ver updater.resume_running_job).
+    try:
+        from app.services import updater
+
+        resumed = await updater.resume_running_job()
+        if resumed is not None:
+            _background_tasks.append(resumed)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("updater.resume_failed", error=str(exc))
+
     yield
 
     # Shutdown: sinaliza stop, cancela tasks, drena

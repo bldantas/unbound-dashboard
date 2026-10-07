@@ -70,6 +70,13 @@ if [ -z "${UDASH_IN_SCOPE:-}" ]; then
         /usr/bin/env UDASH_IN_SCOPE=1 "$0" "$JOB_ID" "$TIMESTAMP"
 fi
 
+# Ignora TERM/HUP/INT: quem chamou foi `sudo` dentro do cgroup da API, e
+# quando o update/restore para a API o systemd manda SIGTERM ao sudo, que o
+# repassa a este processo. Sem isso o script morria no meio (e o trap de
+# saída apagava o pacote extraído enquanto o update.sh ainda rodava). A
+# disposição "ignorado" é herdada pelos filhos.
+trap '' TERM HUP INT
+
 LOG_DIR="/var/log/unbound-dashboard-update"
 install -d -o root -g www-data -m 750 "$LOG_DIR"
 LOG="$LOG_DIR/update-${JOB_ID}.log"
